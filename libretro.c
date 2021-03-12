@@ -349,8 +349,8 @@ static void video_run(void)
    sceGuTexMode(GU_PSM_5650, 0, 0, GU_FALSE);
    sceGuCopyImage(GU_PSM_5650, 0, 0, GBA_SCREEN_WIDTH, GBA_SCREEN_HEIGHT, GBA_SCREEN_WIDTH,
                gba_screen_pixels_buf, 0, 0, GBA_SCREEN_WIDTH, texture_vram_p);
-	sceGuTexImage(0, next_pow2(GBA_SCREEN_WIDTH), next_pow2(GBA_SCREEN_HEIGHT), GBA_SCREEN_WIDTH, texture_vram_p);
-	sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGB);
+    sceGuTexImage(0, next_pow2(GBA_SCREEN_WIDTH), next_pow2(GBA_SCREEN_HEIGHT), GBA_SCREEN_WIDTH, texture_vram_p);
+    sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGB);
    sceGuDisable(GU_BLEND);
 
    sceGuFinish();
@@ -958,8 +958,8 @@ void retro_run(void)
 
    input_poll_cb();
 
-	/* Check whether current frame should
-	 * be skipped */
+    /* Check whether current frame should
+     * be skipped */
    skip_next_frame = 0;
 
    if (current_frameskip_type != no_frameskip)

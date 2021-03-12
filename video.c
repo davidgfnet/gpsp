@@ -37,10 +37,6 @@ static void render_scanline_conditional_bitmap(u32 start, u32 end, u16 *scanline
 // transparently or the ABGR 1555 format is being used natively. The direct
 // version (without conversion) is much faster.
 
-#define tile_lookup_palette_full(palette, source)                             \
-  current_pixel = palette[source];                                            \
-  convert_palette(current_pixel)                                              \
-
 #define tile_lookup_palette(palette, source)                                  \
   current_pixel = palette[source];                                            \
 

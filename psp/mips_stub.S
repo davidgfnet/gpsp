@@ -307,10 +307,8 @@ mips_indirect_branch_dual:
 
   sw $1, -8($ra)                  # Overwrite jal instruction w/ new handler
 
-  cache 0x1a, -8($ra)             # hit writeback dcache line
-  cache 0x08, -8($ra)             # hit invalidate icache line
   jr $2                           # Jump to new handler directly
-  nop
+  synci -8($ra)                   # sync caches
 
 .endm
 
@@ -339,10 +337,8 @@ mips_indirect_branch_dual:
 
   sw $1, -8($ra)                  # modify to call new handler
 
-  cache 0x1a, -8($ra)             # hit writeback dcache line
-  cache 0x08, -8($ra)             # hit invalidate icache line
-  jr $2                           # Jump to new handler
-  nop
+  jr $2                           # Jump to new handler directly
+  synci -8($ra)                   # sync caches
 
 .endm
 

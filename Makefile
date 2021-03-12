@@ -193,7 +193,7 @@ else ifeq ($(platform), psp1)
 	TARGET := $(TARGET_NAME)_libretro_$(platform).a
 	CC = psp-gcc$(EXE_EXT)
 	AR = psp-ar$(EXE_EXT)
-	CFLAGS += -DPSP -G0
+	CFLAGS += -DPSP -DLOW_MEM_DEVICE -G0
 	CFLAGS += -I$(shell psp-config --pspsdk-path)/include
 	CFLAGS += -march=allegrex -mfp32 -mgp32 -mlong32 -mabi=eabi
 	CFLAGS += -fomit-frame-pointer -ffast-math
@@ -373,9 +373,13 @@ else ifeq ($(platform), gcw0)
 	CC = /opt/gcw0-toolchain/usr/bin/mipsel-linux-gcc
 	CXX = /opt/gcw0-toolchain/usr/bin/mipsel-linux-g++
 	AR = /opt/gcw0-toolchain/usr/bin/mipsel-linux-ar
-	SHARED := -shared -nostdlib -Wl,--version-script=link.T
-	fpic := -fPIC
+	SHARED := -nostdlib -Wl,--version-script=link.T   #-shared
+	fpic := #-fPIC
 	CFLAGS += -fomit-frame-pointer -ffast-math -march=mips32 -mtune=mips32r2 -mhard-float
+	HAVE_DYNAREC := 1
+	CPU_ARCH := mips
+	STATIC_LINKING = 1
+	TARGET := $(TARGET_NAME)_libretro_$(platform).a
 
 # Windows
 else
@@ -403,8 +407,8 @@ ifeq ($(DEBUG), 1)
 	OPTIMIZE_SAFE := -O0 -g
 	OPTIMIZE      := -O0 -g
 else
-	OPTIMIZE_SAFE := -O2 -DNDEBUG
-	OPTIMIZE      := -O3 -DNDEBUG
+	OPTIMIZE_SAFE := -O2 -DNDEBUG -g
+	OPTIMIZE      := -O3 -DNDEBUG -g
 endif
 
 

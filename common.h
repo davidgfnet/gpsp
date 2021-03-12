@@ -51,9 +51,6 @@
 
 #endif /* ARM_ARCH */
 
-// Huge thanks to pollux for the heads up on using native file I/O
-// functions on PSP for vastly improved memstick performance.
-
 #ifdef PSP
   #define fastcall
 
@@ -64,13 +61,8 @@
   #include <pspaudio.h>
   #include <pspaudiolib.h>
   #include <psprtc.h>
-
-  #define convert_palette(value)  \
-    value = ((value & 0x7FE0) << 1) | (value & 0x1F)
-
   #include <time.h>
 #else
-
   typedef unsigned char u8;
   typedef signed char s8;
   typedef unsigned short int u16;
@@ -79,10 +71,16 @@
   typedef signed int s32;
   typedef unsigned long long int u64;
   typedef signed long long int s64;
+#endif
 
+#ifdef PSP
+  /* PSP renders directly in BGR565 format for faster conversions */
+  #define convert_palette(value)  \
+    value = ((value & 0x7FE0) << 1) | (value & 0x1F)
+#else
+  /* Other platforms assume RGB565 and pay the conversion price */
   #define convert_palette(value) \
     value = ((value & 0x1F) << 11) | ((value & 0x03E0) << 1) | (value >> 10)
-
 #endif
 
 #define GBA_SCREEN_WIDTH  (240)

@@ -575,7 +575,9 @@ _spsr:
 _reg_mode:
   .space 196
 
-.comm _memory_map_read 0x8000
-.comm _memory_map_write 0x8000
+_memory_map_read:
+  .space 0x8000
+_memory_map_write:
+  .space 0x8000
 
 

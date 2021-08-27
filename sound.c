@@ -362,18 +362,14 @@ u32 gbc_sound_master_volume;
     update_tone_counters(envelope_op, sweep_op);                              \
   }                                                                           \
 
-#define gbc_noise_wrap_full 32767
-
-#define gbc_noise_wrap_half 126
-
 #define get_noise_sample_full()                                               \
   current_sample =                                                            \
-   ((s32)(noise_table15[fp16_16_to_u32(sample_index) >> 5] <<                 \
+   ((s32)(noise_table15[(fp16_16_to_u32(sample_index) >> 5) & 1023] <<        \
    (fp16_16_to_u32(sample_index) & 0x1F)) >> 31) & 0x0F                       \
 
 #define get_noise_sample_half()                                               \
   current_sample =                                                            \
-   ((s32)(noise_table7[fp16_16_to_u32(sample_index) >> 5] <<                  \
+   ((s32)(noise_table7[(fp16_16_to_u32(sample_index) >> 5) & 3] <<            \
    (fp16_16_to_u32(sample_index) & 0x1F)) >> 31) & 0x0F                       \
 
 #define gbc_sound_render_noise(type, noise_type, envelope_op, sweep_op)       \
@@ -383,9 +379,6 @@ u32 gbc_sound_master_volume;
     gbc_sound_render_sample_##type();                                         \
                                                                               \
     sample_index += frequency_step;                                           \
-                                                                              \
-    if(sample_index >= u32_to_fp16_16(gbc_noise_wrap_##noise_type))           \
-      sample_index -= u32_to_fp16_16(gbc_noise_wrap_##noise_type);            \
                                                                               \
     buffer_index = (buffer_index + 2) % BUFFER_SIZE;                          \
     update_tone_counters(envelope_op, sweep_op);                              \

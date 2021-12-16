@@ -74,8 +74,9 @@ void sound_timer_queue32(u32 channel, u32 value)
 }
 
 
-void sound_timer(fixed8_24 frequency_step, u32 channel)
+unsigned sound_timer(fixed8_24 frequency_step, u32 channel)
 {
+  int ret = 0;
   u32 sample_status = DIRECT_SOUND_INACTIVE;
   direct_sound_struct *ds = &direct_sound_channel[channel];
 
@@ -160,11 +161,12 @@ void sound_timer(fixed8_24 frequency_step, u32 channel)
   if(((ds->fifo_top - ds->fifo_base) % 32) <= 16)
   {
     if(dma[1].direct_sound_channel == channel)
-      dma_transfer(1);
+      dma_transfer(1, &ret);
 
     if(dma[2].direct_sound_channel == channel)
-      dma_transfer(2);
+      dma_transfer(2, &ret);
   }
+  return ret;
 }
 
 void sound_reset_fifo(u32 channel)

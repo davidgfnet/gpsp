@@ -699,7 +699,7 @@ static cpu_alert_type trigger_dma(u32 dma_number, u32 value)
 
       write_dmareg(REG_DMA0CNT_H, dma_number, value);
       if(start_type == DMA_START_IMMEDIATELY)
-        return dma_transfer(dma_number);
+        return dma_transfer(dma_number, NULL);
     }
   }
   else
@@ -2804,7 +2804,7 @@ static cpu_alert_type dma_transfer_copy(
   return CPU_ALERT_NONE;
 }
 
-cpu_alert_type dma_transfer(unsigned dma_chan)
+cpu_alert_type dma_transfer(unsigned dma_chan, int *usedcycles)
 {
   dma_transfer_type *dmach = &dma[dma_chan];
   u32 src_ptr = dmach->source_address & (
@@ -2861,6 +2861,12 @@ cpu_alert_type dma_transfer(unsigned dma_chan)
     raise_interrupt(IRQ_DMA0 << dma_chan);
     ret = CPU_ALERT_IRQ;
   }
+
+  // This is an approximation for the most common case (no region cross)
+  if (usedcycles)
+    *usedcycles += dmach->length * (
+       waitstate_cycles_sequential[src_ptr >> 24][tfsizes] +
+       waitstate_cycles_sequential[dst_ptr >> 24][tfsizes]);
 
   return ret;
 }

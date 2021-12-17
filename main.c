@@ -110,10 +110,11 @@ void init_main(void)
 u32 update_gba(void)
 {
   irq_type irq_raised = IRQ_NONE;
+  int dma_cycles;
 
   do
   {
-    unsigned i, timer_dmacyc;
+    unsigned i;
     cpu_ticks += execute_cycles;
 
     reg[CHANGED_PC_STATUS] = 0;
@@ -127,11 +128,9 @@ u32 update_gba(void)
     }
 
     // Timers can trigger DMA (usually sound) and consume cycles
-    // We limit to 64 cyc just in case, since it's the most common upper bound
-    timer_dmacyc = update_timers(&irq_raised);
+    dma_cycles = update_timers(&irq_raised);
 
     video_count -= execute_cycles;
-    video_count -= MIN(64, timer_dmacyc);
 
     if(video_count <= 0)
     {
@@ -146,7 +145,6 @@ u32 update_gba(void)
 
         if((dispstat & 0x01) == 0)
         {
-          int dma_cycles = 0;
           u32 i;
           if(reg[OAM_UPDATED])
             oam_update_count++;
@@ -159,7 +157,6 @@ u32 update_gba(void)
             if(dma[i].start_type == DMA_START_HBLANK)
               dma_transfer(i, &dma_cycles);
           }
-          video_count -= MIN(32, dma_cycles);
         }
 
         if(dispstat & 0x10)
@@ -176,7 +173,6 @@ u32 update_gba(void)
         if(vcount == 160)
         {
           // Transition from vrefresh to vblank
-          int dma_cycles = 0;
           u32 i;
 
           dispstat |= 0x01;
@@ -192,7 +188,6 @@ u32 update_gba(void)
             if(dma[i].start_type == DMA_START_VBLANK)
               dma_transfer(i, &dma_cycles);
           }
-          video_count -= MIN(32, dma_cycles);
         }
         else
 
@@ -255,7 +250,11 @@ u32 update_gba(void)
     }
   } while(reg[CPU_HALT_STATE] != CPU_ACTIVE && !reg[COMPLETED_FRAME]);
 
-  return execute_cycles;
+  // We voluntarily limit this. It is not accurate but it would be much harder.
+  dma_cycles = MIN(64, dma_cycles);
+  dma_cycles = MIN(execute_cycles, dma_cycles);
+
+  return execute_cycles - dma_cycles;
 }
 
 void reset_gba(void)
@@ -296,7 +295,7 @@ bool main_read_savestate(const u8 *src)
   const u8 *p2 = bson_find_key(src, "timers");
   if (!p1 || !p2)
     return false;
-  execute_cycles = 123;
+
   if (!(bson_read_int32(p1, "cpu-ticks", &cpu_ticks) &&
          bson_read_int32(p1, "exec-cycles", &execute_cycles) &&
          bson_read_int32(p1, "video-count", (u32*)&video_count)))

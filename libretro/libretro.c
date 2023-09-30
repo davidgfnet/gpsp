@@ -117,6 +117,21 @@ static void info_msg(const char* text)
       log_cb(RETRO_LOG_INFO, "[gpSP]: %s\n", text);
 }
 
+void show_loading_message(const char* text, unsigned progress, unsigned durationms) {
+  unsigned ifversion = 0;
+  if (!environ_cb(RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION, &ifversion) || ifversion >= 1) {
+    /* Use the new API to display messages */
+    struct retro_message_ext msg = {
+      .msg = text, .duration = durationms,
+      .priority = 1, .level = RETRO_LOG_INFO,
+      .target = RETRO_MESSAGE_TARGET_ALL,
+      .type = RETRO_MESSAGE_TYPE_PROGRESS,
+      .progress = progress,
+    };
+    environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE_EXT, &msg);
+  }
+}
+
 static void show_warning_message(const char* text, unsigned durationms) {
   unsigned ifversion = 0;
   if (!environ_cb(RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION, &ifversion) || ifversion >= 1) {

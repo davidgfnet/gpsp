@@ -2471,6 +2471,8 @@ unsigned memory_write_savestate(u8 *dst)
   return (unsigned int)(dst - startp);
 }
 
+void show_loading_message (const char* text, unsigned progress, unsigned durationms);
+
 static s32 load_gamepak_raw(const char *name)
 {
   unsigned i, j;
@@ -2496,6 +2498,7 @@ static s32 load_gamepak_raw(const char *name)
     {
       // Load 1MB chunk and map it
       filestream_read(gamepak_file_large, gamepak_buffers[i], gamepak_buffer_blocksize);
+      show_loading_message("Loading ROM", (i * 100) / ldblks, i == ldblks - 1 ? 500 : 2000);
       for (j = 0; j < 32 && i*32 + j < rom_blocks; j++)
       {
         u32 phyn = i*32 + j;

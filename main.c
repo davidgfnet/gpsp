@@ -67,8 +67,10 @@ static unsigned update_timers(irq_type *irq_raised, unsigned completed_cycles)
          continue;
 
       /* irq_raised value range: IRQ_TIMER0, IRQ_TIMER1, IRQ_TIMER2, IRQ_TIMER3 */
-      if(timer[i].irq)
+      if(timer[i].irq) {
          *irq_raised |= (IRQ_TIMER0 << i);
+ printf("Raise timer %d\n", i);
+      }
 
       if((i != 3) && (timer[i + 1].status == TIMER_CASCADE))
       {
@@ -295,6 +297,9 @@ u32 function_cc update_gba(int remaining_cycles)
   // We voluntarily limit this. It is not accurate but it would be much harder.
   dma_cycles = MIN(64, dma_cycles);
   dma_cycles = MIN(execute_cycles, dma_cycles);
+  if (frame_complete) {
+    printf("FRAME\n");
+  }
 
   return (execute_cycles - dma_cycles) | changed_pc | frame_complete;
 }
@@ -305,6 +310,8 @@ void reset_gba(void)
   init_main();
   init_cpu();
   reset_sound();
+  rfu_reset();
+  lnk_reset();
 }
 
 #ifdef TRACE_REGISTERS

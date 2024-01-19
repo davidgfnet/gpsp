@@ -166,15 +166,15 @@ typedef enum
   REG_TM3D = 0x86,
   REG_TM3CNT = 0x87,
   // Serial
-  REG_SIODATA32_L = 0x90,
+  REG_SIODATA32_L = 0x90,   // For normal mode (32b)
   REG_SIODATA32_H = 0x91,
-  REG_SIOMULTI0 = 0x90,
+  REG_SIOMULTI0 = 0x90,     // For multiplayer mode
   REG_SIOMULTI1 = 0x91,
   REG_SIOMULTI2 = 0x92,
   REG_SIOMULTI3 = 0x93,
   REG_SIOCNT = 0x94,
-  REG_SIOMLT_SEND = 0x95,
-  REG_SIODATA8 = 0x96,
+  REG_SIOMLT_SEND = 0x95,   // For multiplayer mode
+  REG_SIODATA8 = 0x95,      // For UART/normal 8bit mode
   // Key input
   REG_P1 = 0x098,
   REG_P1CNT = 0x099,
@@ -198,6 +198,7 @@ typedef enum
 #define REG_BGxPB(n)   (REG_BG2PB + ((n)-2)*8)
 #define REG_BGxPC(n)   (REG_BG2PC + ((n)-2)*8)
 #define REG_BGxPD(n)   (REG_BG2PD + ((n)-2)*8)
+#define REG_SIOMULTI(n)(REG_SIOMULTI0 + (n))
 
 #define FLASH_DEVICE_UNDEFINED       0x00
 #define FLASH_DEVICE_MACRONIX_64KB   0x1C

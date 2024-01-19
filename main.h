@@ -98,6 +98,10 @@ extern int dynarec_enable;
 extern boot_mode selected_boot_mode;
 extern int sprite_limit;
 
+// Net play
+extern u32 netpl_client_id;
+extern u32 netpl_num_clients;
+
 #ifdef TRACE_REGISTERS
 void print_regs(void);
 #endif

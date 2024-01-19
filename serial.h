@@ -17,12 +17,16 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#define SERIAL_MODE_DISABLED      0
-#define SERIAL_MODE_RFU           1  // Wifi Adapter
-#define SERIAL_MODE_GBP           2  // Connected to the GB Player
-#define SERIAL_MODE_AUTO          3  // Choose best fit automatically
+typedef enum
+{
+  SERIAL_EMUMODE_DISABLED   = 0,
+  SERIAL_EMUMODE_SERMULTI   = 1,  // Serial multiplayer
+  SERIAL_EMUMODE_RFU        = 2,  // Wifi Adapter
+  SERIAL_EMUMODE_GBP        = 3,  // Connected to the GB Player
+  SERIAL_EMUMODE_AUTO       = 4,  // Choose best fit automatically
+} t_emulated_serial_mode;
 
-extern int serial_mode;
+extern t_emulated_serial_mode emu_serial_mode;
 
 // Register writes
 cpu_alert_type write_siocnt(u16 value);
@@ -41,3 +45,10 @@ void rfu_net_receive(const void* buf, size_t len, uint16_t client_id);
 
 // GBP interface
 u32 gbp_transfer(u32 value);
+
+// Link interface
+void lnk_reset(void);
+bool lnk_update(unsigned cycles);
+void lnk_master_send(u16 value);
+void lnk_net_receive(const void* buf, size_t len, uint16_t client_id);
+

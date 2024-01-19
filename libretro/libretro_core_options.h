@@ -119,6 +119,7 @@ struct retro_core_option_definition option_defs_us[] = {
       {
          { "auto",     "Automatic" },
          { "disabled", "Disabled" },
+         { "multi",    "GBA Cable Link" },
          { "rfu",      "GBA Wireless Adapter" },
          { NULL, NULL },
       },

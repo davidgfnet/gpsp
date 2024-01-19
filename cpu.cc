@@ -20,6 +20,7 @@
 extern "C" {
   #include "common.h"
   #include "cpu_instrument.h"
+  const char *pokesym(unsigned int addr);
 }
 
 const u8 bit_count[256] =
@@ -3066,6 +3067,10 @@ thumb_loop:
        /* Process cheats if we are about to execute the cheat hook */
        if (reg[REG_PC] == cheat_master_hook)
           process_cheats();
+       const char *psym = pokesym(reg[REG_PC] & ~1);
+       if (psym) printf("Hit Symbol %s\n", psym);
+       if ((reg[REG_PC] & ~1) == 0x08008970)
+         printf("End of LinkMain1 res %x (serialIntrCounter: %d, lag %d err %d idx %d)\n", reg[0], read_memory8(0x03003070 + 13), read_memory8(0x03003070 + 19), read_memory8(0x03003070 + 16), read_memory8(0x03003070 + 22));
 
        /* Execute THUMB instruction */
 

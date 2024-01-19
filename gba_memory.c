@@ -925,13 +925,13 @@ cpu_alert_type function_cc write_io_register16(u32 address, u32 value)
     case REG_TM0D: count_timer(0); break;
     case REG_TM1D: count_timer(1); break;
     case REG_TM2D: count_timer(2); break;
-    case REG_TM3D: count_timer(3); break;
+    case REG_TM3D: count_timer(3); printf("TIM3 Reload %d\n", value); break;
 
     /* Timer control register (0..3)*/
     case REG_TM0CNT: trigger_timer(0, value); break;
     case REG_TM1CNT: trigger_timer(1, value); break;
     case REG_TM2CNT: trigger_timer(2, value); break;
-    case REG_TM3CNT: trigger_timer(3, value); break;
+    case REG_TM3CNT: trigger_timer(3, value); printf("tm3 tg %x\n", value); break;
 
     // Serial port registers
     case REG_SIOCNT:
@@ -961,6 +961,11 @@ cpu_alert_type function_cc write_io_register16(u32 address, u32 value)
       reload_timing_info();
       break;
 
+    case REG_SIOMLT_SEND:
+      printf("REG_SIOMLT_SEND write %x at PC %x\n", value, reg[REG_PC]);
+         printf("idx %d)\n", read_memory8(0x03003070 + 22));
+      // fallthrough 
+      //
     // Registers without side effects
     default:
       write_ioreg(ioreg, value);
@@ -1559,10 +1564,13 @@ typedef struct
 
 #define FLAGS_FLASH_128KB    0x0001   // Forces 128KB flash.
 #define FLAGS_RUMBLE         0x0002   // Enables GPIO3 rumble support.
-#define FLAGS_GBA_PLAYER     0x0004   // Enables GBA Player rumble support.
-#define FLAGS_RTC            0x0008   // Enables RTC support by default.
-#define FLAGS_EEPROM         0x0010   // Forces EEPROM storage.
-#define FLAGS_RFU            0x0020   // Enables Wireless Adapter (via serial).
+#define FLAGS_RTC            0x0004   // Enables RTC support by default.
+#define FLAGS_EEPROM         0x0008   // Forces EEPROM storage.
+
+// Serial port communications (only one can be enabled at a time)
+#define FLAGS_LINK_MULTI     0x0010   // Emulates GBA Link cable (multiplayer).
+#define FLAGS_GBA_PLAYER     0x0020   // Enables GBA Player rumble support.
+#define FLAGS_RFU            0x0040   // Enables Wireless Adapter (via serial).
 
 #include "gba_over.h"
 
@@ -1603,11 +1611,15 @@ static void load_game_config_over(gamepak_info_t *gpinfo)
      if (gbaover[i].flags & FLAGS_EEPROM)
        backup_type_reset = BACKUP_EEPROM;
 
-     if (serial_mode == SERIAL_MODE_AUTO) {
-       if (gbaover[i].flags & FLAGS_RFU)
-         serial_mode = SERIAL_MODE_RFU;
-       if (gbaover[i].flags & FLAGS_GBA_PLAYER)
-         serial_mode = SERIAL_MODE_GBP;
+     if (emu_serial_mode == SERIAL_EMUMODE_AUTO) {
+       if (gbaover[i].flags & FLAGS_LINK_MULTI)
+         emu_serial_mode = SERIAL_EMUMODE_SERMULTI;
+       else if (gbaover[i].flags & FLAGS_RFU)
+         emu_serial_mode = SERIAL_EMUMODE_RFU;
+       else if (gbaover[i].flags & FLAGS_GBA_PLAYER)
+         emu_serial_mode = SERIAL_EMUMODE_GBP;
+       else
+         emu_serial_mode = SERIAL_EMUMODE_DISABLED;
      }
 
      if (gbaover[i].translation_gate_target_1 != 0)
@@ -2560,7 +2572,7 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
    rtc_enabled = false;
    rumble_enabled = false;
    backup_type_reset = BACKUP_UNKN;
-   serial_mode = force_serial;
+   emu_serial_mode = force_serial;
 
    load_game_config_over(&gpinfo);
 

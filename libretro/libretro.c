@@ -94,7 +94,7 @@ int sprite_limit = 1;
 
 static int rtc_mode = FEAT_AUTODETECT;
 static int rumble_mode = FEAT_AUTODETECT;
-static int serial_setting = SERIAL_MODE_AUTO;
+static int serial_setting = SERIAL_EMUMODE_AUTO;
 
 u32 idle_loop_target_pc = 0xFFFFFFFF;
 u32 translation_gate_target_pc[MAX_TRANSLATION_GATES];
@@ -427,7 +427,8 @@ static void video_run(void)
 
 // Netplay (Netpacket) interface
 
-static u32 num_clients;
+u32 netpl_client_id = 0;     // Assigned netplay ID (0 means host)
+u32 netpl_num_clients = 0;   // Number of joined players (for hosts)
 static retro_netpacket_send_t netpacket_send_fn_ptr = NULL;
 static retro_netpacket_poll_receive_t netpacket_pollrcv_fn_ptr = NULL;
 
@@ -445,7 +446,8 @@ void netpacket_send(uint16_t client_id, const void *buf, size_t len) {
 static void netpacket_start(uint16_t client_id, retro_netpacket_send_t send_fn, retro_netpacket_poll_receive_t poll_receive_fn) {
   netpacket_send_fn_ptr = send_fn;
   netpacket_pollrcv_fn_ptr = poll_receive_fn;
-  num_clients = 0;
+  netpl_num_clients = 1;    // We are implicitely joined, since we are hosting
+  netpl_client_id = client_id;
 }
 
 // Netplay session ends.
@@ -455,26 +457,34 @@ static void netpacket_stop() {
 }
 
 static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
-  switch (serial_mode) {
-  case SERIAL_MODE_RFU:
+  switch (emu_serial_mode) {
+  case SERIAL_EMUMODE_RFU:
     rfu_net_receive(buf, len, client_id);
+    break;
+  case SERIAL_EMUMODE_SERMULTI:
+    lnk_net_receive(buf, len, client_id);
+    break;
+  default:
     break;
   };
 }
 
 // Ensure we do not have too many clients for the type of connection used.
 static bool netpacket_connected(uint16_t client_id) {
-  u32 max_clients = serial_mode == SERIAL_MODE_RFU ? MAX_RFU_NETPLAYERS : 0;
+  u32 max_clients =
+    (emu_serial_mode == SERIAL_EMUMODE_RFU)      ?  MAX_RFU_NETPLAYERS :
+    (emu_serial_mode == SERIAL_EMUMODE_SERMULTI) ?  4 :
+                                                    0 ;
 
-  if (num_clients >= max_clients)
+  if (netpl_num_clients >= max_clients)
     return false;
 
-  num_clients++;
+  netpl_num_clients++;
   return true;
 }
 
 static void netpacket_disconnected(uint16_t client_id) {
-  num_clients--;
+  netpl_num_clients--;
 }
 
 const struct retro_netpacket_callback netpacket_iface = {
@@ -885,13 +895,15 @@ static void check_variables(bool started_from_load)
      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
      {
         if (!strcmp(var.value, "disabled"))
-           serial_setting = SERIAL_MODE_DISABLED;
+           serial_setting = SERIAL_EMUMODE_DISABLED;
+        else if (!strcmp(var.value, "multi"))
+           serial_setting = SERIAL_EMUMODE_SERMULTI;
         else if (!strcmp(var.value, "rfu"))
-           serial_setting = SERIAL_MODE_RFU;
+           serial_setting = SERIAL_EMUMODE_RFU;
         else if (!strcmp(var.value, "gbp"))
-           serial_setting = SERIAL_MODE_GBP;
+           serial_setting = SERIAL_EMUMODE_GBP;
         else
-           serial_setting = SERIAL_MODE_AUTO;
+           serial_setting = SERIAL_EMUMODE_AUTO;
      }
 
      var.key                = "gpsp_rumble";
@@ -1271,10 +1283,12 @@ void retro_run(void)
    audio_run();
    video_run();
 
-   switch (serial_mode) {
-   case SERIAL_MODE_RFU:
+   switch (emu_serial_mode) {
+   case SERIAL_EMUMODE_RFU:
      rfu_frame_update();
      break;
+  default:
+    break;
    };
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)

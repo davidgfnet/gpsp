@@ -580,8 +580,8 @@ const u8 bit_count[256] =
   calculate_z_flag(dest);                                                     \
   calculate_n_flag(dest)                                                      \
 
-#define check_pc_region()                                                     \
-  new_pc_region = (reg[REG_PC] >> 15);                                        \
+#define check_pc_region() {                                                   \
+  u32 new_pc_region = (reg[REG_PC] >> 15);                                    \
   if(new_pc_region != pc_region)                                              \
   {                                                                           \
     pc_region = new_pc_region;                                                \
@@ -591,7 +591,7 @@ const u8 bit_count[256] =
     if(!pc_address_block)                                                     \
       pc_address_block = load_gamepak_page(pc_region & 0x3FF);                \
   }                                                                           \
-
+}
 
 #define arm_pc_offset(val)                                                    \
   reg[REG_PC] += val                                                          \
@@ -1490,10 +1490,8 @@ u16 io_registers[512];
 void execute_arm(u32 cycles)
 {
   u32 opcode;
-  u32 condition;
   u32 pc_region = (reg[REG_PC] >> 15);
   u8 *pc_address_block = memory_map_read[pc_region];
-  u32 new_pc_region;
   s32 cycles_remaining;
   u32 update_ret;
   cpu_alert_type cpu_alert;
@@ -1532,9 +1530,8 @@ arm_loop:
        check_pc_region();
        reg[REG_PC] &= ~0x03;
        opcode = readaddress32(pc_address_block, (reg[REG_PC] & 0x7FFF));
-       condition = opcode >> 28;
 
-       switch(condition)
+       switch(opcode >> 28)    /* Condition code bits */
        {
           case 0x0:            /* EQ */
              if(!IS_FLAG_Z)
@@ -3040,10 +3037,10 @@ skip_instruction:
        /* End of Execute ARM instruction */
        cycles_remaining -= ws_cyc_seq[(reg[REG_PC] >> 24) & 0xF][1];
 
-       if (reg[REG_PC] == idle_loop_target_pc && cycles_remaining > 0) cycles_remaining = 0;
-
        if (cpu_alert & (CPU_ALERT_HALT | CPU_ALERT_IRQ))
          goto alert;
+
+       if (reg[REG_PC] == idle_loop_target_pc && cycles_remaining > 0) cycles_remaining = 0;
 
     } while(cycles_remaining > 0);
 
@@ -3515,10 +3512,10 @@ thumb_loop:
        /* End of Execute THUMB instruction */
        cycles_remaining -= ws_cyc_seq[(reg[REG_PC] >> 24) & 0xF][0];
 
-       if (reg[REG_PC] == idle_loop_target_pc && cycles_remaining > 0) cycles_remaining = 0;
-
        if (cpu_alert & (CPU_ALERT_HALT | CPU_ALERT_IRQ))
           goto alert;
+
+       if (reg[REG_PC] == idle_loop_target_pc && cycles_remaining > 0) cycles_remaining = 0;
 
     } while(cycles_remaining > 0);
 
@@ -3530,7 +3527,7 @@ thumb_loop:
 
     alert:
       /* CPU stopped or switch to IRQ handler */
-      do {} while(0);
+      check_and_raise_interrupts();
   }
 }
 

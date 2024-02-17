@@ -207,10 +207,6 @@ const u8 bit_count[256] =
   using_register(thumb, rb, memory_base)                                      \
 
 
-#define thumb_decode_add_sp()                                                 \
-  u32 imm = opcode & 0x7F;                                                    \
-  using_register(thumb, REG_SP, op_dest)                                      \
-
 #define thumb_decode_rlist()                                                  \
   u32 reg_list = opcode & 0xFF;                                               \
   using_register_list(thumb, rlist, 8)                                        \
@@ -696,10 +692,10 @@ const u8 bit_count[256] =
   arm_data_proc_##type();                                                     \
   flags_vars(src_a, src_b);                                                   \
   dest = _sa + _sb;                                                           \
-  u32 newcflag = (dest < _sb);                                                \
+  bool carry1 = (dest < _sb);                                                 \
   dest += _sc;                                                                \
-  newcflag |= (dest < _sc);                                                   \
-  SET_FLAG_C_COND(newcflag);                                                  \
+  bool carry2 = (dest < _sc);                                                 \
+  SET_FLAG_C_COND(carry1 || carry2);                                          \
   calculate_flags_add(dest, _sa, _sb);                                        \
   arm_pc_offset(-4);                                                          \
   reg[rd] = dest;                                                             \
@@ -1129,10 +1125,10 @@ inline cpu_alert_type exec_thumb_block_mem(u32 rn, u32 reglist, s32 &cycles_rema
   const u32 _sa = src_a;                                                      \
   const u32 _sb = src_b;                                                      \
   u32 dest = _sa + _sb;                                                       \
-  u32 newcflag = (dest < _sb);                                                \
+  bool carry1 = (dest < _sb);                                                 \
   dest += _sc;                                                                \
-  newcflag |= (dest < _sc);                                                   \
-  SET_FLAG_C_COND(newcflag);                                                  \
+  bool carry2 = (dest < _sc);                                                 \
+  SET_FLAG_C_COND(carry1 || carry2);                                          \
   calculate_flags_add(dest, _sa, _sb);                                        \
   reg[dest_reg] = dest;                                                       \
   thumb_pc_offset(2);                                                         \
@@ -1169,136 +1165,127 @@ inline cpu_alert_type exec_thumb_block_mem(u32 rn, u32 reglist, s32 &cycles_rema
   thumb_pc_offset(2);                                                         \
 }                                                                             \
 
-// Decode types: shift, alu_op
-// Operation types: lsl, lsr, asr, ror
-// Affects N/Z/C flags
 
-#define thumb_shift_lsl_reg()                                                 \
-  u32 shift = reg[rs];                                                        \
-  u32 dest = reg[rd];                                                         \
-  if(shift != 0)                                                              \
-  {                                                                           \
-    if(shift > 31)                                                            \
-    {                                                                         \
-      if(shift == 32) {                                                       \
-        SET_FLAG_C_COND(dest & 1);                                            \
-      } else {                                                                \
-        CLR_FLAG_C;                                                           \
-      }                                                                       \
-      dest = 0;                                                               \
-    }                                                                         \
-    else                                                                      \
-    {                                                                         \
-      SET_FLAG_C_COND((dest >> (32 - shift)) & 1);                            \
-      dest <<= shift;                                                         \
-    }                                                                         \
-  }                                                                           \
+typedef enum { IncAdd, IncSub } IncMode;
+typedef enum { ShfLSL, ShfLSR, ShfASR, ShfROR } ShiftMode;
+typedef enum { LgcAnd, LgcOrr, LgcXor, LgcBic, LgcMul, LgcNot } LogicMode;
 
-#define thumb_shift_lsr_reg()                                                 \
-  u32 shift = reg[rs];                                                        \
-  u32 dest = reg[rd];                                                         \
-  if(shift != 0)                                                              \
-  {                                                                           \
-    if(shift > 31)                                                            \
-    {                                                                         \
-      if(shift == 32) {                                                       \
-        SET_FLAG_C_COND(dest >> 31);                                          \
-      } else {                                                                \
-        CLR_FLAG_C;                                                           \
-      }                                                                       \
-      dest = 0;                                                               \
-    }                                                                         \
-    else                                                                      \
-    {                                                                         \
-      SET_FLAG_C_COND((dest >> (shift - 1)) & 1);                             \
-      dest >>= shift;                                                         \
-    }                                                                         \
-  }                                                                           \
+template<IncMode mode>
+inline void thumb_sp_add(u16 opcode, u32 rd) {
+  u32 imm = (opcode & 0x7F);
+  if (mode == IncAdd)
+    reg[rd] = reg[REG_SP] + imm * 4;
+  else
+    reg[rd] = reg[REG_SP] - imm * 4;
 
-#define thumb_shift_asr_reg()                                                 \
-  u32 shift = reg[rs];                                                        \
-  u32 dest = reg[rd];                                                         \
-  if(shift != 0)                                                              \
-  {                                                                           \
-    if(shift > 31)                                                            \
-    {                                                                         \
-      dest = (s32)dest >> 31;                                                 \
-      SET_FLAG_C_COND(dest & 1);                                              \
-    }                                                                         \
-    else                                                                      \
-    {                                                                         \
-      SET_FLAG_C_COND((dest >> (shift - 1)) & 1);                             \
-      dest = (s32)dest >> shift;                                              \
-    }                                                                         \
-  }                                                                           \
+  thumb_pc_offset(2);
+}
 
-#define thumb_shift_ror_reg()                                                 \
-  u32 shift = reg[rs];                                                        \
-  u32 dest = reg[rd];                                                         \
-  if(shift != 0)                                                              \
-  {                                                                           \
-    SET_FLAG_C_COND((dest >> (shift - 1)) & 1);                               \
-    ror(dest, dest, shift);                                                   \
-  }                                                                           \
 
-#define thumb_shift_lsl_imm()                                                 \
-  u32 dest = reg[rs];                                                         \
-  if(imm != 0)                                                                \
-  {                                                                           \
-    SET_FLAG_C_COND((dest >> (32 - imm)) & 1);                                \
-    dest <<= imm;                                                             \
-  }                                                                           \
+template<LogicMode mode>
+inline void thumb_logic_reg(u16 opcode) {
+  u32 rs = (opcode >> 3) & 0x07;
+  u32 rd = opcode & 0x07;
 
-#define thumb_shift_lsr_imm()                                                 \
-  u32 dest;                                                                   \
-  if(imm == 0)                                                                \
-  {                                                                           \
-    dest = 0;                                                                 \
-    SET_FLAG_C_COND(reg[rs] >> 31);                                           \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    dest = reg[rs];                                                           \
-    SET_FLAG_C_COND((dest >> (imm - 1)) & 1);                                 \
-    dest >>= imm;                                                             \
-  }                                                                           \
+  using_register(thumb, rd, op_src_dest);
+  using_register(thumb, rs, op_src);
 
-#define thumb_shift_asr_imm()                                                 \
-  u32 dest;                                                                   \
-  if(imm == 0)                                                                \
-  {                                                                           \
-    dest = (s32)reg[rs] >> 31;                                                \
-    SET_FLAG_C_COND(dest & 1);                                                \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    dest = reg[rs];                                                           \
-    SET_FLAG_C_COND((dest >> (imm - 1)) & 1);                                 \
-    dest = (s32)dest >> imm;                                                  \
-  }                                                                           \
+  switch (mode) {
+  case LgcAnd: reg[rd] = reg[rd] & reg[rs]; break;
+  case LgcOrr: reg[rd] = reg[rd] | reg[rs]; break;
+  case LgcXor: reg[rd] = reg[rd] ^ reg[rs]; break;
+  case LgcMul: reg[rd] = reg[rd] * reg[rs]; break;
+  case LgcBic: reg[rd] = reg[rd] & (~reg[rs]); break;
+  case LgcNot: reg[rd] = ~reg[rs]; break;
+  };
 
-#define thumb_shift_ror_imm()                                                 \
-  u32 dest = reg[rs];                                                         \
-  if(imm == 0)                                                                \
-  {                                                                           \
-    u32 old_c_flag = FLAG_C;                                                  \
-    SET_FLAG_C_COND(dest & 1);                                                \
-    dest = (dest >> 1) | (old_c_flag << 31);                                  \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    SET_FLAG_C_COND((dest >> (imm - 1)) & 0x01);                              \
-    ror(dest, dest, imm);                                                     \
-  }                                                                           \
+  calculate_flags_logic(reg[rd]);
+  thumb_pc_offset(2);
+}
 
-#define thumb_shift(decode_type, op_type, value_type)                         \
-{                                                                             \
-  thumb_decode_##decode_type();                                               \
-  thumb_shift_##op_type##_##value_type();                                     \
-  calculate_flags_logic(dest);                                                \
-  reg[rd] = dest;                                                             \
-  thumb_pc_offset(2);                                                         \
-}                                                                             \
+template<ShiftMode mode>
+void thumb_shift_imm(u16 opcode) {
+  u32 imm = (opcode >> 6) & 0x1F;
+  u32 rs  = (opcode >> 3) & 0x07;
+  u32 rd  = (opcode & 0x07);
+
+  using_register(thumb, rd, op_dest);
+  using_register(thumb, rs, op_shift);
+
+  switch (mode) {
+  case ShfLSL:
+    if (imm) {
+      SET_FLAG_C_COND((reg[rs] >> (32 - imm)) & 1);
+    }
+    reg[rd] = reg[rs] << imm;
+    break;
+
+  case ShfLSR:
+    SET_FLAG_C_COND((reg[rs] >> ((imm - 1) & 31)) & 1);
+    reg[rd] = imm ? reg[rs] >> imm : 0;
+    break;
+
+  case ShfASR:
+    SET_FLAG_C_COND((reg[rs] >> ((imm - 1) & 31)) & 1);
+    reg[rd] = (s32)reg[rs] >> (imm ? imm : 31);
+    break;
+  };
+
+  calculate_flags_logic(reg[rd]);
+  thumb_pc_offset(2);
+}
+
+template<ShiftMode mode>
+void thumb_shift_reg(u16 opcode) {
+  u32 rs = (opcode >> 3) & 0x07;
+  u32 rd = opcode & 0x07;
+
+  using_register(thumb, rd, op_src_dest);
+  using_register(thumb, rs, op_src);
+
+  u32 shift = reg[rs];
+
+  if (shift) {
+    switch (mode) {
+    case ShfLSL:
+      if (shift > 32) {
+        CLR_FLAG_C;
+      } else {
+        SET_FLAG_C_COND((reg[rd] >> (32 - shift)) & 1);
+      }
+
+      reg[rd] = (shift < 32) ? reg[rd] << shift : 0;
+      break;
+
+    case ShfLSR:
+      if (shift <= 32) {
+        SET_FLAG_C_COND((reg[rd] >> (shift - 1)) & 1);
+      } else {
+        CLR_FLAG_C;
+      }
+      reg[rd] = (shift < 32) ? reg[rd] >> shift : 0;
+      break;
+
+    case ShfASR:
+      if (shift <= 32) {
+        SET_FLAG_C_COND((reg[rd] >> (shift - 1)) & 1);
+      } else {
+        SET_FLAG_C_COND(reg[rd] >> 31);
+      }
+      reg[rd] = (s32)reg[rd] >> ((shift < 32) ? shift : 31);
+      break;
+
+   case ShfROR:
+      SET_FLAG_C_COND((reg[rd] >> (shift - 1)) & 1);
+      ror(reg[rd], reg[rd], shift);
+      break;
+    };
+  }
+
+  calculate_flags_logic(reg[rd]);
+  thumb_pc_offset(2);
+}
+
 
 #define thumb_test_add(type, src_a, src_b)                                    \
 {                                                                             \
@@ -3071,42 +3058,31 @@ thumb_loop:
 
        switch((opcode >> 8) & 0xFF)
        {
-          case 0x00 ... 0x07:
-             /* LSL rd, rs, offset */
-             thumb_shift(shift, lsl, imm);
+          case 0x00 ... 0x07:          /* LSL rd, rs, offset */
+             thumb_shift_imm<ShfLSL>(opcode);
              break;
 
-          case 0x08 ... 0x0F:
-             /* LSR rd, rs, offset */
-             thumb_shift(shift, lsr, imm);
+          case 0x08 ... 0x0F:          /* LSR rd, rs, offset */
+             thumb_shift_imm<ShfLSR>(opcode);
              break;
 
-          case 0x10 ... 0x17:
-             /* ASR rd, rs, offset */
-             thumb_shift(shift, asr, imm);
+          case 0x10 ... 0x17:          /* ASR rd, rs, offset */
+             thumb_shift_imm<ShfASR>(opcode);
              break;
 
-          case 0x18:
-          case 0x19:
-             /* ADD rd, rs, rn */
+          case 0x18 ... 0x19:          /* ADD rd, rs, rn */
              thumb_add(add_sub, rd, reg[rs], reg[rn], 0);
              break;
 
-          case 0x1A:
-          case 0x1B:
-             /* SUB rd, rs, rn */
+          case 0x1A ... 0x1B:          /* SUB rd, rs, rn */
              thumb_sub(add_sub, rd, reg[rs], reg[rn], 1);
              break;
 
-          case 0x1C:
-          case 0x1D:
-             /* ADD rd, rs, imm */
+          case 0x1C ... 0x1D:          /* ADD rd, rs, imm */
              thumb_add(add_sub_imm, rd, reg[rs], imm, 0);
              break;
 
-          case 0x1E:
-          case 0x1F:
-             /* SUB rd, rs, imm */
+          case 0x1E ... 0x1F:          /* SUB rd, rs, imm */
              thumb_sub(add_sub_imm, rd, reg[rs], imm, 1);
              break;
 
@@ -3130,102 +3106,56 @@ thumb_loop:
              thumb_sub(imm, ((opcode >> 8) & 7), reg[(opcode >> 8) & 7], imm, 1);
              break;
 
-          case 0x40:
-             switch((opcode >> 6) & 0x03)
-             {
-                case 0x00:
-                   /* AND rd, rs */
-                   thumb_logic(alu_op, rd, reg[rd] & reg[rs]);
+          case 0x40 ... 0x43:
+             /* Arith/Logic reg-reg instructions */
+             switch((opcode >> 6) & 0xF) {
+                case 0x00:             /* AND rd, rs */
+                   thumb_logic_reg<LgcAnd>(opcode);
                    break;
-
-                case 0x01:
-                   /* EOR rd, rs */
-                   thumb_logic(alu_op, rd, reg[rd] ^ reg[rs]);
+                case 0x01:             /* EOR rd, rs */
+                   thumb_logic_reg<LgcXor>(opcode);
                    break;
-
-                case 0x02:
-                   /* LSL rd, rs */
-                   thumb_shift(alu_op, lsl, reg);
+                case 0x02:             /* LSL rd, rs */
+                   thumb_shift_reg<ShfLSL>(opcode);
                    break;
-
-                case 0x03:
-                   /* LSR rd, rs */
-                   thumb_shift(alu_op, lsr, reg);
+                case 0x03:             /* LSR rd, rs */
+                   thumb_shift_reg<ShfLSR>(opcode);
                    break;
-             }
-             break;
-
-          case 0x41:
-             switch((opcode >> 6) & 0x03)
-             {
-                case 0x00:
-                   /* ASR rd, rs */
-                   thumb_shift(alu_op, asr, reg);
+                case 0x04:             /* ASR rd, rs */
+                   thumb_shift_reg<ShfASR>(opcode);
                    break;
-
-                case 0x01:
-                   /* ADC rd, rs */
+                case 0x05:             /* ADC rd, rs */
                    thumb_add(alu_op, rd, reg[rd], reg[rs], FLAG_C);
                    break;
-
-                case 0x02:
-                   /* SBC rd, rs */
+                case 0x06:             /* SBC rd, rs */
                    thumb_sub(alu_op, rd, reg[rd], reg[rs], FLAG_C);
                    break;
-
-                case 0x03:
-                   /* ROR rd, rs */
-                   thumb_shift(alu_op, ror, reg);
+                case 0x07:             /* ROR rd, rs */
+                   thumb_shift_reg<ShfROR>(opcode);
                    break;
-             }
-             break;
-
-          case 0x42:
-             switch((opcode >> 6) & 0x03)
-             {
-                case 0x00:
-                   /* TST rd, rs */
+                case 0x08:             /* TST rd, rs */
                    thumb_test_logic(alu_op, reg[rd] & reg[rs]);
                    break;
-
-                case 0x01:
-                   /* NEG rd, rs */
+                case 0x09:             /* NEG rd, rs */
                    thumb_sub(alu_op, rd, 0, reg[rs], 1);
                    break;
-
-                case 0x02:
-                   /* CMP rd, rs */
+                case 0x0A:             /* CMP rd, rs */
                    thumb_test_sub(alu_op, reg[rd], reg[rs]);
                    break;
-
-                case 0x03:
-                   /* CMN rd, rs */
+                case 0x0B:             /* CMN rd, rs */
                    thumb_test_add(alu_op, reg[rd], reg[rs]);
                    break;
-             }
-             break;
-
-          case 0x43:
-             switch((opcode >> 6) & 0x03)
-             {
-                case 0x00:
-                   /* ORR rd, rs */
-                   thumb_logic(alu_op, rd, reg[rd] | reg[rs]);
+                case 0x0C:             /* ORR rd, rs */
+                   thumb_logic_reg<LgcOrr>(opcode);
                    break;
-
-                case 0x01:
-                   /* MUL rd, rs */
-                   thumb_logic(alu_op, rd, reg[rd] * reg[rs]);
+                case 0x0D:             /* MUL rd, rs */
+                   thumb_logic_reg<LgcMul>(opcode);
                    break;
-
-                case 0x02:
-                   /* BIC rd, rs */
-                   thumb_logic(alu_op, rd, reg[rd] & (~reg[rs]));
+                case 0x0E:             /* BIC rd, rs */
+                   thumb_logic_reg<LgcBic>(opcode);
                    break;
-
-                case 0x03:
-                   /* MVN rd, rs */
-                   thumb_logic(alu_op, rd, ~reg[rs]);
+                case 0x0F:             /* MVN rd, rs */
+                   thumb_logic_reg<LgcNot>(opcode);
                    break;
              }
              break;
@@ -3377,20 +3307,12 @@ thumb_loop:
              thumb_add_noflags(imm, ((opcode >> 8) & 7), reg[REG_SP], (imm * 4));
              break;
 
-          case 0xB0:
-          case 0xB1:
-          case 0xB2:
-          case 0xB3:
-             if((opcode >> 7) & 0x01)
-             {
-                /* ADD sp, -imm */
-                thumb_add_noflags(add_sp, 13, reg[REG_SP], -(imm * 4));
-             }
+          case 0xB0 ... 0xB3:
+             if (opcode & 0x80)
+               thumb_sp_add<IncSub>(opcode, REG_SP);     /* ADD sp, -imm */
              else
-             {
-                /* ADD sp, +imm */
-                thumb_add_noflags(add_sp, 13, reg[REG_SP], (imm * 4));
-             }
+
+               thumb_sp_add<IncAdd>(opcode, REG_SP);     /* ADD sp, +imm */
              break;
 
           case 0xB4:  /* PUSH rlist */

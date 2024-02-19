@@ -45,6 +45,8 @@ typedef struct
   u32 status;
 } timer_type;
 
+extern timer_type timer[4];
+
 typedef enum
 {
   no_frameskip = 0,

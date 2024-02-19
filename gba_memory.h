@@ -255,7 +255,6 @@ void memory_term(void);
 u8 *load_gamepak_page(u32 physical_index);
 
 extern u32 oam_update;
-extern u32 gbc_sound_wave_update;
 extern dma_transfer_type dma[DMA_CHAN_CNT];
 
 extern u8 open_gba_bios_rom[1024*16];

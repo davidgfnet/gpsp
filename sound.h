@@ -109,6 +109,19 @@ bool sound_read_savestate(const u8 *src);
 
 u32 sound_read_samples(s16 *out, u32 frames);
 
+// I/O write interface
+void iowrite_sndctl_x(u32 value);
+void iowrite_snd_noisectl(u32 value);
+void iowrite_snd_tone_sweep(u32 value);
+void iowrite_snd_wavctl(u32 value);
+u32 iowrite_snd_tonectl_low(u32 value, u32 chnum);
+u32 iowrite_snd_tonectl_high(u32 value, u32 chnum);
+void iowrite_snd_tonectlwav_low(u32 value);
+void iowrite_snd_tonectlwav_high(u32 value);
+void iowrite_sndwav_tbl();
+void iowrite_sndctl_low(u32 value);
+void iowrite_sndctl_high(u32 value);
+
 void reset_sound(void);
 
 #endif

@@ -31,6 +31,11 @@ static u32 sound_buffer_base;
 
 static fixed16_16 gbc_sound_tick_step;
 
+// If the GBC audio waveform is modified:
+u32 gbc_sound_wave_update = 0;
+
+static const u32 gbc_sound_wave_volume[4] = { 0, 16384, 8192, 4096 };
+
 /* Queue 4 samples to the top of the DS FIFO, wrap around circularly */
 
 void sound_timer_queue32(u32 channel, u32 value)
@@ -584,6 +589,189 @@ void init_sound()
   init_noise_table(noise_table7, 127, 6);
 
   reset_sound();
+}
+
+// I/O write interface
+
+void iowrite_sndctl_x(u32 value)
+{
+   render_gbc_sound();
+   if (value & 0x80)
+   {
+      if (sound_on != 1)
+         sound_on = 1;
+   }
+   else
+   {
+      u32 i;
+      for (i = 0; i < 4; i++)
+         gbc_sound_channel[i].active_flag = 0;
+      sound_on = 0;
+   }
+
+   value = (value & 0xFFF0) | (read_ioreg(REG_SOUNDCNT_X) & 0x000F);
+   write_ioreg(REG_SOUNDCNT_X, value);
+}
+
+void iowrite_snd_noisectl(u32 value)
+{
+  u32 dividing_ratio = value & 0x07;
+  u32 frequency_shift = (value >> 4) & 0x0F;
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+  if(dividing_ratio == 0)
+    gbc_sound_channel[3].frequency_step =
+     float_to_fp16_16(1048576.0 / (1 << (frequency_shift + 1)) / sound_frequency);
+  else
+    gbc_sound_channel[3].frequency_step =
+       float_to_fp16_16(524288.0 / (dividing_ratio *
+      (1 << (frequency_shift + 1))) / sound_frequency);
+
+  gbc_sound_channel[3].noise_type = (value >> 3) & 0x01;
+  gbc_sound_channel[3].length_status = (value >> 14) & 0x01;
+  if (value & 0x8000)
+  {
+    gbc_sound_channel[3].sample_index = 0;
+    gbc_sound_channel[3].active_flag = 1;
+    gbc_sound_channel[3].envelope_ticks =
+       gbc_sound_channel[3].envelope_initial_ticks;
+    gbc_sound_channel[3].envelope_volume =
+       gbc_sound_channel[3].envelope_initial_volume;
+  }
+  write_ioreg(REG_SOUND4CNT_H, value & 0x40FF);
+}
+
+void iowrite_snd_tone_sweep(u32 value)
+{
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+  value &= 0x007F;
+  u32 sweep_ticks = ((value >> 4) & 0x07) * 2;
+  gbc_sound_channel[0].sweep_shift = value & 0x07;
+  gbc_sound_channel[0].sweep_direction = (value >> 3) & 0x01;
+  gbc_sound_channel[0].sweep_status = (value != 8);
+  gbc_sound_channel[0].sweep_ticks = sweep_ticks;
+  gbc_sound_channel[0].sweep_initial_ticks = sweep_ticks;
+  write_ioreg(REG_SOUND1CNT_L, value);
+}
+
+void iowrite_snd_wavctl(u32 value)
+{
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+  gbc_sound_channel[2].wave_type = (value >> 5) & 0x01;
+  gbc_sound_channel[2].wave_bank = (value >> 6) & 0x01;
+  gbc_sound_channel[2].master_enable = 0;
+  if (value & 0x80)
+    gbc_sound_channel[2].master_enable = 1;
+
+  write_ioreg(REG_SOUND3CNT_L, value & 0x00E0);
+}
+
+u32 iowrite_snd_tonectl_low(u32 value, u32 chnum)
+{
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+  u32 initial_volume = (value >> 12) & 0x0F;
+  u32 envelope_ticks = ((value >> 8) & 0x07) * 4;
+  gbc_sound_channel[chnum].length_ticks = 64 - (value & 0x3F);
+  gbc_sound_channel[chnum].sample_table_idx = ((value >> 6) & 0x03);
+  gbc_sound_channel[chnum].envelope_direction = (value >> 11) & 0x01;
+  gbc_sound_channel[chnum].envelope_initial_volume = initial_volume;
+  gbc_sound_channel[chnum].envelope_volume = initial_volume;
+  gbc_sound_channel[chnum].envelope_initial_ticks = envelope_ticks;
+  gbc_sound_channel[chnum].envelope_ticks = envelope_ticks;
+  gbc_sound_channel[chnum].envelope_status = (envelope_ticks != 0);
+  gbc_sound_channel[chnum].envelope_volume = initial_volume;
+  return value;
+}
+
+u32 iowrite_snd_tonectl_high(u32 value, u32 chnum)
+{
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+  u32 rate = value & 0x7FF;
+  gbc_sound_channel[chnum].rate = rate;
+  gbc_sound_channel[chnum].frequency_step =
+     float_to_fp16_16(((131072.0 / (2048 - rate)) * 8.0) / sound_frequency);
+  gbc_sound_channel[chnum].length_status = (value >> 14) & 0x01;
+  if (value & 0x8000)
+  {
+    gbc_sound_channel[chnum].active_flag = 1;
+    gbc_sound_channel[chnum].sample_index -= float_to_fp16_16(1.0 / 12.0);
+    gbc_sound_channel[chnum].envelope_ticks =
+       gbc_sound_channel[chnum].envelope_initial_ticks;
+    gbc_sound_channel[chnum].envelope_volume =
+       gbc_sound_channel[chnum].envelope_initial_volume;
+  }
+  return value & 0x47FF;
+}
+
+
+void iowrite_snd_tonectlwav_low(u32 value)
+{
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+  gbc_sound_channel[2].length_ticks = 256 - (value & 0xFF);
+  if ((value >> 15) & 0x01)
+    gbc_sound_channel[2].wave_volume = 12288;
+  else
+    gbc_sound_channel[2].wave_volume = gbc_sound_wave_volume[(value >> 13) & 0x03];
+
+  write_ioreg(REG_SOUND3CNT_H, value);
+}
+
+void iowrite_snd_tonectlwav_high(u32 value)
+{
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+  u32 rate = value & 0x7FF;
+  gbc_sound_channel[2].rate = rate;
+  gbc_sound_channel[2].frequency_step =
+     float_to_fp16_16((2097152.0 / (2048 - rate)) / sound_frequency);
+  gbc_sound_channel[2].length_status = (value >> 14) & 0x01;
+  if(value & 0x8000)
+  {
+    gbc_sound_channel[2].sample_index = 0;
+    gbc_sound_channel[2].active_flag = 1;
+  }
+  write_ioreg(REG_SOUND3CNT_X, value);
+}
+
+void iowrite_sndwav_tbl() {
+  render_gbc_sound();
+  gbc_sound_wave_update = 1;
+}
+
+void iowrite_sndctl_low(u32 value)
+{
+   u32 channel;
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+
+   /* Trigger all 4 GBC sound channels */
+   for (channel = 0; channel < 4; channel++)
+   {
+      gbc_sound_master_volume_right = value & 0x07;
+      gbc_sound_master_volume_left = (value >> 4) & 0x07;
+      gbc_sound_channel[channel].status =
+        (((value >> (channel + 8)) & 0x1) | ((value >> (channel + 11)) & 0x3));
+   }
+   write_ioreg(REG_SOUNDCNT_L, value & 0xFF77);
+}
+
+
+void iowrite_sndctl_high(u32 value)
+{
+  render_gbc_sound();    // Force sample rendering before adjusting new values.
+  timer[0].direct_sound_channels =
+      ((((value >> 10) & 0x01) == 0) | ((((value >> 14) & 0x01) == 0) << 1));
+  timer[1].direct_sound_channels =
+      ((((value >> 10) & 0x01) == 1) | ((((value >> 14) & 0x01) == 1) << 1));
+  direct_sound_channel[0].volume_halve = ((~(value >> 2)) & 0x01);
+  direct_sound_channel[0].status = ((value >> 8) & 0x03);
+  direct_sound_channel[1].volume_halve = ((~(value >> 3)) & 0x01);
+  direct_sound_channel[1].status = ((value >> 12) & 0x03);
+  gbc_sound_master_volume = value & 0x03;
+
+  if (value & 0x0800)
+    sound_reset_fifo(0);
+  if (value & 0x8000)
+    sound_reset_fifo(1);
+
+  write_ioreg(REG_SOUNDCNT_H, value & 0x770F);
 }
 
 

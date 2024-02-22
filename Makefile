@@ -510,16 +510,24 @@ ifeq ($(MMAP_JIT_CACHE), 1)
 CFLAGS += -DMMAP_JIT_CACHE
 endif
 
-# Add -DTRACE_EVENTS to trace relevant events (IRQs, SMC, etc)
-# Add -DTRACE_INSTRUCTIONS to trace instruction execution
-# Can add -DTRACE_REGISTERS to additionally print register values
 ifeq ($(DEBUG), 1)
 	OPTIMIZE      := -O0 -g
 else
 	OPTIMIZE      := -O3 -DNDEBUG
 endif
 
-DEFINES := -DHAVE_STRINGS_H -DHAVE_STDINT_H -DHAVE_INTTYPES_H -D__LIBRETRO__ -DINLINE=inline -Wall
+# CPU tracing options, specify them using "trace=foo"
+# Add -DTRACE_EVENTS to trace relevant events (IRQs, SMC, etc)
+# Add -DTRACE_INSTRUCTIONS to trace instruction execution
+# Can add -DTRACE_REGISTERS to additionally print register values
+ifneq (,$(findstring cpu,$(trace)))
+   TRACE_DEF += -DTRACE_INSTRUCTIONS
+endif
+ifneq (,$(findstring regs,$(trace)))
+   TRACE_DEF += -DTRACE_REGISTERS
+endif
+
+DEFINES := -DHAVE_STRINGS_H -DHAVE_STDINT_H -DHAVE_INTTYPES_H -D__LIBRETRO__ -DINLINE=inline -Wall $(TRACE_DEF)
 
 ifeq ($(HAVE_DYNAREC), 1)
 DEFINES += -DHAVE_DYNAREC

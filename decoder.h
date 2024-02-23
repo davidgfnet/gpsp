@@ -181,5 +181,11 @@ public:
   u16 rlist() const {
     return opcode & 0xFFFF;   // Reg list for STM/LDM
   }
+  u32 off12() const {
+    return opcode & 0xFFF;
+  }
+  u32 off8() const {
+    return ((opcode >> 4) & 0xF0) | (opcode & 0x0F);
+  }
 };
 

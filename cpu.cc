@@ -642,8 +642,11 @@ inline cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
 // Excutes an LDM/STM instruction
 
 template<AccMode mode, bool writeback, bool sbit, AddrMode addr_mode>
-inline cpu_alert_type arm_block_mem(u32 rn, u32 reglist, s32 &cyccnt) {
+inline cpu_alert_type arm_block_mem(const ARMInst &it, s32 &cyccnt) {
   cpu_alert_type cpu_alert = CPU_ALERT_NONE;
+  u32 rn = it.rn();
+  u32 reglist = it.rlist();
+
   // Register register usage stats.
   using_register(arm, rn, memory_base);
   using_register_list(arm, reglist, 16);
@@ -1313,13 +1316,696 @@ cpu_alert_type execute_thumb_instruction(u16 opcode16, s32 &cyccnt) {
 }
 
 
+cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
+   const ARMInst inst(opcode);
+   switch (inst.op8()) {
+      case 0x00:
+         if((opcode & 0x90) == 0x90) {
+            if(opcode & 0x20) /* STRH rd, [rn], -rm */
+               return arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+            else    /* MUL rd, rm, rs */
+               arm_mul32<FlagsIgnore, MulReg>(inst);
+         }
+         else  /* AND rd, rn, reg_op */
+            return arm_logic<LgcAnd, FlagsIgnore, Op2Reg>(inst);
+         break;
+
+      case 0x01:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 0:
+                  arm_mul32<FlagsSet, MulReg>(inst);
+                  break;
+               case 1:   /* LDRH rd, [rn], -rm */
+                  return arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn], -rm */
+                  return arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn], -rm */
+                  return arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+            }
+         else  /* ANDS rd, rn, reg_op */
+            return arm_logic<LgcAnd, FlagsSet, Op2Reg>(inst);
+         break;
+
+      case 0x02:
+         if((opcode & 0x90) == 0x90) {
+            if(opcode & 0x20) /* STRH rd, [rn], -rm */
+               return arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+            else              /* MLA rd, rm, rs, rn */
+               arm_mul32<FlagsIgnore, MulAdd>(inst);
+         }
+         else  /* EOR rd, rn, reg_op */
+            return arm_logic<LgcXor, FlagsIgnore, Op2Reg>(inst);
+         break;
+
+      case 0x03:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 0:   /* MLAS rd, rm, rs, rn */
+                  arm_mul32<FlagsSet, MulAdd>(inst);
+                  break;
+               case 1:   /* LDRH rd, [rn], -rm */
+                  return arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn], -rm */
+                  return arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn], -rm */
+                  return arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+            }
+         else  /* EORS rd, rn, reg_op */
+            return arm_logic<LgcXor, FlagsSet, Op2Reg>(inst);
+         break;
+
+      case 0x04:
+         if((opcode & 0x90) == 0x90)    /* STRH rd, [rn], -imm */
+            return arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+         else                           /* SUB rd, rn, reg_op */
+            return arm_sub<FlagsIgnore, Op2Reg, OpDirect, true>(inst, true);
+
+      case 0x05:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn], -imm */
+                  return arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn], -imm */
+                  return arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn], -imm */
+                  return arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+            }
+         else  /* SUBS rd, rn, reg_op */
+            return arm_sub<FlagsSet, Op2Reg, OpDirect, true>(inst, true);
+         break;
+
+      case 0x06:
+         if((opcode & 0x90) == 0x90)    /* STRH rd, [rn], -imm */
+            return arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+         else                           /* RSB rd, rn, reg_op */
+            return arm_sub<FlagsIgnore, Op2Reg, OpReverse, true>(inst, true);
+
+      case 0x07:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn], -imm */
+                  return arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn], -imm */
+                  return arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn], -imm */
+                  return arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+            }
+         else  /* RSBS rd, rn, reg_op */
+            return arm_sub<FlagsSet, Op2Reg, OpReverse, true>(inst, true);
+         break;
+
+      case 0x08:
+         if((opcode & 0x90) == 0x90) {
+            if(opcode & 0x20)      /* STRH rd, [rn], +rm */
+               return arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+            else                   /* UMULL rd, rm, rs */
+               arm_mul64<FlagsIgnore, MulReg, SiUnsigned>(inst);
+         }
+         else  /* ADD rd, rn, reg_op */
+            return arm_add<FlagsIgnore, Op2Reg, true>(inst, false);
+         break;
+
+      case 0x09:
+         if((opcode & 0x90) == 0x90) {
+            switch((opcode >> 5) & 0x03) {
+               case 0:   /* UMULLS rdlo, rdhi, rm, rs */
+                  arm_mul64<FlagsSet, MulReg, SiUnsigned>(inst);
+                  break;
+               case 1:   /* LDRH rd, [rn], +rm */
+                  return arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn], +rm */
+                  return arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn], +rm */
+                  return arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+            }
+         }
+         else  /* ADDS rd, rn, reg_op */
+            return arm_add<FlagsSet, Op2Reg, true>(inst, false);
+         break;
+
+      case 0x0A:
+         if((opcode & 0x90) == 0x90) {
+            if(opcode & 0x20)      /* STRH rd, [rn], +rm */
+               return arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+            else    /* UMLAL rd, rm, rs */
+               arm_mul64<FlagsIgnore, MulAdd, SiUnsigned>(inst);
+         }
+         else  /* ADC rd, rn, reg_op */
+            return arm_add<FlagsIgnore, Op2Reg, true>(inst, isset_flag<FLAG_C>());
+         break;
+
+      case 0x0B:
+         if((opcode & 0x90) == 0x90) {
+            switch((opcode >> 5) & 0x03) {
+               case 0:   /* UMLALS rdlo, rdhi, rm, rs */
+                  arm_mul64<FlagsSet, MulAdd, SiUnsigned>(inst);
+                  break;
+               case 1:   /* LDRH rd, [rn], +rm */
+                  return arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn], +rm */
+                  return arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn], +rm */
+                  return arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+            }
+         }
+         else  /* ADCS rd, rn, reg_op */
+            return arm_add<FlagsSet, Op2Reg, true>(inst, isset_flag<FLAG_C>());
+         break;
+
+      case 0x0C:
+         if((opcode & 0x90) == 0x90) {
+            if(opcode & 0x20)      /* STRH rd, [rn], +imm */
+               return arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+            else                   /* SMULL rd, rm, rs */
+               arm_mul64<FlagsIgnore, MulReg, SiSigned>(inst);
+         }
+         else  /* SBC rd, rn, reg_op */
+            return arm_sub<FlagsIgnore, Op2Reg, OpDirect, true>(inst, isset_flag<FLAG_C>());
+         break;
+
+      case 0x0D:
+         if((opcode & 0x90) == 0x90) {
+            switch((opcode >> 5) & 0x03) {
+               case 0:   /* SMULLS rdlo, rdhi, rm, rs */
+                  arm_mul64<FlagsSet, MulReg, SiSigned>(inst);
+                  break;
+               case 1:   /* LDRH rd, [rn], +imm */
+                  return arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn], +imm */
+                  return arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn], +imm */
+                  return arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+            }
+         }
+         else  /* SBCS rd, rn, reg_op */
+            return arm_sub<FlagsSet, Op2Reg, OpDirect, true>(inst, isset_flag<FLAG_C>());
+         break;
+
+      case 0x0E:
+         if((opcode & 0x90) == 0x90)
+         {
+            if(opcode & 0x20)      /* STRH rd, [rn], +imm */
+               return arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+            else                   /* SMLAL rd, rm, rs */
+               arm_mul64<FlagsIgnore, MulAdd, SiSigned>(inst);
+         }
+         else  /* RSC rd, rn, reg_op */
+            return arm_sub<FlagsIgnore, Op2Reg, OpReverse, true>(inst, isset_flag<FLAG_C>());
+         break;
+
+      case 0x0F:
+         if((opcode & 0x90) == 0x90) {
+            switch((opcode >> 5) & 0x03) {
+               case 0:   /* SMLALS rdlo, rdhi, rm, rs */
+                  arm_mul64<FlagsSet, MulAdd, SiSigned>(inst);
+                  break;
+               case 1:   /* LDRH rd, [rn], +imm */
+                  return arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn], +imm */
+                  return arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn], +imm */
+                  return arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+            }
+         }
+         else  /* RSCS rd, rn, reg_op */
+            return arm_sub<FlagsSet, Op2Reg, OpReverse, true>(inst, isset_flag<FLAG_C>());
+         break;
+
+      case 0x10:
+         if((opcode & 0x90) == 0x90) {
+            if(opcode & 0x20)      /* STRH rd, [rn - rm] */
+               return arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
+            else                   /* SWP rd, rm, [rn] */
+               return arm_swap<u32>(inst, cyccnt);
+         }
+         else {/* MRS rd, cpsr */
+            reg[inst.rd()] = reg[REG_CPSR];
+            arm_pc_offset(4);
+         }
+         break;
+
+      case 0x11:
+         if((opcode & 0x90) == 0x90) {
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn - rm] */
+                  return arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn - rm] */
+                  return arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn - rm] */
+                  return arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
+            }
+         }
+         else  /* TST rd, rn, reg_op */
+            arm_logic_test<LgcAnd, Op2Reg>(inst);
+         break;
+
+      case 0x12:
+         if((opcode & 0x90) == 0x90)    /* STRH rd, [rn - rm]! */
+            return arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
+         else {
+            if(opcode & 0x10) {
+               /* BX rn */
+               u32 newpc = reg[inst.rm()];
+               if (newpc & 0x01) {
+                  reg[REG_PC] = newpc - 1;
+                  reg[REG_CPSR] |= 0x20;
+               }
+               else {
+                  reg[REG_PC] = newpc;
+               }
+               cyccnt -= ws_cyc_nseq[reg[REG_PC] >> 24][1];
+            }
+            else  /* MSR cpsr, rm */
+               return cpsr_write(inst, reg[inst.rm()]);
+         }
+         break;
+
+      case 0x13:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn - rm]! */
+                  return arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn - rm]! */
+                  return arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn - rm]! */
+                  return arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
+            }
+         else  /* TEQ rd, rn, reg_op */
+            arm_logic_test<LgcXor, Op2Reg>(inst);
+         break;
+
+      case 0x14:
+         if((opcode & 0x90) == 0x90) {
+            if(opcode & 0x20)      /* STRH rd, [rn - imm] */
+               return arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
+            else                   /* SWPB rd, rm, [rn] */
+               return arm_swap<u8>(inst, cyccnt);
+         }
+         else {/* MRS rd, spsr */
+            reg[inst.rd()] = REG_SPSR(reg[CPU_MODE]);
+            arm_pc_offset(4);
+         }
+         break;
+
+      case 0x15:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn - imm] */
+                  return arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn - imm] */
+                  return arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn - imm] */
+                  return arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
+            }
+         else  /* CMP rn, reg_op */
+            arm_sub<FlagsSet, Op2Reg, OpDirect, false>(inst, true);
+         break;
+
+      case 0x16:
+         if((opcode & 0x90) == 0x90)    /* STRH rd, [rn - imm]! */
+            return arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
+         else                           /* MSR spsr, rm */
+            spsr_write(inst, reg[inst.rm()]);
+         break;
+
+      case 0x17:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn - imm]! */
+                  return arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn - imm]! */
+                  return arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn - imm]! */
+                  return arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
+            }
+         else  /* CMN rd, rn, reg_op */
+            arm_add<FlagsSet, Op2Reg, false>(inst, false);
+         break;
+
+      case 0x18:
+         if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + rm] */
+            return arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
+         else                           /* ORR rd, rn, reg_op */
+            return arm_logic<LgcOrr, FlagsIgnore, Op2Reg>(inst);
+
+      case 0x19:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn + rm] */
+                  return arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn + rm] */
+                  return arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn + rm] */
+                  return arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
+            }
+         else  /* ORRS rd, rn, reg_op */
+            return arm_logic<LgcOrr, FlagsSet, Op2Reg>(inst);
+         break;
+
+      case 0x1A:
+         if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + rm]! */
+            return arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
+         else                           /* MOV rd, reg_op */
+            return arm_logic<LgcMov, FlagsIgnore, Op2Reg>(inst);
+
+      case 0x1B:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn + rm]! */
+                  return arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn + rm]! */
+                  return arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn + rm]! */
+                  return arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
+            }
+         else  /* MOVS rd, reg_op */
+            return arm_logic<LgcMov, FlagsSet, Op2Reg>(inst);
+         break;
+
+      case 0x1C:
+         if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + imm] */
+            return arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
+         else  /* BIC rd, rn, reg_op */
+            return arm_logic<LgcBic, FlagsIgnore, Op2Reg>(inst);
+
+      case 0x1D:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn + imm] */
+                  return arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn + imm] */
+                  return arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn + imm] */
+                  return arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
+            }
+         else  /* BICS rd, rn, reg_op */
+            return arm_logic<LgcBic, FlagsSet, Op2Reg>(inst);
+         break;
+
+      case 0x1E:
+         if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + imm]! */
+            return arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
+         else  /* MVN rd, reg_op */
+            return arm_logic<LgcNot, FlagsIgnore, Op2Reg>(inst);
+
+      case 0x1F:
+         if((opcode & 0x90) == 0x90)
+            switch((opcode >> 5) & 0x03) {
+               case 1:   /* LDRH rd, [rn + imm]! */
+                  return arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
+               case 2:   /* LDRSB rd, [rn + imm]! */
+                  return arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
+               case 3:   /* LDRSH rd, [rn + imm]! */
+                  return arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
+            }
+         else  /* MVNS rd, rn, reg_op */
+            return arm_logic<LgcNot, FlagsSet, Op2Reg>(inst);
+         break;
+
+      case 0x20:         /* AND rd, rn, imm */
+         return arm_logic<LgcAnd, FlagsIgnore, Op2Imm>(inst);
+      case 0x21:         /* ANDS rd, rn, imm */
+         return arm_logic<LgcAnd, FlagsSet, Op2Imm>(inst);
+      case 0x22:         /* EOR rd, rn, imm */
+         return arm_logic<LgcXor, FlagsIgnore, Op2Imm>(inst);
+      case 0x23:         /* EORS rd, rn, imm */
+         return arm_logic<LgcXor, FlagsSet, Op2Imm>(inst);
+      case 0x24:         /* SUB rd, rn, imm */
+         return arm_sub<FlagsIgnore, Op2Imm, OpDirect, true>(inst, true);
+      case 0x25:         /* SUBS rd, rn, imm */
+         return arm_sub<FlagsSet, Op2Imm, OpDirect, true>(inst, true);
+      case 0x26:         /* RSB rd, rn, imm */
+         return arm_sub<FlagsIgnore, Op2Imm, OpReverse, true>(inst, true);
+      case 0x27:         /* RSBS rd, rn, imm */
+         return arm_sub<FlagsSet, Op2Imm, OpReverse, true>(inst, true);
+      case 0x28:         /* ADD rd, rn, imm */
+         return arm_add<FlagsIgnore, Op2Imm, true>(inst, false);
+      case 0x29:         /* ADDS rd, rn, imm */
+         return arm_add<FlagsSet, Op2Imm, true>(inst, false);
+      case 0x2A:         /* ADC rd, rn, imm */
+         return arm_add<FlagsIgnore, Op2Imm, true>(inst, isset_flag<FLAG_C>());
+      case 0x2B:         /* ADCS rd, rn, imm */
+         return arm_add<FlagsSet, Op2Imm, true>(inst, isset_flag<FLAG_C>());
+      case 0x2C:         /* SBC rd, rn, imm */
+         return arm_sub<FlagsIgnore, Op2Imm, OpDirect, true>(inst, isset_flag<FLAG_C>());
+      case 0x2D:         /* SBCS rd, rn, imm */
+         return arm_sub<FlagsSet, Op2Imm, OpDirect, true>(inst, isset_flag<FLAG_C>());
+      case 0x2E:         /* RSC rd, rn, imm */
+         return arm_sub<FlagsIgnore, Op2Imm, OpReverse, true>(inst, isset_flag<FLAG_C>());
+      case 0x2F:         /* RSCS rd, rn, imm */
+         return arm_sub<FlagsSet, Op2Imm, OpReverse, true>(inst, isset_flag<FLAG_C>());
+      case 0x30 ... 0x31:  /* TST rn, imm */
+         arm_logic_test<LgcAnd, Op2Imm>(inst);
+         break;
+      case 0x32:         /* MSR cpsr, imm */
+         return cpsr_write(inst, inst.rot_imm8());
+      case 0x33:         /* TEQ rn, imm */
+         arm_logic_test<LgcXor, Op2Imm>(inst);
+         break;
+      case 0x34 ... 0x35:    /* CMP rn, imm */
+         arm_sub<FlagsSet, Op2Imm, OpDirect, false>(inst, true);
+         break;
+      case 0x36:         /* MSR spsr, imm */
+         spsr_write(inst, inst.rot_imm8());
+         break;
+      case 0x37:         /* CMN rn, imm */
+         return arm_add<FlagsSet, Op2Imm, false>(inst, false);
+      case 0x38:         /* ORR rd, rn, imm */
+         return arm_logic<LgcOrr, FlagsIgnore, Op2Imm>(inst);
+      case 0x39:         /* ORRS rd, rn, imm */
+         return arm_logic<LgcOrr, FlagsSet, Op2Imm>(inst);
+      case 0x3A:         /* MOV rd, imm */
+         return arm_logic<LgcMov, FlagsIgnore, Op2Imm>(inst);
+      case 0x3B:         /* MOVS rd, imm */
+         return arm_logic<LgcMov, FlagsSet, Op2Imm>(inst);
+      case 0x3C:         /* BIC rd, rn, imm */
+         return arm_logic<LgcBic, FlagsIgnore, Op2Imm>(inst);
+      case 0x3D:         /* BICS rd, rn, imm */
+         return arm_logic<LgcBic, FlagsSet, Op2Imm>(inst);
+      case 0x3E:         /* MVN rd, imm */
+         return arm_logic<LgcNot, FlagsIgnore, Op2Imm>(inst);
+      case 0x3F:         /* MVNS rd, imm */
+         return arm_logic<LgcNot, FlagsSet, Op2Imm>(inst);
+
+      /* Load/Store with immediate post increment/decrement (byte and word) */
+      case 0x40: case 0x42:   /* STR/STRT rd, [rn], -imm */
+         return arm_memop<AccStore, u32, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
+      case 0x41: case 0x43:   /* LDR/LDRT rd, [rn], -imm */
+         return arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
+      case 0x44: case 0x46:   /* STRB/STRBT rd, [rn], -imm */
+         return arm_memop<AccStore, u8, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
+      case 0x45: case 0x47:   /* LDRB/LDRBT rd, [rn], -imm */
+         return arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
+      case 0x48: case 0x4A:   /* STR/STRT rd, [rn], +imm */
+         return arm_memop<AccStore, u32, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
+      case 0x49: case 0x4B:   /* LDR/LDRT rd, [rn], +imm */
+         return arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
+      case 0x4C: case 0x4E:   /* STRB/STRBT rd, [rn], +imm */
+         return arm_memop<AccStore, u8, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
+      case 0x4D: case 0x4F:   /* LDRB/LDRBT rd, [rn], +imm */
+         return arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
+
+      /* Load/Store with optional immediate pre increment/decrement (byte and word) */
+      case 0x50:              /* STR rd, [rn - imm] */
+         return arm_memop<AccStore, u32, Op2MinusImm, MemIdxPre>(inst, cyccnt);
+      case 0x51:              /* LDR rd, [rn - imm] */
+         return arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPre>(inst, cyccnt);
+      case 0x52:              /* STR rd, [rn - imm]! */
+         return arm_memop<AccStore, u32, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
+      case 0x53:              /* LDR rd, [rn - imm]! */
+         return arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
+      case 0x54:              /* STRB rd, [rn - imm] */
+         return arm_memop<AccStore, u8, Op2MinusImm, MemIdxPre>(inst, cyccnt);
+      case 0x55:              /* LDRB rd, [rn - imm] */
+         return arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPre>(inst, cyccnt);
+      case 0x56:              /* STRB rd, [rn - imm]! */
+         return arm_memop<AccStore, u8, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
+      case 0x57:              /* LDRB rd, [rn - imm]! */
+         return arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
+
+      case 0x58:              /* STR rd, [rn + imm] */
+         return arm_memop<AccStore, u32, Op2PlusImm, MemIdxPre>(inst, cyccnt);
+      case 0x59:              /* LDR rd, [rn + imm] */
+         return arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPre>(inst, cyccnt);
+      case 0x5A:              /* STR rd, [rn + imm]! */
+         return arm_memop<AccStore, u32, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
+      case 0x5B:              /* LDR rd, [rn + imm]! */
+         return arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
+      case 0x5C:              /* STRB rd, [rn + imm] */
+         return arm_memop<AccStore, u8, Op2PlusImm, MemIdxPre>(inst, cyccnt);
+      case 0x5D:              /* LDRB rd, [rn + imm] */
+         return arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPre>(inst, cyccnt);
+      case 0x5E:              /* STRB rd, [rn + imm]! */
+         return arm_memop<AccStore, u8, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
+      case 0x5F:              /* LDRB rd, [rn + imm]! */
+         return arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
+
+      /* Load/Store with shifted-reg post increment/decrement (byte and word) */
+      case 0x60: case 0x62:  /* STR/STRT rd, [rn], -reg_op */
+         return arm_memop<AccStore, u32, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
+      case 0x61: case 0x63:   /* LDR rd, [rn], -reg_op */
+         return arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
+      case 0x64: case 0x66:   /* STRB/STRBT rd, [rn], -reg_op */
+         return arm_memop<AccStore, u8, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
+      case 0x65: case 0x67:   /* LDRB/LDRBT rd, [rn], -reg_op */
+         return arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
+
+      case 0x68: case 0x6A:   /* STR/STRT rd, [rn], +reg_op */
+         return arm_memop<AccStore, u32, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
+      case 0x69: case 0x6B:   /* LDR/LDRT rd, [rn], +reg_op */
+         return arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
+      case 0x6C: case 0x6E:   /* STRB/STRBT rd, [rn], +reg_op */
+         return arm_memop<AccStore, u8, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
+      case 0x6D: case 0x6F:   /* LDRB/LDRBT rd, [rn], +reg_op */
+         return arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
+
+      /* Load/Store with optional shifted-reg pre increment/decrement (byte and word) */
+      case 0x70:              /* STR rd, [rn - reg_op] */
+         return arm_memop<AccStore, u32, Op2MinusReg, MemIdxPre>(inst, cyccnt);
+      case 0x71:              /* LDR rd, [rn - reg_op] */
+         return arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPre>(inst, cyccnt);
+      case 0x72:              /* STR rd, [rn - reg_op]! */
+         return arm_memop<AccStore, u32, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
+      case 0x73:              /* LDR rd, [rn - reg_op]! */
+         return arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
+      case 0x74:              /* STRB rd, [rn - reg_op] */
+         return arm_memop<AccStore, u8, Op2MinusReg, MemIdxPre>(inst, cyccnt);
+      case 0x75:              /* LDRB rd, [rn - reg_op] */
+         return arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPre>(inst, cyccnt);
+      case 0x76:              /* STRB rd, [rn - reg_op]! */
+         return arm_memop<AccStore, u8, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
+      case 0x77:              /* LDRB rd, [rn - reg_op]! */
+         return arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
+
+      case 0x78:              /* STR rd, [rn + reg_op] */
+         return arm_memop<AccStore, u32, Op2PlusReg, MemIdxPre>(inst, cyccnt);
+      case 0x79:              /* LDR rd, [rn + reg_op] */
+         return arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPre>(inst, cyccnt);
+      case 0x7A:              /* STR rd, [rn + reg_op]! */
+         return arm_memop<AccStore, u32, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
+      case 0x7B:              /* LDR rd, [rn + reg_op]! */
+         return arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
+      case 0x7C:              /* STRB rd, [rn + reg_op] */
+         return arm_memop<AccStore, u8, Op2PlusReg, MemIdxPre>(inst, cyccnt);
+      case 0x7D:              /* LDRB rd, [rn + reg_op] */
+         return arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPre>(inst, cyccnt);
+      case 0x7E:              /* STRB rd, [rn + reg_op]! */
+         return arm_memop<AccStore, u8, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
+      case 0x7F:              /* LDRB rd, [rn + reg_op]! */
+         return arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
+
+      /* STM instructions: STMDA, STMIA, STMDB, STMIB */
+
+      case 0x80:   /* STMDA rn, rlist */
+        return arm_block_mem<AccStore, false, false, AddrPostDec>(inst, cyccnt);
+      case 0x88:   /* STMIA rn, rlist */
+        return arm_block_mem<AccStore, false, false, AddrPostInc>(inst, cyccnt);
+      case 0x90:   /* STMDB rn, rlist */
+        return arm_block_mem<AccStore, false, false, AddrPreDec>(inst, cyccnt);
+      case 0x98:   /* STMIB rn, rlist */
+        return arm_block_mem<AccStore, false, false, AddrPreInc>(inst, cyccnt);
+
+      case 0x82:   /* STMDA rn!, rlist */
+        return arm_block_mem<AccStore, true, false, AddrPostDec>(inst, cyccnt);
+      case 0x8A:   /* STMIA rn!, rlist */
+        return arm_block_mem<AccStore, true, false, AddrPostInc>(inst, cyccnt);
+      case 0x92:   /* STMDB rn!, rlist */
+        return arm_block_mem<AccStore, true, false, AddrPreDec>(inst, cyccnt);
+      case 0x9A:   /* STMIB rn!, rlist */
+        return arm_block_mem<AccStore, true, false, AddrPreInc>(inst, cyccnt);
+
+      case 0x84:   /* STMDA rn, rlist^ */
+        return arm_block_mem<AccStore, false, true, AddrPostDec>(inst, cyccnt);
+      case 0x8C:   /* STMIA rn, rlist^ */
+        return arm_block_mem<AccStore, false, true, AddrPostInc>(inst, cyccnt);
+      case 0x94:   /* STMDB rn, rlist^ */
+        return arm_block_mem<AccStore, false, true, AddrPreDec>(inst, cyccnt);
+      case 0x9C:   /* STMIB rn, rlist^ */
+        return arm_block_mem<AccStore, false, true, AddrPreInc>(inst, cyccnt);
+
+      case 0x86:   /* STMDA rn!, rlist^ */
+        return arm_block_mem<AccStore, true, true, AddrPostDec>(inst, cyccnt);
+      case 0x8E:   /* STMIA rn!, rlist^ */
+        return arm_block_mem<AccStore, true, true, AddrPostInc>(inst, cyccnt);
+      case 0x96:   /* STMDB rn!, rlist^ */
+        return arm_block_mem<AccStore, true, true, AddrPreDec>(inst, cyccnt);
+      case 0x9E:   /* STMIB rn!, rlist^ */
+        return arm_block_mem<AccStore, true, true, AddrPreInc>(inst, cyccnt);
+
+      /* LDM instructions: LDMDA, LDMIA, LDMDB, LDMIB */
+
+      case 0x81:   /* LDMDA rn, rlist */
+        return arm_block_mem<AccLoad, false, false, AddrPostDec>(inst, cyccnt);
+      case 0x89:   /* LDMIA rn, rlist */
+        return arm_block_mem<AccLoad, false, false, AddrPostInc>(inst, cyccnt);
+      case 0x91:   /* LDMDB rn, rlist */
+        return arm_block_mem<AccLoad, false, false, AddrPreDec>(inst, cyccnt);
+      case 0x99:   /* LDMIB rn, rlist */
+        return arm_block_mem<AccLoad, false, false, AddrPreInc>(inst, cyccnt);
+
+      case 0x83:   /* LDMDA rn!, rlist */
+        return arm_block_mem<AccLoad, true, false, AddrPostDec>(inst, cyccnt);
+      case 0x8B:   /* LDMIA rn!, rlist */
+        return arm_block_mem<AccLoad, true, false, AddrPostInc>(inst, cyccnt);
+      case 0x93:   /* LDMDB rn!, rlist */
+        return arm_block_mem<AccLoad, true, false, AddrPreDec>(inst, cyccnt);
+      case 0x9B:   /* LDMIB rn!, rlist */
+        return arm_block_mem<AccLoad, true, false, AddrPreInc>(inst, cyccnt);
+
+      case 0x85:   /* LDMDA rn, rlist^ */
+        return arm_block_mem<AccLoad, false, true, AddrPostDec>(inst, cyccnt);
+      case 0x8D:   /* LDMIA rn, rlist^ */
+        return arm_block_mem<AccLoad, false, true, AddrPostInc>(inst, cyccnt);
+      case 0x95:   /* LDMDB rn, rlist^ */
+        return arm_block_mem<AccLoad, false, true, AddrPreDec>(inst, cyccnt);
+      case 0x9D:   /* LDMIB rn, rlist^ */
+        return arm_block_mem<AccLoad, false, true, AddrPreInc>(inst, cyccnt);
+
+      case 0x87:   /* LDMDA rn!, rlist^ */
+        return arm_block_mem<AccLoad, true, true, AddrPostDec>(inst, cyccnt);
+      case 0x8F:   /* LDMIA rn!, rlist^ */
+        return arm_block_mem<AccLoad, true, true, AddrPostInc>(inst, cyccnt);
+      case 0x97:   /* LDMDB rn!, rlist^ */
+        return arm_block_mem<AccLoad, true, true, AddrPreDec>(inst, cyccnt);
+      case 0x9F:   /* LDMIB rn!, rlist^ */
+        return arm_block_mem<AccLoad, true, true, AddrPreInc>(inst, cyccnt);
+
+
+      case 0xA0 ... 0xAF:          /* B offset */
+         reg[REG_PC] += inst.br_offset() + 8;
+         cyccnt -= ws_cyc_nseq[reg[REG_PC] >> 24][1];
+         break;
+      case 0xB0 ... 0xBF:          /* BL offset */
+         reg[REG_LR] = reg[REG_PC] + 4;
+         reg[REG_PC] += inst.br_offset() + 8;
+         cyccnt -= ws_cyc_nseq[reg[REG_PC] >> 24][1];
+         break;
+
+#ifdef HAVE_UNUSED
+      case 0xC0 ... 0xEF:
+         /* coprocessor instructions, reserved on GBA */
+         break;
+#endif
+
+      case 0xF0 ... 0xFF:
+        reg[REG_BUS_VALUE] = 0xe3a02004;  // After SWI, we read bios[0xE4]
+        REG_MODE(MODE_SUPERVISOR)[6] = reg[REG_PC] + 4;
+        REG_SPSR(MODE_SUPERVISOR) = reg[REG_CPSR];
+        reg[REG_PC] = 0x00000008;
+        // Move to ARM mode, Supervisor mode and disable IRQs
+        reg[REG_CPSR] = (reg[REG_CPSR] & ~0x3F) | 0x13 | 0x80;
+        set_cpu_mode(MODE_SUPERVISOR);
+        break;
+   }
+   return CPU_ALERT_NONE;
+}
+
 void execute_arm(u32 cycles)
 {
-  u32 opcode;
   u32 pc_region = ~0U;
   u8 *pc_address_block = NULL;
   s32 cyccnt;
-  cpu_alert_type cpu_alert;
 
   // Reload cycle counter
   cyccnt = cycles;
@@ -1335,8 +2021,6 @@ void execute_arm(u32 cycles)
        cyccnt = cycles_to_run(ret);
     }
 
-    cpu_alert = CPU_ALERT_NONE;
-
     if(reg[REG_CPSR] & 0x20)
       goto thumb_loop;
 
@@ -1351,899 +2035,23 @@ arm_loop:
        using_instruction(arm);
        check_pc_region();
        reg[REG_PC] &= ~0x03;
-       opcode = readaddress32(pc_address_block, (reg[REG_PC] & 0x7FFF));
 
-       ARMInst inst(opcode);
-       if (arm_null_inst(inst)) {
-         arm_pc_offset(4);
-         goto skip_instruction;
-       }
-
-       #ifdef TRACE_INSTRUCTIONS
-       interp_trace_instruction(reg[REG_PC], 1);
-       #endif
-
-       switch (inst.op8()) {
-          case 0x00:
-             if((opcode & 0x90) == 0x90) {
-                if(opcode & 0x20) /* STRH rd, [rn], -rm */
-                   cpu_alert = arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
-                else    /* MUL rd, rm, rs */
-                   arm_mul32<FlagsIgnore, MulReg>(inst);
-             }
-             else  /* AND rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcAnd, FlagsIgnore, Op2Reg>(inst);
-             break;
-
-          case 0x01:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 0:
-                      arm_mul32<FlagsSet, MulReg>(inst);
-                      break;
-                   case 1:   /* LDRH rd, [rn], -rm */
-                      arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn], -rm */
-                      arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn], -rm */
-                      arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                }
-             else  /* ANDS rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcAnd, FlagsSet, Op2Reg>(inst);
-             break;
-
-          case 0x02:
-             if((opcode & 0x90) == 0x90) {
-                if(opcode & 0x20) /* STRH rd, [rn], -rm */
-                   cpu_alert = arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
-                else              /* MLA rd, rm, rs, rn */
-                   arm_mul32<FlagsIgnore, MulAdd>(inst);
-             }
-             else  /* EOR rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcXor, FlagsIgnore, Op2Reg>(inst);
-             break;
-
-          case 0x03:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 0:   /* MLAS rd, rm, rs, rn */
-                      arm_mul32<FlagsSet, MulAdd>(inst);
-                      break;
-                   case 1:   /* LDRH rd, [rn], -rm */
-                      arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn], -rm */
-                      arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn], -rm */
-                      arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                }
-             else  /* EORS rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcXor, FlagsSet, Op2Reg>(inst);
-             break;
-
-          case 0x04:
-             if((opcode & 0x90) == 0x90)    /* STRH rd, [rn], -imm */
-                cpu_alert = arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
-             else                           /* SUB rd, rn, reg_op */
-                cpu_alert = arm_sub<FlagsIgnore, Op2Reg, OpDirect, true>(inst, true);
-             break;
-
-          case 0x05:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn], -imm */
-                      arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn], -imm */
-                      arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn], -imm */
-                      arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                }
-             else  /* SUBS rd, rn, reg_op */
-                cpu_alert = arm_sub<FlagsSet, Op2Reg, OpDirect, true>(inst, true);
-             break;
-
-          case 0x06:
-             if((opcode & 0x90) == 0x90)    /* STRH rd, [rn], -imm */
-                cpu_alert = arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
-             else                           /* RSB rd, rn, reg_op */
-                cpu_alert = arm_sub<FlagsIgnore, Op2Reg, OpReverse, true>(inst, true);
-             break;
-
-          case 0x07:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn], -imm */
-                      arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn], -imm */
-                      arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn], -imm */
-                      arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                }
-             else  /* RSBS rd, rn, reg_op */
-                cpu_alert = arm_sub<FlagsSet, Op2Reg, OpReverse, true>(inst, true);
-             break;
-
-          case 0x08:
-             if((opcode & 0x90) == 0x90) {
-                if(opcode & 0x20)      /* STRH rd, [rn], +rm */
-                   cpu_alert = arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
-                else                   /* UMULL rd, rm, rs */
-                   arm_mul64<FlagsIgnore, MulReg, SiUnsigned>(inst);
-             }
-             else  /* ADD rd, rn, reg_op */
-                cpu_alert = arm_add<FlagsIgnore, Op2Reg, true>(inst, false);
-             break;
-
-          case 0x09:
-             if((opcode & 0x90) == 0x90) {
-                switch((opcode >> 5) & 0x03) {
-                   case 0:   /* UMULLS rdlo, rdhi, rm, rs */
-                      arm_mul64<FlagsSet, MulReg, SiUnsigned>(inst);
-                      break;
-                   case 1:   /* LDRH rd, [rn], +rm */
-                      arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn], +rm */
-                      arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn], +rm */
-                      arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                }
-             }
-             else  /* ADDS rd, rn, reg_op */
-                cpu_alert = arm_add<FlagsSet, Op2Reg, true>(inst, false);
-             break;
-
-          case 0x0A:
-             if((opcode & 0x90) == 0x90) {
-                if(opcode & 0x20)      /* STRH rd, [rn], +rm */
-                   cpu_alert = arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
-                else    /* UMLAL rd, rm, rs */
-                   arm_mul64<FlagsIgnore, MulAdd, SiUnsigned>(inst);
-             }
-             else  /* ADC rd, rn, reg_op */
-                cpu_alert = arm_add<FlagsIgnore, Op2Reg, true>(inst, isset_flag<FLAG_C>());
-             break;
-
-          case 0x0B:
-             if((opcode & 0x90) == 0x90) {
-                switch((opcode >> 5) & 0x03) {
-                   case 0:   /* UMLALS rdlo, rdhi, rm, rs */
-                      arm_mul64<FlagsSet, MulAdd, SiUnsigned>(inst);
-                      break;
-                   case 1:   /* LDRH rd, [rn], +rm */
-                      arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn], +rm */
-                      arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn], +rm */
-                      arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                }
-             }
-             else  /* ADCS rd, rn, reg_op */
-                cpu_alert = arm_add<FlagsSet, Op2Reg, true>(inst, isset_flag<FLAG_C>());
-             break;
-
-          case 0x0C:
-             if((opcode & 0x90) == 0x90) {
-                if(opcode & 0x20)      /* STRH rd, [rn], +imm */
-                   cpu_alert = arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
-                else                   /* SMULL rd, rm, rs */
-                   arm_mul64<FlagsIgnore, MulReg, SiSigned>(inst);
-             }
-             else  /* SBC rd, rn, reg_op */
-                cpu_alert = arm_sub<FlagsIgnore, Op2Reg, OpDirect, true>(inst, isset_flag<FLAG_C>());
-             break;
-
-          case 0x0D:
-             if((opcode & 0x90) == 0x90) {
-                switch((opcode >> 5) & 0x03) {
-                   case 0:   /* SMULLS rdlo, rdhi, rm, rs */
-                      arm_mul64<FlagsSet, MulReg, SiSigned>(inst);
-                      break;
-                   case 1:   /* LDRH rd, [rn], +imm */
-                      arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn], +imm */
-                      arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn], +imm */
-                      arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                }
-             }
-             else  /* SBCS rd, rn, reg_op */
-                cpu_alert = arm_sub<FlagsSet, Op2Reg, OpDirect, true>(inst, isset_flag<FLAG_C>());
-             break;
-
-          case 0x0E:
-             if((opcode & 0x90) == 0x90)
-             {
-                if(opcode & 0x20)      /* STRH rd, [rn], +imm */
-                   cpu_alert = arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
-                else                   /* SMLAL rd, rm, rs */
-                   arm_mul64<FlagsIgnore, MulAdd, SiSigned>(inst);
-             }
-             else  /* RSC rd, rn, reg_op */
-                cpu_alert = arm_sub<FlagsIgnore, Op2Reg, OpReverse, true>(inst, isset_flag<FLAG_C>());
-             break;
-
-          case 0x0F:
-             if((opcode & 0x90) == 0x90) {
-                switch((opcode >> 5) & 0x03) {
-                   case 0:   /* SMLALS rdlo, rdhi, rm, rs */
-                      arm_mul64<FlagsSet, MulAdd, SiSigned>(inst);
-                      break;
-                   case 1:   /* LDRH rd, [rn], +imm */
-                      arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn], +imm */
-                      arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn], +imm */
-                      arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
-                      break;
-                }
-             }
-             else  /* RSCS rd, rn, reg_op */
-                cpu_alert = arm_sub<FlagsSet, Op2Reg, OpReverse, true>(inst, isset_flag<FLAG_C>());
-             break;
-
-          case 0x10:
-             if((opcode & 0x90) == 0x90) {
-                if(opcode & 0x20)      /* STRH rd, [rn - rm] */
-                   cpu_alert = arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
-                else                   /* SWP rd, rm, [rn] */
-                   arm_swap<u32>(inst, cyccnt);
-             }
-             else {/* MRS rd, cpsr */
-                reg[inst.rd()] = reg[REG_CPSR];
-                arm_pc_offset(4);
-             }
-             break;
-
-          case 0x11:
-             if((opcode & 0x90) == 0x90) {
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn - rm] */
-                      arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn - rm] */
-                      arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn - rm] */
-                      arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
-                      break;
-                }
-             }
-             else  /* TST rd, rn, reg_op */
-                arm_logic_test<LgcAnd, Op2Reg>(inst);
-             break;
-
-          case 0x12:
-             if((opcode & 0x90) == 0x90)    /* STRH rd, [rn - rm]! */
-                cpu_alert = arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
-             else {
-                if(opcode & 0x10) {
-                   /* BX rn */
-                   u32 newpc = reg[inst.rm()];
-                   if (newpc & 0x01) {
-                      reg[REG_PC] = newpc - 1;
-                      reg[REG_CPSR] |= 0x20;
-                   }
-                   else {
-                      reg[REG_PC] = newpc;
-                   }
-                   cyccnt -= ws_cyc_nseq[reg[REG_PC] >> 24][1];
-                }
-                else  /* MSR cpsr, rm */
-                   cpu_alert = cpsr_write(inst, reg[inst.rm()]);
-             }
-             break;
-
-          case 0x13:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn - rm]! */
-                      arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn - rm]! */
-                      arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn - rm]! */
-                      arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                }
-             else  /* TEQ rd, rn, reg_op */
-                arm_logic_test<LgcXor, Op2Reg>(inst);
-             break;
-
-          case 0x14:
-             if((opcode & 0x90) == 0x90) {
-                if(opcode & 0x20)      /* STRH rd, [rn - imm] */
-                   cpu_alert = arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
-                else                   /* SWPB rd, rm, [rn] */
-                   arm_swap<u8>(inst, cyccnt);
-             }
-             else {/* MRS rd, spsr */
-                reg[inst.rd()] = REG_SPSR(reg[CPU_MODE]);
-                arm_pc_offset(4);
-             }
-             break;
-
-          case 0x15:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn - imm] */
-                      arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn - imm] */
-                      arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn - imm] */
-                      arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
-                      break;
-                }
-             else  /* CMP rn, reg_op */
-                arm_sub<FlagsSet, Op2Reg, OpDirect, false>(inst, true);
-             break;
-
-          case 0x16:
-             if((opcode & 0x90) == 0x90)    /* STRH rd, [rn - imm]! */
-                cpu_alert = arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
-             else                           /* MSR spsr, rm */
-                spsr_write(inst, reg[inst.rm()]);
-             break;
-
-          case 0x17:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn - imm]! */
-                      arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn - imm]! */
-                      arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn - imm]! */
-                      arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                }
-             else  /* CMN rd, rn, reg_op */
-                arm_add<FlagsSet, Op2Reg, false>(inst, false);
-             break;
-
-          case 0x18:
-             if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + rm] */
-                cpu_alert = arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
-             else                           /* ORR rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcOrr, FlagsIgnore, Op2Reg>(inst);
-             break;
-
-          case 0x19:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn + rm] */
-                      arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn + rm] */
-                      arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn + rm] */
-                      arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
-                      break;
-                }
-             else  /* ORRS rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcOrr, FlagsSet, Op2Reg>(inst);
-             break;
-
-          case 0x1A:
-             if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + rm]! */
-                cpu_alert = arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
-             else                           /* MOV rd, reg_op */
-                cpu_alert = arm_logic<LgcMov, FlagsIgnore, Op2Reg>(inst);
-             break;
-
-          case 0x1B:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn + rm]! */
-                      arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn + rm]! */
-                      arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn + rm]! */
-                      arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                }
-             else  /* MOVS rd, reg_op */
-                cpu_alert = arm_logic<LgcMov, FlagsSet, Op2Reg>(inst);
-             break;
-
-          case 0x1C:
-             if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + imm] */
-                cpu_alert = arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
-             else  /* BIC rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcBic, FlagsIgnore, Op2Reg>(inst);
-             break;
-
-          case 0x1D:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn + imm] */
-                      arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn + imm] */
-                      arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn + imm] */
-                      arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
-                      break;
-                }
-             else  /* BICS rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcBic, FlagsSet, Op2Reg>(inst);
-             break;
-
-          case 0x1E:
-             if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + imm]! */
-                cpu_alert = arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
-             else  /* MVN rd, reg_op */
-                cpu_alert = arm_logic<LgcNot, FlagsIgnore, Op2Reg>(inst);
-             break;
-
-          case 0x1F:
-             if((opcode & 0x90) == 0x90)
-                switch((opcode >> 5) & 0x03) {
-                   case 1:   /* LDRH rd, [rn + imm]! */
-                      arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                   case 2:   /* LDRSB rd, [rn + imm]! */
-                      arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                   case 3:   /* LDRSH rd, [rn + imm]! */
-                      arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
-                      break;
-                }
-             else  /* MVNS rd, rn, reg_op */
-                cpu_alert = arm_logic<LgcNot, FlagsSet, Op2Reg>(inst);
-             break;
-
-          case 0x20:         /* AND rd, rn, imm */
-             cpu_alert = arm_logic<LgcAnd, FlagsIgnore, Op2Imm>(inst);
-             break;
-          case 0x21:         /* ANDS rd, rn, imm */
-             cpu_alert = arm_logic<LgcAnd, FlagsSet, Op2Imm>(inst);
-             break;
-          case 0x22:         /* EOR rd, rn, imm */
-             cpu_alert = arm_logic<LgcXor, FlagsIgnore, Op2Imm>(inst);
-             break;
-          case 0x23:         /* EORS rd, rn, imm */
-             cpu_alert = arm_logic<LgcXor, FlagsSet, Op2Imm>(inst);
-             break;
-          case 0x24:         /* SUB rd, rn, imm */
-             cpu_alert = arm_sub<FlagsIgnore, Op2Imm, OpDirect, true>(inst, true);
-             break;
-          case 0x25:         /* SUBS rd, rn, imm */
-             cpu_alert = arm_sub<FlagsSet, Op2Imm, OpDirect, true>(inst, true);
-             break;
-          case 0x26:         /* RSB rd, rn, imm */
-             cpu_alert = arm_sub<FlagsIgnore, Op2Imm, OpReverse, true>(inst, true);
-             break;
-          case 0x27:         /* RSBS rd, rn, imm */
-             cpu_alert = arm_sub<FlagsSet, Op2Imm, OpReverse, true>(inst, true);
-             break;
-          case 0x28:         /* ADD rd, rn, imm */
-             cpu_alert = arm_add<FlagsIgnore, Op2Imm, true>(inst, false);
-             break;
-          case 0x29:         /* ADDS rd, rn, imm */
-             cpu_alert = arm_add<FlagsSet, Op2Imm, true>(inst, false);
-             break;
-          case 0x2A:         /* ADC rd, rn, imm */
-             cpu_alert = arm_add<FlagsIgnore, Op2Imm, true>(inst, isset_flag<FLAG_C>());
-             break;
-          case 0x2B:         /* ADCS rd, rn, imm */
-             cpu_alert = arm_add<FlagsSet, Op2Imm, true>(inst, isset_flag<FLAG_C>());
-             break;
-          case 0x2C:         /* SBC rd, rn, imm */
-             cpu_alert = arm_sub<FlagsIgnore, Op2Imm, OpDirect, true>(inst, isset_flag<FLAG_C>());
-             break;
-          case 0x2D:         /* SBCS rd, rn, imm */
-             cpu_alert = arm_sub<FlagsSet, Op2Imm, OpDirect, true>(inst, isset_flag<FLAG_C>());
-             break;
-          case 0x2E:         /* RSC rd, rn, imm */
-             cpu_alert = arm_sub<FlagsIgnore, Op2Imm, OpReverse, true>(inst, isset_flag<FLAG_C>());
-             break;
-          case 0x2F:         /* RSCS rd, rn, imm */
-             cpu_alert = arm_sub<FlagsSet, Op2Imm, OpReverse, true>(inst, isset_flag<FLAG_C>());
-             break;
-          case 0x30 ... 0x31:  /* TST rn, imm */
-             arm_logic_test<LgcAnd, Op2Imm>(inst);
-             break;
-          case 0x32:         /* MSR cpsr, imm */
-             cpu_alert = cpsr_write(inst, inst.rot_imm8());
-             break;
-          case 0x33:         /* TEQ rn, imm */
-             arm_logic_test<LgcXor, Op2Imm>(inst);
-             break;
-          case 0x34 ... 0x35:    /* CMP rn, imm */
-             arm_sub<FlagsSet, Op2Imm, OpDirect, false>(inst, true);
-             break;
-          case 0x36:         /* MSR spsr, imm */
-             spsr_write(inst, inst.rot_imm8());
-             break;
-          case 0x37:         /* CMN rn, imm */
-             cpu_alert = arm_add<FlagsSet, Op2Imm, false>(inst, false);
-             break;
-          case 0x38:         /* ORR rd, rn, imm */
-             cpu_alert = arm_logic<LgcOrr, FlagsIgnore, Op2Imm>(inst);
-             break;
-          case 0x39:         /* ORRS rd, rn, imm */
-             cpu_alert = arm_logic<LgcOrr, FlagsSet, Op2Imm>(inst);
-             break;
-          case 0x3A:         /* MOV rd, imm */
-             cpu_alert = arm_logic<LgcMov, FlagsIgnore, Op2Imm>(inst);
-             break;
-          case 0x3B:         /* MOVS rd, imm */
-             cpu_alert = arm_logic<LgcMov, FlagsSet, Op2Imm>(inst);
-             break;
-          case 0x3C:         /* BIC rd, rn, imm */
-             cpu_alert = arm_logic<LgcBic, FlagsIgnore, Op2Imm>(inst);
-             break;
-          case 0x3D:         /* BICS rd, rn, imm */
-             cpu_alert = arm_logic<LgcBic, FlagsSet, Op2Imm>(inst);
-             break;
-          case 0x3E:         /* MVN rd, imm */
-             cpu_alert = arm_logic<LgcNot, FlagsIgnore, Op2Imm>(inst);
-             break;
-          case 0x3F:         /* MVNS rd, imm */
-             cpu_alert = arm_logic<LgcNot, FlagsSet, Op2Imm>(inst);
-             break;
-
-          /* Load/Store with immediate post increment/decrement (byte and word) */
-          case 0x40: case 0x42:   /* STR/STRT rd, [rn], -imm */
-             cpu_alert = arm_memop<AccStore, u32, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x41: case 0x43:   /* LDR/LDRT rd, [rn], -imm */
-             arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x44: case 0x46:   /* STRB/STRBT rd, [rn], -imm */
-             cpu_alert = arm_memop<AccStore, u8, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x45: case 0x47:   /* LDRB/LDRBT rd, [rn], -imm */
-             arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x48: case 0x4A:   /* STR/STRT rd, [rn], +imm */
-             cpu_alert = arm_memop<AccStore, u32, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x49: case 0x4B:   /* LDR/LDRT rd, [rn], +imm */
-             arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x4C: case 0x4E:   /* STRB/STRBT rd, [rn], +imm */
-             cpu_alert = arm_memop<AccStore, u8, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x4D: case 0x4F:   /* LDRB/LDRBT rd, [rn], +imm */
-             arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
-             break;
-
-          /* Load/Store with optional immediate pre increment/decrement (byte and word) */
-          case 0x50:              /* STR rd, [rn - imm] */
-             cpu_alert = arm_memop<AccStore, u32, Op2MinusImm, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x51:              /* LDR rd, [rn - imm] */
-             arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x52:              /* STR rd, [rn - imm]! */
-             cpu_alert = arm_memop<AccStore, u32, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x53:              /* LDR rd, [rn - imm]! */
-             arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x54:              /* STRB rd, [rn - imm] */
-             cpu_alert = arm_memop<AccStore, u8, Op2MinusImm, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x55:              /* LDRB rd, [rn - imm] */
-             arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x56:              /* STRB rd, [rn - imm]! */
-             cpu_alert = arm_memop<AccStore, u8, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x57:              /* LDRB rd, [rn - imm]! */
-             arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
-             break;
-
-          case 0x58:              /* STR rd, [rn + imm] */
-             cpu_alert = arm_memop<AccStore, u32, Op2PlusImm, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x59:              /* LDR rd, [rn + imm] */
-             arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x5A:              /* STR rd, [rn + imm]! */
-             cpu_alert = arm_memop<AccStore, u32, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x5B:              /* LDR rd, [rn + imm]! */
-             arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x5C:              /* STRB rd, [rn + imm] */
-             cpu_alert = arm_memop<AccStore, u8, Op2PlusImm, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x5D:              /* LDRB rd, [rn + imm] */
-             arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x5E:              /* STRB rd, [rn + imm]! */
-             cpu_alert = arm_memop<AccStore, u8, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x5F:              /* LDRB rd, [rn + imm]! */
-             arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
-             break;
-
-          /* Load/Store with shifted-reg post increment/decrement (byte and word) */
-          case 0x60: case 0x62:  /* STR/STRT rd, [rn], -reg_op */
-             cpu_alert = arm_memop<AccStore, u32, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x61: case 0x63:   /* LDR rd, [rn], -reg_op */
-             arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x64: case 0x66:   /* STRB/STRBT rd, [rn], -reg_op */
-             cpu_alert = arm_memop<AccStore, u8, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x65: case 0x67:   /* LDRB/LDRBT rd, [rn], -reg_op */
-             arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
-             break;
-
-          case 0x68: case 0x6A:   /* STR/STRT rd, [rn], +reg_op */
-             cpu_alert = arm_memop<AccStore, u32, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x69: case 0x6B:   /* LDR/LDRT rd, [rn], +reg_op */
-             arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x6C: case 0x6E:   /* STRB/STRBT rd, [rn], +reg_op */
-             cpu_alert = arm_memop<AccStore, u8, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
-             break;
-          case 0x6D: case 0x6F:   /* LDRB/LDRBT rd, [rn], +reg_op */
-             arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
-             break;
-
-          /* Load/Store with optional shifted-reg pre increment/decrement (byte and word) */
-          case 0x70:              /* STR rd, [rn - reg_op] */
-             cpu_alert = arm_memop<AccStore, u32, Op2MinusReg, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x71:              /* LDR rd, [rn - reg_op] */
-             arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x72:              /* STR rd, [rn - reg_op]! */
-             cpu_alert = arm_memop<AccStore, u32, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x73:              /* LDR rd, [rn - reg_op]! */
-             arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x74:              /* STRB rd, [rn - reg_op] */
-             cpu_alert = arm_memop<AccStore, u8, Op2MinusReg, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x75:              /* LDRB rd, [rn - reg_op] */
-             arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x76:              /* STRB rd, [rn - reg_op]! */
-             cpu_alert = arm_memop<AccStore, u8, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x77:              /* LDRB rd, [rn - reg_op]! */
-             arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
-             break;
-
-          case 0x78:              /* STR rd, [rn + reg_op] */
-             cpu_alert = arm_memop<AccStore, u32, Op2PlusReg, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x79:              /* LDR rd, [rn + reg_op] */
-             arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x7A:              /* STR rd, [rn + reg_op]! */
-             cpu_alert = arm_memop<AccStore, u32, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x7B:              /* LDR rd, [rn + reg_op]! */
-             arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x7C:              /* STRB rd, [rn + reg_op] */
-             cpu_alert = arm_memop<AccStore, u8, Op2PlusReg, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x7D:              /* LDRB rd, [rn + reg_op] */
-             arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPre>(inst, cyccnt);
-             break;
-          case 0x7E:              /* STRB rd, [rn + reg_op]! */
-             cpu_alert = arm_memop<AccStore, u8, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
-             break;
-          case 0x7F:              /* LDRB rd, [rn + reg_op]! */
-             arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
-             break;
-
-          /* STM instructions: STMDA, STMIA, STMDB, STMIB */
-
-          case 0x80:   /* STMDA rn, rlist */
-            cpu_alert = arm_block_mem<AccStore, false, false, AddrPostDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x88:   /* STMIA rn, rlist */
-            cpu_alert = arm_block_mem<AccStore, false, false, AddrPostInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x90:   /* STMDB rn, rlist */
-            cpu_alert = arm_block_mem<AccStore, false, false, AddrPreDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x98:   /* STMIB rn, rlist */
-            cpu_alert = arm_block_mem<AccStore, false, false, AddrPreInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-
-          case 0x82:   /* STMDA rn!, rlist */
-            cpu_alert = arm_block_mem<AccStore, true, false, AddrPostDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x8A:   /* STMIA rn!, rlist */
-            cpu_alert = arm_block_mem<AccStore, true, false, AddrPostInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x92:   /* STMDB rn!, rlist */
-            cpu_alert = arm_block_mem<AccStore, true, false, AddrPreDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x9A:   /* STMIB rn!, rlist */
-            cpu_alert = arm_block_mem<AccStore, true, false, AddrPreInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-
-          case 0x84:   /* STMDA rn, rlist^ */
-            cpu_alert = arm_block_mem<AccStore, false, true, AddrPostDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x8C:   /* STMIA rn, rlist^ */
-            cpu_alert = arm_block_mem<AccStore, false, true, AddrPostInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x94:   /* STMDB rn, rlist^ */
-            cpu_alert = arm_block_mem<AccStore, false, true, AddrPreDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x9C:   /* STMIB rn, rlist^ */
-            cpu_alert = arm_block_mem<AccStore, false, true, AddrPreInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-
-          case 0x86:   /* STMDA rn!, rlist^ */
-            cpu_alert = arm_block_mem<AccStore, true, true, AddrPostDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x8E:   /* STMIA rn!, rlist^ */
-            cpu_alert = arm_block_mem<AccStore, true, true, AddrPostInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x96:   /* STMDB rn!, rlist^ */
-            cpu_alert = arm_block_mem<AccStore, true, true, AddrPreDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x9E:   /* STMIB rn!, rlist^ */
-            cpu_alert = arm_block_mem<AccStore, true, true, AddrPreInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-
-
-          /* LDM instructions: LDMDA, LDMIA, LDMDB, LDMIB */
-
-          case 0x81:   /* LDMDA rn, rlist */
-            cpu_alert = arm_block_mem<AccLoad, false, false, AddrPostDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x89:   /* LDMIA rn, rlist */
-            cpu_alert = arm_block_mem<AccLoad, false, false, AddrPostInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x91:   /* LDMDB rn, rlist */
-            cpu_alert = arm_block_mem<AccLoad, false, false, AddrPreDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x99:   /* LDMIB rn, rlist */
-            cpu_alert = arm_block_mem<AccLoad, false, false, AddrPreInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-
-          case 0x83:   /* LDMDA rn!, rlist */
-            cpu_alert = arm_block_mem<AccLoad, true, false, AddrPostDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x8B:   /* LDMIA rn!, rlist */
-            cpu_alert = arm_block_mem<AccLoad, true, false, AddrPostInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x93:   /* LDMDB rn!, rlist */
-            cpu_alert = arm_block_mem<AccLoad, true, false, AddrPreDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x9B:   /* LDMIB rn!, rlist */
-            cpu_alert = arm_block_mem<AccLoad, true, false, AddrPreInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-
-          case 0x85:   /* LDMDA rn, rlist^ */
-            cpu_alert = arm_block_mem<AccLoad, false, true, AddrPostDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x8D:   /* LDMIA rn, rlist^ */
-            cpu_alert = arm_block_mem<AccLoad, false, true, AddrPostInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x95:   /* LDMDB rn, rlist^ */
-            cpu_alert = arm_block_mem<AccLoad, false, true, AddrPreDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x9D:   /* LDMIB rn, rlist^ */
-            cpu_alert = arm_block_mem<AccLoad, false, true, AddrPreInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-
-          case 0x87:   /* LDMDA rn!, rlist^ */
-            cpu_alert = arm_block_mem<AccLoad, true, true, AddrPostDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x8F:   /* LDMIA rn!, rlist^ */
-            cpu_alert = arm_block_mem<AccLoad, true, true, AddrPostInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x97:   /* LDMDB rn!, rlist^ */
-            cpu_alert = arm_block_mem<AccLoad, true, true, AddrPreDec>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-          case 0x9F:   /* LDMIB rn!, rlist^ */
-            cpu_alert = arm_block_mem<AccLoad, true, true, AddrPreInc>(
-              inst.rn(), inst.rlist(), cyccnt);
-            break;
-
-
-          case 0xA0 ... 0xAF:          /* B offset */
-             reg[REG_PC] += inst.br_offset() + 8;
-             cyccnt -= ws_cyc_nseq[reg[REG_PC] >> 24][1];
-             break;
-          case 0xB0 ... 0xBF:          /* BL offset */
-             reg[REG_LR] = reg[REG_PC] + 4;
-             reg[REG_PC] += inst.br_offset() + 8;
-             cyccnt -= ws_cyc_nseq[reg[REG_PC] >> 24][1];
-             break;
-
-#ifdef HAVE_UNUSED
-          case 0xC0 ... 0xEF:
-             /* coprocessor instructions, reserved on GBA */
-             break;
-#endif
-
-          case 0xF0 ... 0xFF:
-            reg[REG_BUS_VALUE] = 0xe3a02004;  // After SWI, we read bios[0xE4]
-            REG_MODE(MODE_SUPERVISOR)[6] = reg[REG_PC] + 4;
-            REG_SPSR(MODE_SUPERVISOR) = reg[REG_CPSR];
-            reg[REG_PC] = 0x00000008;
-            // Move to ARM mode, Supervisor mode and disable IRQs
-            reg[REG_CPSR] = (reg[REG_CPSR] & ~0x3F) | 0x13 | 0x80;
-            set_cpu_mode(MODE_SUPERVISOR);
-            break;
-       }
-
-skip_instruction:
-
-       /* End of Execute ARM instruction */
+       // Account for instruction base execution time
        cyccnt -= ws_cyc_seq[(reg[REG_PC] >> 24) & 0xF][1];
 
-       if (cpu_alert & (CPU_ALERT_HALT | CPU_ALERT_IRQ))
-         goto alert;
+       u32 opcode32 = readaddress32(pc_address_block, (reg[REG_PC] & 0x7FFF));
+
+       if (arm_null_inst(opcode32))
+         arm_pc_offset(4);
+       else {
+         #ifdef TRACE_INSTRUCTIONS
+           interp_trace_instruction(reg[REG_PC], 1);
+         #endif
+
+         u32 cpu_alert = execute_arm_instruction(opcode32, cyccnt);
+         if (cpu_alert & (CPU_ALERT_HALT | CPU_ALERT_IRQ))
+           goto alert;
+       }
 
        if (reg[REG_PC] == idle_loop_target_pc && cyccnt > 0)
          break;
@@ -2273,15 +2081,14 @@ thumb_loop:
        reg[REG_PC] &= ~0x01;
        u16 opcode16 = readaddress16(pc_address_block, (reg[REG_PC] & 0x7FFF));
 
+       // Account for instruction base cycles
+       cyccnt -= ws_cyc_seq[(reg[REG_PC] >> 24) & 0xF][0];
+
        #ifdef TRACE_INSTRUCTIONS
        interp_trace_instruction(reg[REG_PC], 0);
        #endif
 
-       cpu_alert = execute_thumb_instruction(opcode16, cyccnt);
-
-       /* End of Execute THUMB instruction */
-       cyccnt -= ws_cyc_seq[(reg[REG_PC] >> 24) & 0xF][0];
-
+       u32 cpu_alert = execute_thumb_instruction(opcode16, cyccnt);
        if (cpu_alert & (CPU_ALERT_HALT | CPU_ALERT_IRQ))
           goto alert;
 

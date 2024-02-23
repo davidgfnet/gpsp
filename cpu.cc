@@ -2010,8 +2010,7 @@ void execute_arm(u32 cycles)
   // Reload cycle counter
   cyccnt = cycles;
 
-  while(1)
-  {
+  while(1) {
     /* Do not execute until CPU is active */
     if (reg[CPU_HALT_STATE] != CPU_ACTIVE) {
        u32 ret = update_gba(cyccnt);
@@ -2021,95 +2020,69 @@ void execute_arm(u32 cycles)
        cyccnt = cycles_to_run(ret);
     }
 
-    if(reg[REG_CPSR] & 0x20)
-      goto thumb_loop;
+    u32 cpu_alert = CPU_ALERT_NONE;
 
     while(cyccnt > 0) {
-arm_loop:
-
        /* Process cheats if we are about to execute the cheat hook */
-       if ((reg[REG_PC] & ~3U) == (cheat_master_hook & ~3U))
+       if (reg[REG_PC] == cheat_master_hook)
           process_cheats();
 
-       /* Execute ARM instruction */
-       using_instruction(arm);
+       /* Ensure we load/map instruction memory */
        check_pc_region();
-       reg[REG_PC] &= ~0x03;
+
+       bool is_thumb = reg[REG_CPSR] & 0x20;
 
        // Account for instruction base execution time
-       cyccnt -= ws_cyc_seq[(reg[REG_PC] >> 24) & 0xF][1];
+       cyccnt -= ws_cyc_seq[(reg[REG_PC] >> 24) & 0xF][is_thumb ? 0 : 1];
 
-       u32 opcode32 = readaddress32(pc_address_block, (reg[REG_PC] & 0x7FFF));
+       if (is_thumb) {
+         // Thumb mode instruction
+         using_instruction(thumb);
+         reg[REG_PC] &= ~0x01;
 
-       if (arm_null_inst(opcode32))
-         arm_pc_offset(4);
-       else {
+         u16 opcode16 = readaddress16(pc_address_block, (reg[REG_PC] & 0x7FFF));
+
          #ifdef TRACE_INSTRUCTIONS
-           interp_trace_instruction(reg[REG_PC], 1);
+         interp_trace_instruction(reg[REG_PC], 0);
          #endif
 
-         u32 cpu_alert = execute_arm_instruction(opcode32, cyccnt);
-         if (cpu_alert & (CPU_ALERT_HALT | CPU_ALERT_IRQ))
-           goto alert;
+         cpu_alert = execute_thumb_instruction(opcode16, cyccnt);
+       } else {
+         // ARM mode
+         using_instruction(arm);
+         reg[REG_PC] &= ~0x03;
+
+         u32 opcode32 = readaddress32(pc_address_block, (reg[REG_PC] & 0x7FFF));
+
+         if (arm_null_inst(opcode32))   // Check for instruction condition
+           arm_pc_offset(4);
+         else {
+           #ifdef TRACE_INSTRUCTIONS
+             interp_trace_instruction(reg[REG_PC], 1);
+           #endif
+
+           cpu_alert = execute_arm_instruction(opcode32, cyccnt);
+         }
        }
 
-       if (reg[REG_PC] == idle_loop_target_pc && cyccnt > 0)
+       // Check for IRQ, raise (will change PC and CPU mode)
+       if (cpu_alert & CPU_ALERT_IRQ)
+         check_and_raise_interrupts();
+
+       // Stop executing any further instruction.
+       if (cpu_alert & CPU_ALERT_HALT)
          break;
 
-       if (reg[REG_CPSR] & 0x20)
-         goto thumb_loop;
-    }
-
-    {
-      u32 update_ret = update_gba(cyccnt);
-      if (completed_frame(update_ret))
-         return;
-      cyccnt = cycles_to_run(update_ret);
-      continue;
-    }
-
-    while (cyccnt > 0) {
-thumb_loop:
-
-       /* Process cheats if we are about to execute the cheat hook */
-       if ((reg[REG_PC] & ~1U) == (cheat_master_hook & ~1U))
-          process_cheats();
-
-       /* Execute THUMB instruction */
-       using_instruction(thumb);
-       check_pc_region();
-       reg[REG_PC] &= ~0x01;
-       u16 opcode16 = readaddress16(pc_address_block, (reg[REG_PC] & 0x7FFF));
-
-       // Account for instruction base cycles
-       cyccnt -= ws_cyc_seq[(reg[REG_PC] >> 24) & 0xF][0];
-
-       #ifdef TRACE_INSTRUCTIONS
-       interp_trace_instruction(reg[REG_PC], 0);
-       #endif
-
-       u32 cpu_alert = execute_thumb_instruction(opcode16, cyccnt);
-       if (cpu_alert & (CPU_ALERT_HALT | CPU_ALERT_IRQ))
-          goto alert;
-
+       // On idle target consume all cycles immediately
        if (reg[REG_PC] == idle_loop_target_pc)
-         break;
-
-       if (!(reg[REG_CPSR] & 0x20))
-         goto arm_loop;
+         cyccnt = 0;
     }
 
-    {
-      u32 update_ret = update_gba(cyccnt);
-      if (completed_frame(update_ret))
-         return;
-      cyccnt = cycles_to_run(update_ret);
-      continue;
-    }
-
-    alert:
-      /* CPU stopped or switch to IRQ handler */
-      check_and_raise_interrupts();
+    // Process next event after consuming all cycles
+    u32 update_ret = update_gba(cyccnt);
+    if (completed_frame(update_ret))
+       return;
+    cyccnt = cycles_to_run(update_ret);
   }
 }
 

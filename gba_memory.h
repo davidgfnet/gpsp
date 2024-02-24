@@ -270,8 +270,6 @@ extern u8 iwram[1024 * 32 * 2];
 
 extern u8 *memory_map_read[8 * 1024];
 
-extern u32 reg[64];
-
 #define BACKUP_SRAM       0
 #define BACKUP_FLASH      1
 #define BACKUP_EEPROM     2

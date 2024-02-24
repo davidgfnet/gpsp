@@ -34,20 +34,6 @@ u32 oam_update_count = 0;
 
 char main_path[512];
 
-static u32 random_state = 0;
-
-// Generate 16 random bits.
-u16 rand_gen() {
-  random_state = ((random_state * 1103515245) + 12345) & 0x7fffffff;
-  return random_state;
-}
-
-// Add some random state to the initial seed.
-void rand_seed(u32 data) {
-  random_state ^= rand_gen() ^ data;
-}
-
-
 static unsigned update_timers(irq_type *irq_raised, unsigned completed_cycles)
 {
    unsigned i, ret = 0;

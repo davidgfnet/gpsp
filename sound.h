@@ -54,48 +54,11 @@ typedef struct
 #define GBC_SOUND_LEFT                2
 #define GBC_SOUND_LEFTRIGHT           3
 
-
-typedef struct
-{
-   u32 rate;
-   fixed16_16 frequency_step;
-   fixed16_16 sample_index;
-   fixed16_16 tick_counter;
-   u32 total_volume;
-   u32 envelope_initial_volume;
-   u32 envelope_volume;
-   u32 envelope_direction;
-   u32 envelope_status;
-   u32 envelope_ticks;
-   u32 envelope_initial_ticks;
-   u32 sweep_status;
-   u32 sweep_direction;
-   u32 sweep_ticks;
-   u32 sweep_initial_ticks;
-   u32 sweep_shift;
-   u32 length_status;
-   u32 length_ticks;
-   u32 noise_type;
-   u32 wave_type;
-   u32 wave_bank;
-   u32 wave_volume;
-   u32 status;
-   u32 active_flag;
-   u32 master_enable;
-   u32 sample_table_idx;
-} gbc_sound_struct;
-
-const extern s8 square_pattern_duty[4][8];
 extern direct_sound_struct direct_sound_channel[2];
-extern gbc_sound_struct gbc_sound_channel[4];
-extern u32 gbc_sound_master_volume_left;
-extern u32 gbc_sound_master_volume_right;
-extern u32 gbc_sound_master_volume;
 extern u32 gbc_sound_buffer_index;
 extern u32 gbc_sound_last_cpu_ticks;
 
 extern const u32 sound_frequency;
-extern u32 sound_on;
 
 void sound_timer_queue32(u32 channel, u32 value);
 unsigned sound_timer(fixed8_24 frequency_step, u32 channel);

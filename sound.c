@@ -20,12 +20,41 @@
 
 #include "common.h"
 
+typedef struct {
+   u32 rate;
+   fixed16_16 frequency_step;
+   fixed16_16 sample_index;
+   fixed16_16 tick_counter;
+   u32 total_volume;
+   u32 envelope_initial_volume;
+   u32 envelope_volume;
+   u32 envelope_direction;
+   u32 envelope_status;
+   u32 envelope_ticks;
+   u32 envelope_initial_ticks;
+   u32 sweep_status;
+   u32 sweep_direction;
+   u32 sweep_ticks;
+   u32 sweep_initial_ticks;
+   u32 sweep_shift;
+   u32 length_status;
+   u32 length_ticks;
+   u32 noise_type;
+   u32 wave_type;
+   u32 wave_bank;
+   u32 wave_volume;
+   u32 status;
+   u32 active_flag;
+   u32 master_enable;
+   u32 sample_table_idx;
+} gbc_sound_struct;
+
+static gbc_sound_struct gbc_sound_channel[4];
 direct_sound_struct direct_sound_channel[2];
-gbc_sound_struct gbc_sound_channel[4];
 
 const u32 sound_frequency = GBA_SOUND_FREQUENCY;
 
-u32 sound_on;
+static u32 sound_on;
 static s16 sound_buffer[BUFFER_SIZE];
 static u32 sound_buffer_base;
 
@@ -166,7 +195,7 @@ void sound_reset_fifo(u32 channel)
 
 // Square waves range from -8 (low) to 7 (high)
 
-const s8 square_pattern_duty[4][8] =
+static const s8 square_pattern_duty[4][8] =
 {
   { -8, -8, -8, -8,  7, -8, -8, -8 },
   { -8, -8, -8, -8,  7,  7, -8, -8 },
@@ -179,9 +208,9 @@ s8 wave_samples[64];
 u32 noise_table15[1024];
 u32 noise_table7[4];
 
-const u32 gbc_sound_master_volume_table[4] = { 1, 2, 4, 0 };
+static const u32 gbc_sound_master_volume_table[4] = { 1, 2, 4, 0 };
 
-const u32 gbc_sound_channel_volume_table[8] =
+static const u32 gbc_sound_channel_volume_table[8] =
 {
   fixed_div(0, 7, 12),
   fixed_div(1, 7, 12),
@@ -193,7 +222,7 @@ const u32 gbc_sound_channel_volume_table[8] =
   fixed_div(7, 7, 12)
 };
 
-const u32 gbc_sound_envelope_volume_table[16] =
+static const u32 gbc_sound_envelope_volume_table[16] =
 {
   fixed_div(0, 15, 14),
   fixed_div(1, 15, 14),
@@ -217,9 +246,9 @@ u32 gbc_sound_buffer_index = 0;
 u32 gbc_sound_last_cpu_ticks = 0;
 u32 gbc_sound_partial_ticks = 0;
 
-u32 gbc_sound_master_volume_left;
-u32 gbc_sound_master_volume_right;
-u32 gbc_sound_master_volume;
+static u32 gbc_sound_master_volume_left;
+static u32 gbc_sound_master_volume_right;
+static u32 gbc_sound_master_volume;
 
 #define update_volume_channel_envelope(channel)                               \
   volume_##channel = gbc_sound_envelope_volume_table[envelope_volume] *       \

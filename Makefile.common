@@ -5,9 +5,11 @@ INCFLAGS   := -I$(CORE_DIR)/libretro -I$(LIBRETRO_COMM_DIR)/include  -I$(CORE_DI
 SOURCES_ASM := $(CORE_DIR)/bios_data.S
 
 SOURCES_CC := $(CORE_DIR)/video.cc \
+              $(CORE_DIR)/cpu_common.cc \
               $(CORE_DIR)/cpu.cc
 
 SOURCES_C := $(CORE_DIR)/main.c \
+             $(CORE_DIR)/common.c \
              $(CORE_DIR)/gba_memory.c \
              $(CORE_DIR)/savestate.c \
              $(CORE_DIR)/input.c \

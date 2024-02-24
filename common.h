@@ -160,11 +160,20 @@ typedef u32 fixed8_24;
 #define read_dmareg(regnum, dmachan) (eswap16(io_registers[(regnum) + (dmachan) * 6]))
 #define write_dmareg(regnum, dmachan, val) io_registers[(regnum) + (dmachan) * 6] = eswap16(val)
 
+// Random generation
+u16 rand_gen();
+void rand_seed(u32 data);
+
+// Util stuff
+extern const u8 bit_count[256];
+
+
 #include <unistd.h>
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include "cpu_common.h"
 #include "cpu.h"
 #include "gba_memory.h"
 #include "savestate.h"

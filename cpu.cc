@@ -34,19 +34,19 @@ enum FlagNum {
 
 // Returns a bit (0/1) with the value of the specified flag bit.
 template<enum FlagNum flagn>
-inline u32 read_flag() {
+inline static u32 read_flag() {
   return ((reg[REG_CPSR] >> flagn) & 1);
 }
 
 // Returns a boolean indicating whether the flag is set.
 template<enum FlagNum flagn>
-inline bool isset_flag() {
+inline static bool isset_flag() {
   return (reg[REG_CPSR] & (1 << flagn)) != 0;
 }
 
 // Sets the flag to 0 or 1.
 template<enum FlagNum flagn>
-inline void set_flag(bool value) {
+inline static void set_flag(bool value) {
   if (value)
     reg[REG_CPSR] |=  (1 << flagn);
   else
@@ -54,14 +54,14 @@ inline void set_flag(bool value) {
 }
 
 // Calculates zero and negative flags given a uint32 value.
-inline void set_NZ_flags(u32 value) {
+inline static void set_NZ_flags(u32 value) {
   set_flag<FLAG_Z>(value == 0);
   set_flag<FLAG_N>(value & 0x80000000);
 }
 
 // Reads a register accounting for PC offset if necessary.
 template <u32 pc_offset>
-inline u32 read_reg(u32 rn) {
+inline static u32 read_reg(u32 rn) {
   u32 value = reg[rn];
   return value + ((rn == REG_PC) ? pc_offset : 0);
 }
@@ -69,7 +69,7 @@ inline u32 read_reg(u32 rn) {
 // Mode changes (used when rd==REG_PC and using flag set mode)
 // In non-user mode it restores to the previous mode
 
-inline cpu_alert_type process_spsr_restore() {
+inline static cpu_alert_type process_spsr_restore() {
   if (reg[CPU_MODE] != MODE_USER && reg[CPU_MODE] != MODE_SYSTEM) {
     // Restore the CPSR from the SPSR buffer.
     reg[REG_CPSR] = REG_SPSR(reg[CPU_MODE]);
@@ -82,7 +82,7 @@ inline cpu_alert_type process_spsr_restore() {
 }
 
 // Calculate whether this instruction must be nullified (due to condition code)
-inline bool arm_null_inst(const ARMInst &inst) {
+inline static bool arm_null_inst(const ARMInst &inst) {
   switch (inst.cond()) {
     case 0x0:            /* EQ */
        return !isset_flag<FLAG_Z>();
@@ -154,7 +154,7 @@ typedef enum { AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec } AddrMode;
 
 // Calculates operand 2 when register is shifted/rotated by an immediate.
 template<FlagMode fm>
-inline u32 calc_op2_shimm(const ARMInst &it) {
+inline static u32 calc_op2_shimm(const ARMInst &it) {
   u32 imm = it.op2sa();      // Shift amount [0..31]
   u32 rmval = reg[it.rm()];  // Register to shift/rotate.
   bool cflag = isset_flag<FLAG_C>();
@@ -199,7 +199,7 @@ inline u32 calc_op2_shimm(const ARMInst &it) {
 
 // Calculates operand 2 when register is shifted/rotated by another register.
 template<FlagMode fm>
-inline u32 calc_op2_shreg(const ARMInst &it) {
+inline static u32 calc_op2_shreg(const ARMInst &it) {
   u32 rmval = reg[it.rm()];  // Register to shift/rotate.
 
   u32 amount = reg[it.rs()]; // Register that contains the rotation amount
@@ -254,7 +254,7 @@ inline u32 calc_op2_shreg(const ARMInst &it) {
 // Calculates the Operand2 value for the ARM instruction. Updates C flag
 // accordingly.
 template<FlagMode fm, ArmOp2 op2m>
-inline u32 calculate_op2(const ARMInst &it) {
+inline static u32 calculate_op2(const ARMInst &it) {
   if (op2m == Op2Imm) {
     // Op2 is a 4+8 immediate (8 bit with 16 possible rotations).
     u32 sa = it.rot4() * 2;
@@ -272,7 +272,7 @@ inline u32 calculate_op2(const ARMInst &it) {
 
 // Performs all arm logic operations (result + flags)
 template<LogicMode mode, FlagMode fm, ArmOp2 op2m>
-inline cpu_alert_type arm_logic(const ARMInst &it) {
+inline static cpu_alert_type arm_logic(const ARMInst &it) {
   arm_pc_offset(8);     // Reading the PC should read PC+8
 
   // Calculate the 2nd operand, according to mode.
@@ -302,7 +302,7 @@ inline cpu_alert_type arm_logic(const ARMInst &it) {
 
 // Performs tst/teq operations (only updates flags)
 template<LogicMode mode, ArmOp2 op2m>
-inline void arm_logic_test(const ARMInst &it) {
+inline static void arm_logic_test(const ARMInst &it) {
   arm_pc_offset(8);     // Reading the PC should read PC+8
 
   // Calculate the 2nd operand, according to mode.
@@ -320,7 +320,7 @@ inline void arm_logic_test(const ARMInst &it) {
 
 // Performs add/adc/cmn operations
 template<FlagMode fm, ArmOp2 op2m, bool writeback>
-inline cpu_alert_type arm_add(const ARMInst &it, bool cin) {
+inline static cpu_alert_type arm_add(const ARMInst &it, bool cin) {
   arm_pc_offset(8);     // Reading the PC should read PC+8
 
   // Calculate the 2nd operand, according to mode.
@@ -353,7 +353,7 @@ inline cpu_alert_type arm_add(const ARMInst &it, bool cin) {
 
 // Performs sub/sbc/cmp operations
 template<FlagMode fm, ArmOp2 op2m, OperandMode opm, bool writeback>
-inline cpu_alert_type arm_sub(const ARMInst &it, bool bin) {
+inline static cpu_alert_type arm_sub(const ARMInst &it, bool bin) {
   arm_pc_offset(8);     // Reading the PC should read PC+8
 
   // Calculate the 2nd operand, according to mode.
@@ -383,7 +383,7 @@ inline cpu_alert_type arm_sub(const ARMInst &it, bool bin) {
 
 // Performs 32 bit multiplications (rd and rn are swapped)
 template<FlagMode fm, MulMode mm>
-inline void arm_mul32(const ARMInst &it) {
+inline static void arm_mul32(const ARMInst &it) {
   u32 res = reg[it.rm()] * reg[it.rs()];
   if (mm == MulAdd)
     res += reg[it.rd()];
@@ -396,7 +396,7 @@ inline void arm_mul32(const ARMInst &it) {
 
 // Performs 64 bit multiplications
 template<FlagMode fm, MulMode mm, SignMode sm>
-inline void arm_mul64(const ARMInst &it) {
+inline static void arm_mul64(const ARMInst &it) {
   u64 res = (sm == SiUnsigned) ? (u64)reg[it.rm()] * (u64)reg[it.rs()] :
                 (s64)((s32)reg[it.rm()]) * (s64)((s32)reg[it.rs()]);
 
@@ -414,7 +414,7 @@ inline void arm_mul64(const ARMInst &it) {
 }
 
 // Writes CPSR and SPSR registers
-inline cpu_alert_type cpsr_write(const ARMInst &it, u32 wval) {
+inline static cpu_alert_type cpsr_write(const ARMInst &it, u32 wval) {
   const u32 smask = cpsr_masks[it.psr_field()][PRIVMODE(reg[CPU_MODE])];
   reg[REG_CPSR] = (wval & smask) | (reg[REG_CPSR] & (~smask));
 
@@ -429,7 +429,7 @@ inline cpu_alert_type cpsr_write(const ARMInst &it, u32 wval) {
   return CPU_ALERT_NONE;
 }
 
-inline void spsr_write(const ARMInst &it, u32 wval) {
+inline static void spsr_write(const ARMInst &it, u32 wval) {
   const u32 smask = spsr_masks[it.psr_field()];
   const u32 cur_spsr = REG_SPSR(reg[CPU_MODE]);
   REG_SPSR(reg[CPU_MODE]) = (wval & smask) | (cur_spsr & (~smask));
@@ -538,7 +538,7 @@ cpu_alert_type perform_memstore(u32 address, u32 data) {
 }
 
 template<typename memmode>
-inline cpu_alert_type arm_swap(const ARMInst &it, s32 &cyccnt) {
+inline static cpu_alert_type arm_swap(const ARMInst &it, s32 &cyccnt) {
   memmode tmp = perform_memload<memmode>(read_reg<8>(it.rn()));
   cpu_alert_type ret = perform_memstore<memmode>(read_reg<8>(it.rn()), read_reg<8>(it.rm()));
   reg[it.rd()] = tmp;
@@ -548,7 +548,7 @@ inline cpu_alert_type arm_swap(const ARMInst &it, s32 &cyccnt) {
 }
 
 template<AccMode mode, typename memmode>
-inline cpu_alert_type thumb_memop(u32 rd, u32 addr, s32 &cyccnt) {
+inline static cpu_alert_type thumb_memop(u32 rd, u32 addr, s32 &cyccnt) {
   u8 region = addr >> 24;
 
   thumb_pc_offset(2);  // Advance PC
@@ -565,7 +565,7 @@ inline cpu_alert_type thumb_memop(u32 rd, u32 addr, s32 &cyccnt) {
 }
 
 template<AccMode mode, typename memmode, MemOp2 op2m, MemIdxMode midx>
-inline cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
+inline static cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
   arm_pc_offset(8);  // Advance PC
 
   // Offset can be:
@@ -610,7 +610,7 @@ inline cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
 // Excutes an LDM/STM instruction
 
 template<AccMode mode, bool writeback, bool sbit, AddrMode addr_mode>
-inline cpu_alert_type arm_block_mem(const ARMInst &it, s32 &cyccnt) {
+inline static cpu_alert_type arm_block_mem(const ARMInst &it, s32 &cyccnt) {
   cpu_alert_type cpu_alert = CPU_ALERT_NONE;
   u32 rn = it.rn();
   u32 reglist = it.rlist();
@@ -680,7 +680,7 @@ inline cpu_alert_type arm_block_mem(const ARMInst &it, s32 &cyccnt) {
 }
 
 template<AccMode mode, AddrMode addr_mode>
-inline cpu_alert_type thumb_block_mem(u32 rn, u32 reglist, s32 &cyccnt) {
+inline static cpu_alert_type thumb_block_mem(u32 rn, u32 reglist, s32 &cyccnt) {
   cpu_alert_type cpu_alert = CPU_ALERT_NONE;
   // Register register usage stats.
   using_register(arm, rn, memory_base);
@@ -738,7 +738,7 @@ inline cpu_alert_type thumb_block_mem(u32 rn, u32 reglist, s32 &cyccnt) {
   return cpu_alert;
 }
 
-inline void thumb_add(u32 rd, u32 op1v, u32 op2v, bool carry) {
+inline static void thumb_add(u32 rd, u32 op1v, u32 op2v, bool carry) {
   u32 res = op1v + op2v;
   bool caout = res < op2v;
   if (carry) {
@@ -754,7 +754,7 @@ inline void thumb_add(u32 rd, u32 op1v, u32 op2v, bool carry) {
   thumb_pc_offset(2);
 }
 
-inline void thumb_sub(u32 rd, u32 op1v, u32 op2v, bool nborrow) {
+inline static void thumb_sub(u32 rd, u32 op1v, u32 op2v, bool nborrow) {
   u32 res = op1v + ~op2v + (nborrow ? 1 : 0);
   reg[rd] = res;
 
@@ -764,7 +764,7 @@ inline void thumb_sub(u32 rd, u32 op1v, u32 op2v, bool nborrow) {
   thumb_pc_offset(2);
 }
 
-inline void thumb_cmp(u32 op1v, u32 op2v) {
+inline static void thumb_cmp(u32 op1v, u32 op2v) {
   u32 res = op1v - op2v;
   set_NZ_flags(res);
   set_flag<FLAG_C>(op2v <= op1v);
@@ -772,7 +772,7 @@ inline void thumb_cmp(u32 op1v, u32 op2v) {
   thumb_pc_offset(2);
 }
 
-inline void thumb_cmn(u32 op1v, u32 op2v) {
+inline static void thumb_cmn(u32 op1v, u32 op2v) {
   u32 res = op1v + op2v;
   set_NZ_flags(res);
   set_flag<FLAG_C>(res < op1v);
@@ -782,7 +782,7 @@ inline void thumb_cmn(u32 op1v, u32 op2v) {
 
 
 template<LogicMode mode>
-inline void thumb_logic_reg(const ThumbInst &it) {
+inline static void thumb_logic_reg(const ThumbInst &it) {
   using_register(thumb, it.rd(), op_src_dest);
   using_register(thumb, it.rs(), op_src);
 
@@ -800,7 +800,7 @@ inline void thumb_logic_reg(const ThumbInst &it) {
 }
 
 template<ShiftMode mode>
-inline void thumb_shift_imm(const ThumbInst &it) {
+inline static void thumb_shift_imm(const ThumbInst &it) {
   using_register(thumb, it.rd(), op_dest);
   using_register(thumb, it.rs(), op_shift);
 
@@ -827,7 +827,7 @@ inline void thumb_shift_imm(const ThumbInst &it) {
 }
 
 template<ShiftMode mode>
-inline void thumb_shift_reg(const ThumbInst &it) {
+inline static void thumb_shift_reg(const ThumbInst &it) {
   using_register(thumb, it.rd(), op_src_dest);
   using_register(thumb, it.rs(), op_src);
 
@@ -871,11 +871,11 @@ inline void thumb_shift_reg(const ThumbInst &it) {
   thumb_pc_offset(2);
 }
 
-inline u32 thumb_hireg_read(u32 rs) {
+inline static u32 thumb_hireg_read(u32 rs) {
   return reg[rs] + ((rs == REG_PC) ? 4 : 0);
 }
 
-inline void thumb_hireg_write(u32 rd, u32 value) {
+inline static void thumb_hireg_write(u32 rd, u32 value) {
   if (rd == REG_PC) {
     reg[REG_PC] = value & (~1U);
   } else {

@@ -23,6 +23,7 @@ extern "C" {
   #include "decoder.h"
   #include "cpu_instrument.h"
 }
+#include "gba_memory_cpp.h"
 
 // Flag management
 enum FlagNum {
@@ -436,76 +437,6 @@ inline static void spsr_write(const ARMInst &it, u32 wval) {
   arm_pc_offset(4);
 }
 
-// TODO: Move this to memory file once migrated to C++
-// Reads memory from the buffer directly, performing any necessary byte swaps
-// For little endian platforms this is just a single load.
-template <typename memtype>
-inline memtype read_mem(const u8 *block, u32 offset) {
-  const memtype *ptr = (memtype*)block;
-  return ptr[offset];
-}
-template <>
-inline u16 read_mem(const u8 *block, u32 offset) {
-  const u16 *data16 = (u16*)(&block[offset]);
-  return eswap16(*data16);
-}
-template <>
-inline s16 read_mem(const u8 *block, u32 offset) {
-  const u16 *data16 = (u16*)(&block[offset]);
-  return (s16)eswap16(*data16);
-}
-template <>
-inline u32 read_mem(const u8 *block, u32 offset) {
-  const u32 *data32 = (u32*)(&block[offset]);
-  return eswap32(*data32);
-}
-
-template <typename memtype>
-inline memtype read_memcb(u32 address) {
-  // TODO: assert/ensure this is not used
-  return 0;
-}
-template <>
-inline u8 read_memcb(u32 address) {
-  return read_memory8(address);
-}
-template <>
-inline s8 read_memcb(u32 address) {
-  return (s8)read_memory8(address);
-}
-template <>
-inline u16 read_memcb(u32 address) {
-  return read_memory16(address);
-}
-template <>
-inline s16 read_memcb(u32 address) {
-  return read_memory16_signed(address);
-}
-template <>
-inline u32 read_memcb(u32 address) {
-  return read_memory32(address);
-}
-
-
-template <typename memtype>
-inline cpu_alert_type write_memcb(u32 address, memtype data) {
-  // TODO: assert/ensure this is not used
-  return CPU_ALERT_NONE;
-}
-template <>
-inline cpu_alert_type write_memcb(u32 address, u8 data) {
-  return write_memory8(address, data);
-}
-template <>
-inline cpu_alert_type write_memcb(u32 address, u16 data) {
-  return write_memory16(address, data);
-}
-template <>
-inline cpu_alert_type write_memcb(u32 address, u32 data) {
-  return write_memory32(address, data);
-}
-
-
 template <typename memtype>
 memtype perform_memload(u32 address) {
   u8 region = address >> 24;
@@ -524,7 +455,6 @@ memtype perform_memload(u32 address) {
 
   return read_mem<memtype>(map, address & 0x7FFF);
 }
-
 
 template <typename memtype>
 cpu_alert_type perform_memstore(u32 address, u32 data) {

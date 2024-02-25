@@ -173,6 +173,7 @@ extern const u8 bit_count[256];
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include "gba_regs.h"
 #include "cpu_common.h"
 #include "cpu.h"
 #include "gba_memory.h"

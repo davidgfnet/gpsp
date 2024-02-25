@@ -2015,9 +2015,6 @@ extern u32 tmemld[11][16];
 extern u32 tmemst[ 4][16];
 extern u32 thnjal[15*16];
 void smc_write();
-cpu_alert_type write_io_register8 (u32 address, u32 value);
-cpu_alert_type write_io_register16(u32 address, u32 value);
-cpu_alert_type write_io_register32(u32 address, u32 value);
 void write_io_epilogue();
 
 // This is a pointer table to the open load stubs, used by the BIOS (optimization)

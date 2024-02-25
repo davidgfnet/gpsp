@@ -221,6 +221,9 @@ u32 function_cc read_memory32(u32 address);
 cpu_alert_type function_cc write_memory8(u32 address, u8 value);
 cpu_alert_type function_cc write_memory16(u32 address, u16 value);
 cpu_alert_type function_cc write_memory32(u32 address, u32 value);
+cpu_alert_type function_cc write_io_register8 (u32 address, u32 value);
+cpu_alert_type function_cc write_io_register16(u32 address, u32 value);
+cpu_alert_type function_cc write_io_register32(u32 address, u32 value);
 u32 function_cc read_eeprom(void);
 void function_cc write_eeprom(u32 address, u32 value);
 u8 read_backup(u32 address);
@@ -243,7 +246,6 @@ extern char gamepak_code[5];
 extern char gamepak_maker[3];
 extern char gamepak_filename[512];
 
-cpu_alert_type dma_transfer(unsigned dma_chan, int *cycles);
 u8 *memory_region(u32 address, u32 *memory_limit);
 u32 load_gamepak(const struct retro_game_info* info, const char *name,
                  int force_rtc, int force_rumble, int force_serial);

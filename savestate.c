@@ -126,6 +126,7 @@ bool gba_load_state(const void* src)
       !input_check_savestate(srcptr) ||
       !main_check_savestate(srcptr) ||
       !memory_check_savestate(srcptr) ||
+      !memdma_check_savestate(srcptr) ||
       !sound_check_savestate(srcptr))
      return false;
 
@@ -133,6 +134,7 @@ bool gba_load_state(const void* src)
       input_read_savestate(srcptr) &&
       main_read_savestate(srcptr) &&
       memory_read_savestate(srcptr) &&
+      memdma_read_savestate(srcptr) &&
       sound_read_savestate(srcptr)))
   {
      // TODO: this should not happen if the validation above is accurate.
@@ -175,6 +177,7 @@ void gba_save_state(void* dst)
   wrptr += input_write_savestate(wrptr);
   wrptr += main_write_savestate(wrptr);
   wrptr += memory_write_savestate(wrptr);
+  wrptr += memdma_write_savestate(wrptr);
   wrptr += sound_write_savestate(wrptr);
 
   // The padding space is pushed into a padding field for easy parsing

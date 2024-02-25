@@ -50,8 +50,8 @@ inline s16 read_mem(const u8 *block, u32 offset) {
 }
 
 template <typename memtype>
-inline void write_mem(const u8 *block, u32 offset, memtype value) {
-  const memtype *ptr = (memtype*)(&block[offset]);
+inline void write_mem(u8 *block, u32 offset, memtype value) {
+  memtype *ptr = (memtype*)(&block[offset]);
   *ptr = memswap(value);
 }
 
@@ -98,6 +98,45 @@ template <>
 inline cpu_alert_type write_memcb(u32 address, u32 data) {
   return write_memory32(address, data);
 }
+
+
+// Memory specific routines for I/O, palette...
+template <typename memtype>
+inline cpu_alert_type write_ioregcb(u32 address, memtype data);
+
+template <>
+inline cpu_alert_type write_ioregcb(u32 address, u8 data) {
+  return write_io_register8(address, data);
+}
+template <>
+inline cpu_alert_type write_ioregcb(u32 address, u16 data) {
+  return write_io_register16(address, data);
+}
+template <>
+inline cpu_alert_type write_ioregcb(u32 address, u32 data) {
+  return write_io_register32(address, data);
+}
+
+template <typename memtype>
+inline void write_palette(u32 address, memtype value);
+
+template <>
+inline void write_palette(u32 address, u16 value) {
+  u16 cvalue = convert_palette(value);
+  write_mem((u8*)palette_ram, address, value);
+  write_mem((u8*)palette_ram_converted, address, cvalue);
+}
+template <>
+inline void write_palette(u32 address, u8 value) {
+  // the byte is duplicated and a full half-word is written (16 bit bus!)
+  write_palette<u16>(address & ~1U, (value << 8) | value);
+}
+template <>
+inline void write_palette(u32 address, u32 value) {
+  write_palette<u16>(address,     (u16)(value & 0xFFFF));
+  write_palette<u16>(address + 2, (u16)(value >> 16));
+}
+
 
 #endif
 

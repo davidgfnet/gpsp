@@ -6,7 +6,8 @@ SOURCES_ASM := $(CORE_DIR)/bios_data.S
 
 SOURCES_CC := $(CORE_DIR)/video.cc \
               $(CORE_DIR)/cpu_common.cc \
-              $(CORE_DIR)/cpu.cc
+              $(CORE_DIR)/cpu.cc \
+              $(CORE_DIR)/dma.cc
 
 SOURCES_C := $(CORE_DIR)/main.c \
              $(CORE_DIR)/common.c \

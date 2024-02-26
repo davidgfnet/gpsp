@@ -792,7 +792,7 @@ inline static void thumb_shift_reg(const ThumbInst &it) {
 
    case ShfROR:
       set_flag<FLAG_C>((reg[it.rd()] >> (shift - 1)) & 1);
-      ror(reg[it.rd()], reg[it.rd()], shift);
+      reg[it.rd()] = rotr32(reg[it.rd()], shift);
       break;
     };
   }

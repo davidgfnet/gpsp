@@ -17,7 +17,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "common.h"
+extern "C" {
+  #include "common.h"
+}
 
 typedef struct
 {
@@ -33,47 +35,36 @@ cheat_type cheats[MAX_CHEATS];
 u32 max_cheat = 0;
 u32 cheat_master_hook = 0xffffffff;
 
-static bool has_encrypted_codebreaker(cheat_type *cheat)
-{
-  int i;
-  for(i = 0; i < cheat->cheat_count; i++)
-  {
-     u32 code    = cheat->codes[i].address;
-     u32 opcode  = code >> 28;
-     if (opcode == 9)
-        return true;
+static bool has_encrypted_codebreaker(cheat_type *cheat) {
+  for (unsigned i = 0; i < cheat->cheat_count; i++) {
+    u32 code    = cheat->codes[i].address;
+    u32 opcode  = code >> 28;
+    if (opcode == 9)
+      return true;
   }
   return false;
 }
 
-static void update_hook_codebreaker(cheat_type *cheat)
-{
-  int i;
-  for(i = 0; i < cheat->cheat_count; i++)
-  {
-     u32 code    = cheat->codes[i].address;
-     u32 address = code & 0xfffffff;
-     u32 opcode  = code >> 28;
+static void update_hook_codebreaker(cheat_type *cheat) {
+  for (unsigned i = 0; i < cheat->cheat_count; i++) {
+    u32 code    = cheat->codes[i].address;
+    u32 address = code & 0xfffffff;
+    u32 opcode  = code >> 28;
 
-     if (opcode == 1)
-     {
-        u32 pcaddr = 0x08000000 | (address & 0x1ffffff);
-        #ifdef HAVE_DYNAREC
-        if (cheat_master_hook != pcaddr)
-           flush_dynarec_caches();   /* Flush caches to install hook */
-        #endif
-        cheat_master_hook = pcaddr;
-        return;   /* Only support for one hook */
-     }
+    if (opcode == 1) {
+       u32 pcaddr = 0x08000000 | (address & 0x1ffffff);
+       #ifdef HAVE_DYNAREC
+       if (cheat_master_hook != pcaddr)
+          flush_dynarec_caches();   /* Flush caches to install hook */
+       #endif
+       cheat_master_hook = pcaddr;
+       return;   /* Only support for one hook */
+    }
   }
 }
 
-static void process_cheat_codebreaker(cheat_type *cheat, u16 pad)
-{
-  int i;
-  unsigned j;
-  for(i = 0; i < cheat->cheat_count; i++)
-  {
+static void process_cheat_codebreaker(cheat_type *cheat, u16 pad) {
+  for (unsigned i = 0; i < cheat->cheat_count; i++) {
     u32 code    = cheat->codes[i].address;
     u16 value   = cheat->codes[i].value;
     u32 address = code & 0xfffffff;
@@ -96,8 +87,7 @@ static void process_cheat_codebreaker(cheat_type *cheat, u16 pad)
         u16 count = cheat->codes[++i].address;
         u16 vincr = cheat->codes[  i].address >> 16;
         u16 aincr = cheat->codes[  i].value;
-        for (j = 0; j < count; j++)
-        {
+        for (unsigned j = 0; j < count; j++) {
           write_memory16(address, value);
           address += aincr;
           value += vincr;
@@ -105,8 +95,7 @@ static void process_cheat_codebreaker(cheat_type *cheat, u16 pad)
       }
       break;
     case 5:   /* Super code: copies bytes to a buffer addr */
-      for (j = 0; j < value * 2 && i < cheat->cheat_count; j++)
-      {
+      for (unsigned j = 0; j < value * 2 && i < cheat->cheat_count; j++) {
         u8 bvalue, off = j % 6;
         switch (off) {
         case 0:
@@ -162,14 +151,11 @@ static void process_cheat_codebreaker(cheat_type *cheat, u16 pad)
       };
       break;
     case 14:   /* Increase 16/32 bit memory value */
-      if (address & 1)
-      {
+      if (address & 1) {
         u32 value32 = (u32)((s16)value);  /* Sign extend to 32 bit */
         address &= ~1U;
         write_memory32(address, read_memory32(address) + value32);
-      }
-      else
-      {
+      } else {
         write_memory16(address, read_memory16(address) + value);
       }
       break;
@@ -181,23 +167,17 @@ static void process_cheat_codebreaker(cheat_type *cheat, u16 pad)
   }
 }
 
-void process_cheats(void)
-{
-   u32 i;
-
-   for(i = 0; i <= max_cheat; i++)
-   {
-      if(!cheats[i].cheat_active)
+void process_cheats(void) {
+   for(unsigned i = 0; i <= max_cheat; i++) {
+      if (!cheats[i].cheat_active)
          continue;
 
       process_cheat_codebreaker(&cheats[i], 0x3ff ^ read_ioreg(REG_P1));
    }
 }
 
-void cheat_clear()
-{
-   int i;
-   for (i = 0; i < MAX_CHEATS; i++)
+void cheat_clear() {
+   for (unsigned i = 0; i < MAX_CHEATS; i++)
    {
       cheats[i].cheat_count = 0;
       cheats[i].cheat_active = false;
@@ -214,7 +194,7 @@ cheat_error cheat_parse(unsigned index, const char *code)
    
    if (index >= MAX_CHEATS)
       return CheatErrorTooMany;
-   if (codelen >= sizeof(buf))
+   if (codelen >= (signed)sizeof(buf))
       return CheatErrorTooBig;
 
    memcpy(buf, code, codelen+1);
@@ -247,8 +227,7 @@ cheat_error cheat_parse(unsigned index, const char *code)
          break;
    }
    
-   if (pos >= codelen)
-   {
+   if (pos >= codelen) {
       /* Check whether these cheats are readable */
       if (has_encrypted_codebreaker(ch))
          return CheatErrorEncrypted;

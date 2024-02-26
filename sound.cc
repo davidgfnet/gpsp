@@ -18,7 +18,10 @@
  */
 
 
-#include "common.h"
+extern "C" {
+  #include "common.h"
+}
+
 
 typedef struct {
    u32 rate;
@@ -87,7 +90,7 @@ void sound_timer_queue32(u32 channel, u32 value)
 
 unsigned sound_timer(fixed8_24 frequency_step, u32 channel)
 {
-  int ret = 0;
+  unsigned ret = 0;
   u32 sample_status = DIRECT_SOUND_INACTIVE;
   direct_sound_struct *ds = &direct_sound_channel[channel];
 
@@ -543,22 +546,18 @@ void render_gbc_sound()
 // angeneraldiscussion&Number=2069&page=0&view=expanded&mode=threaded&sb=4
 // Hope you don't mind me borrowing it ^_-
 
-static void init_noise_table(u32 *table, u32 period, u32 bit_length)
-{
+static void init_noise_table(u32 *table, u32 period, u32 bit_length) {
   u32 shift_register = 0xFF;
   u32 mask = ~(1 << bit_length);
-  s32 table_pos, bit_pos;
   u32 current_entry;
   u32 table_period = (period + 31) / 32;
 
   // Bits are stored in reverse order so they can be more easily moved to
   // bit 31, for sign extended shift down.
 
-  for(table_pos = 0; table_pos < table_period; table_pos++)
-  {
+  for(u32 i = 0; i < table_period; i++) {
     current_entry = 0;
-    for(bit_pos = 31; bit_pos >= 0; bit_pos--)
-    {
+    for(int bit_pos = 31; bit_pos >= 0; bit_pos--) {
       current_entry |= (shift_register & 0x01) << bit_pos;
 
       shift_register =
@@ -566,7 +565,7 @@ static void init_noise_table(u32 *table, u32 period, u32 bit_length)
        ((shift_register >> 1) & mask);
     }
 
-    table[table_pos] = current_entry;
+    table[i] = current_entry;
   }
 }
 
@@ -821,42 +820,38 @@ bool sound_check_savestate(const u8 *src)
     "len-status", "len-ticks", "noise-type", "sample-tbl"
   };
 
-  int i;
   const u8 *snddoc = bson_find_key(src, "sound");
   if (!snddoc)
     return false;
 
-  for (i = 0; i < sizeof(gvars)/sizeof(gvars[0]); i++)
+  for (unsigned i = 0; i < sizeof(gvars)/sizeof(gvars[0]); i++)
     if (!bson_contains_key(snddoc, gvars[i], BSON_TYPE_INT32))
       return false;
   if (!bson_contains_key(snddoc, "wav-samples", BSON_TYPE_BIN))
     return false;
 
-
-  for (i = 0; i < 2; i++)
-  {
-    char tn[4] = {'d', 's', '0' + i, 0};
+  for (unsigned i = 0; i < 2; i++) {
+    char tn[4] = {'d', 's', (char)('0' + i), 0};
     const u8 *sndchan = bson_find_key(snddoc, tn);
     if (!sndchan)
       return false;
 
-    for (i = 0; i < sizeof(dsvars)/sizeof(dsvars[0]); i++)
-      if (!bson_contains_key(sndchan, dsvars[i], BSON_TYPE_INT32))
+    for (unsigned j = 0; j < sizeof(dsvars)/sizeof(dsvars[0]); j++)
+      if (!bson_contains_key(sndchan, dsvars[j], BSON_TYPE_INT32))
         return false;
 
     if (!bson_contains_key(sndchan, "fifo-bytes", BSON_TYPE_BIN))
       return false;
   }
 
-  for (i = 0; i < 4; i++)
-  {
-    char tn[4] = {'g', 's', '0' + i, 0};
+  for (unsigned i = 0; i < 4; i++) {
+    char tn[4] = {'g', 's', (char)('0' + i), 0};
     const u8 *sndchan = bson_find_key(snddoc, tn);
     if (!sndchan)
       return false;
 
-    for (i = 0; i < sizeof(gsvars)/sizeof(gsvars[0]); i++)
-      if (!bson_contains_key(sndchan, gsvars[i], BSON_TYPE_INT32))
+    for (unsigned j = 0; j < sizeof(gsvars)/sizeof(gsvars[0]); j++)
+      if (!bson_contains_key(sndchan, gsvars[j], BSON_TYPE_INT32))
         return false;
   }
 
@@ -864,9 +859,7 @@ bool sound_check_savestate(const u8 *src)
 }
 
 
-bool sound_read_savestate(const u8 *src)
-{
-  int i;
+bool sound_read_savestate(const u8 *src) {
   const u8 *snddoc = bson_find_key(src, "sound");
 
   if (!(
@@ -881,10 +874,9 @@ bool sound_read_savestate(const u8 *src)
     bson_read_bytes(snddoc, "wav-samples", wave_samples, sizeof(wave_samples))))
     return false;
 
-  for (i = 0; i < 2; i++)
-  {
+  for (unsigned i = 0; i < 2; i++) {
     direct_sound_struct *ds = &direct_sound_channel[i];
-    char tn[4] = {'d', 's', '0' + i, 0};
+    char tn[4] = {'d', 's', (char)('0' + i), 0};
     const u8 *sndchan = bson_find_key(snddoc, tn);
     if (!(
       bson_read_int32(sndchan, "status", &ds->status) &&
@@ -897,10 +889,9 @@ bool sound_read_savestate(const u8 *src)
       return false;
   }
 
-  for (i = 0; i < 4; i++)
-  {
+  for (unsigned i = 0; i < 4; i++) {
     gbc_sound_struct *gs = &gbc_sound_channel[i];
-    char tn[4] = {'g', 's', '0' + i, 0};
+    char tn[4] = {'g', 's', (char)('0' + i), 0};
     const u8 *sndchan = bson_find_key(snddoc, tn);
     if (!(
       bson_read_int32(sndchan, "status", &gs->status) &&
@@ -955,7 +946,7 @@ unsigned sound_write_savestate(u8 *dst)
   for (i = 0; i < 2; i++)
   {
     u8 *wbptr2;
-    char tn[4] = {'d', 's', '0' + i, 0};
+    char tn[4] = {'d', 's', (char)('0' + i), 0};
     bson_start_document(dst, tn, wbptr2);
     bson_write_int32(dst, "status", direct_sound_channel[i].status);
     bson_write_int32(dst, "volume", direct_sound_channel[i].volume_halve);
@@ -972,7 +963,7 @@ unsigned sound_write_savestate(u8 *dst)
   {
     gbc_sound_struct *gs = &gbc_sound_channel[i];
     u8 *wbptr2;
-    char tn[4] = {'g', 's', '0' + i, 0};
+    char tn[4] = {'g', 's', (char)('0' + i), 0};
     bson_start_document(dst, tn, wbptr2);
     bson_write_int32(dst, "status", gs->status);
     bson_write_int32(dst, "rate", gs->rate);
@@ -1048,3 +1039,4 @@ u32 sound_read_samples(s16 *out, u32 frames)
    /* Function returns number of frames read */
    return (samples_to_read >> 1);
 }
+

@@ -300,7 +300,7 @@ static cpu_alert_type dma_transfer_copy(
   return CPU_ALERT_NONE;
 }
 
-cpu_alert_type dma_transfer(unsigned dma_chan, int *usedcycles)
+cpu_alert_type dma_transfer(unsigned dma_chan, unsigned *usedcycles)
 {
   dma_transfer_type *dmach = &dma[dma_chan];
   u32 src_ptr = 0x0FFFFFFF & dmach->source_address & (
@@ -418,13 +418,13 @@ cpu_alert_type iowrite_dma_cnt(u32 dma_number, u32 value) {
 
       if(start_type == DMA_START_IMMEDIATELY) {
         // Excutes the DMA now! Copies the data and returns side effects.
-        int dma_cycles = 0;
+        u32 dma_cycles = 0;
         cpu_alert_type ret = dma_transfer(dma_number, &dma_cycles);
         if (!dma_cycles)
           return ret;
         // Sleep CPU for N cycles and return HALT as side effect (so it does).
         reg[CPU_HALT_STATE] = CPU_DMA;
-        reg[REG_SLEEP_CYCLES] = 0x80000000 | (u32)dma_cycles;
+        reg[REG_SLEEP_CYCLES] = 0x80000000 | dma_cycles;
         return CPU_ALERT_HALT | ret;
       }
     }

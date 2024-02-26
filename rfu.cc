@@ -17,7 +17,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "common.h"
+extern "C" {
+  #include "common.h"
+}
 
 // Debug print logic:
 #ifdef RFU_DEBUG
@@ -177,8 +179,10 @@ static t_client_broadcast rfu_peer_bcst[MAX_RFU_PEERS];
 #define NET_RFU_CLIENT_ACK      0x07    // Client ACKs host received data.
 
 // Callbacks used to send and force-receive data.
-void netpacket_send(uint16_t client_id, const void *buf, size_t len);
-void netpacket_poll_receive();
+extern "C" {
+  void netpacket_send(uint16_t client_id, const void *buf, size_t len);
+  void netpacket_poll_receive();
+}
 
 static void rfu_net_send_cmd(int client_id, u32 ptype, u32 h) {
   u32 pkt[4] = {

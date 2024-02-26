@@ -17,7 +17,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "common.h"
+extern "C" {
+  #include "common.h"
+}
 
 const u8 *state_mem_read_ptr;
 u8 *state_mem_write_ptr;

@@ -52,7 +52,7 @@ extern "C" {
 void init_dma();
 
 // Performs a DMA transfer for the specified channel.
-cpu_alert_type dma_transfer(unsigned dma_chan, int *cycles);
+cpu_alert_type dma_transfer(unsigned dma_chan, unsigned *cycles);
 
 // Handles a DMA control register write (might trigger a DMA)
 cpu_alert_type iowrite_dma_cnt(u32 dma_number, u32 value);

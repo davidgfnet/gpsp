@@ -1,6 +1,7 @@
 /* gameplaySP
  *
  * Copyright (C) 2006 Exophase <exophase@gmail.com>
+ * Copyright (C) 2024 David Guillen Fandos <david@davidgf.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -17,8 +18,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "common.h"
-#include "streams/file_stream.h"
+extern "C" {
+  #include "common.h"
+  #include "streams/file_stream.h"
+}
 
 #define sound_update_frequency_step(timer_number)                             \
   timer[timer_number].frequency_step =                                        \
@@ -979,10 +982,10 @@ void update_gpio_romregs() {
 #define GPIO_RTC_DAT   0x2
 #define GPIO_RTC_CSS   0x4
 
-static void write_rtc(u8 old, u8 new)
+static void write_rtc(u8 oldv, u8 newv)
 {
   // RTC works using a high CS and falling edge capture for the clock signal.
-  if (!(new & GPIO_RTC_CSS)) {
+  if (!(newv & GPIO_RTC_CSS)) {
     // Chip select is down, reset the RTC protocol. And do not process input.
     rtc_state = RTC_IDLE;
     rtc_command = 0;
@@ -991,15 +994,15 @@ static void write_rtc(u8 old, u8 new)
   }
 
   // CS low to high transition!
-  if (!(old & GPIO_RTC_CSS))
+  if (!(oldv & GPIO_RTC_CSS))
     rtc_state = RTC_COMMAND;
 
-  if ((old & GPIO_RTC_CLK) && !(new & GPIO_RTC_CLK)) {
+  if ((oldv & GPIO_RTC_CLK) && !(newv & GPIO_RTC_CLK)) {
     // Advance clock state, input/ouput data.
     switch (rtc_state) {
     case RTC_COMMAND:
       rtc_command <<= 1;
-      rtc_command |= ((new >> 1) & 1);
+      rtc_command |= ((newv >> 1) & 1);
       // 8 bit command read, process:
       if (++rtc_bit_count == 8) {
         switch (rtc_command) {
@@ -1054,7 +1057,7 @@ static void write_rtc(u8 old, u8 new)
 
     case RTC_INPUT_DATA:
       rtc_data <<= 1;
-      rtc_data |= ((new >> 1) & 1);
+      rtc_data |= ((newv >> 1) & 1);
       rtc_data_bits--;
       if (!rtc_data_bits) {
         rtc_status = rtc_data; // HACK: assuming write status here.
@@ -1067,7 +1070,7 @@ static void write_rtc(u8 old, u8 new)
       if (!(gpio_regs[1] & 0x2)) {
         // Only output if the port is set to OUT!
         u32 bit = rtc_data & 1;
-        gpio_regs[0] = (new & ~0x2) | ((bit) << 1);
+        gpio_regs[0] = (newv & ~0x2) | ((bit) << 1);
       }
       rtc_data >>= 1;
       rtc_data_bits--;
@@ -1298,12 +1301,8 @@ typedef struct
 
 #include "gba_over.h"
 
-static void load_game_config_over(gamepak_info_t *gpinfo)
-{
-  unsigned i = 0;
-
-  for (i = 0; i < sizeof(gbaover)/sizeof(gbaover[0]); i++)
-  {
+static void load_game_config_over(gamepak_info_t *gpinfo) {
+  for (unsigned i = 0; i < sizeof(gbaover)/sizeof(gbaover[0]); i++) {
      if (strcmp(gbaover[i].gamepak_code, gpinfo->gamepak_code))
         continue;
 
@@ -1455,9 +1454,7 @@ u8 *load_gamepak_page(u32 physical_index)
   return swap_location;
 }
 
-void init_gamepak_buffer(void)
-{
-  unsigned i;
+void init_gamepak_buffer(void) {
   // Try to allocate up to 32 blocks of 1MB each
   gamepak_buffer_count = 0;
   while (gamepak_buffer_count < ROM_BUFFER_SIZE)
@@ -1469,8 +1466,7 @@ void init_gamepak_buffer(void)
   }
 
   // Initialize the memory map structure
-  for (i = 0; i < 1024; i++)
-  {
+  for (unsigned i = 0; i < 1024; i++) {
     gamepak_blk_queue[i].next_lru = (u16)(i + 1);
     gamepak_blk_queue[i].phy_rom = -1;
   }
@@ -1553,9 +1549,7 @@ void memory_term(void)
   }
 }
 
-bool memory_check_savestate(const u8 *src)
-{
-  int i;
+bool memory_check_savestate(const u8 *src) {
   static const char *vars32[] = {
     "backup-type","flash-mode", "flash-cmd-pos", "flash-bank-num", "flash-dev-id",
     "flash-size", "eeprom-size", "eeprom-mode", "eeprom-addr", "eeprom-counter",
@@ -1577,7 +1571,7 @@ bool memory_check_savestate(const u8 *src)
      return false;
 
   // Check backup variables
-  for (i = 0; i < sizeof(vars32)/sizeof(vars32[0]); i++)
+  for (unsigned i = 0; i < sizeof(vars32)/sizeof(vars32[0]); i++)
     if (!bson_contains_key(bakdoc, vars32[i], BSON_TYPE_INT32))
       return false;
 
@@ -1677,9 +1671,7 @@ unsigned memory_write_savestate(u8 *dst)
   return (unsigned int)(dst - startp);
 }
 
-static s32 load_gamepak_raw(const char *name)
-{
-  unsigned i, j;
+static s32 load_gamepak_raw(const char *name) {
   gamepak_file_large = filestream_open(name, RETRO_VFS_FILE_ACCESS_READ,
                                        RETRO_VFS_FILE_ACCESS_HINT_NONE);
   if(gamepak_file_large)
@@ -1698,11 +1690,11 @@ static s32 load_gamepak_raw(const char *name)
     map_null(read, 0x8000000, 0xD000000);
 
     // Proceed to read the whole ROM or as much as possible.
-    for (i = 0; i < ldblks; i++)
+    for (unsigned i = 0; i < ldblks; i++)
     {
       // Load 1MB chunk and map it
       filestream_read(gamepak_file_large, gamepak_buffers[i], gamepak_buffer_blocksize);
-      for (j = 0; j < 32 && i*32 + j < rom_blocks; j++)
+      for (unsigned j = 0; j < 32 && i*32 + j < rom_blocks; j++)
       {
         u32 phyn = i*32 + j;
         u8* blkptr = &gamepak_buffers[i][32 * 1024 * j];

@@ -18,9 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
-  #include "common.h"
-}
+#include "common.h"
 #include "gba_memory_cpp.h"
 
 u32 dma_bus_val;

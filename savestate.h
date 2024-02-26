@@ -20,6 +20,10 @@
 #ifndef SAVESTATE_H
 #define SAVESTATE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define BSON_TYPE_STR       0x02
 #define BSON_TYPE_DOC       0x03
 #define BSON_TYPE_ARR       0x04
@@ -99,6 +103,10 @@ bool bson_read_bytes(const u8 *srcp, const char *key, void* buffer, unsigned cnt
 
 bool gba_load_state(const void *src);
 void gba_save_state(void *dst);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

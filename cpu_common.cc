@@ -18,9 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
-  #include "common.h"
-}
+#include "common.h"
 
 // Common structures for the CPU state. These are usually defined by the dynarec
 // for builds that support dynarec (for alignment and easy access).

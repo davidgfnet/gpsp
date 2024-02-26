@@ -17,9 +17,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
-  #include "common.h"
-}
+#include "common.h"
+
+#define MAX_CHEATS       20
+#define MAX_CHEAT_CODES  64
 
 typedef struct
 {

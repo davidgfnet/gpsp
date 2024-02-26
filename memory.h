@@ -22,6 +22,10 @@
 
 #include "libretro.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define FEAT_AUTODETECT  -1
 #define FEAT_DISABLE      0
 #define FEAT_ENABLE       1
@@ -136,5 +140,9 @@ static inline void clear_gamepak_stickybits(void)
 bool memory_check_savestate(const u8*src);
 bool memory_read_savestate(const u8*src);
 unsigned memory_write_savestate(u8 *dst);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

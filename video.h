@@ -20,6 +20,10 @@
 #ifndef VIDEO_H
 #define VIDEO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void update_scanline(void);
 void video_reload_counters(void);
 
@@ -27,5 +31,9 @@ extern s32 affine_reference_x[2];
 extern s32 affine_reference_y[2];
 
 extern u16* gba_screen_pixels;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

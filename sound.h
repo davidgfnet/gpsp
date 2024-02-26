@@ -20,6 +20,10 @@
 #ifndef SOUND_H
 #define SOUND_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define BUFFER_SIZE        (1 << 16)
 #define BUFFER_SIZE_MASK   (BUFFER_SIZE - 1)
 
@@ -86,5 +90,9 @@ void iowrite_sndctl_low(u32 value);
 void iowrite_sndctl_high(u32 value);
 
 void reset_sound(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

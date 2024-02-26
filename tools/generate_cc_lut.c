@@ -94,8 +94,8 @@ int main(int argc, char *argv[])
    fprintf(file,
          "#ifndef __CC_LUT_H__\n"
          "#define __CC_LUT_H__\n\n"
-         "#include \"common.h\"\n\n"
-         "extern const u16 gba_cc_lut[];\n\n"
+         "#include <stdint.h>\n\n"
+         "extern const uint16_t gba_cc_lut[];\n\n"
          "#endif /* __CC_LUT_H__ */\n");
 
    fclose(file);
@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
 
    fprintf(file,
          "#include \"gba_cc_lut.h\"\n\n"
-         "const u16 gba_cc_lut[] = {\n");
+         "const uint16_t gba_cc_lut[] = {\n");
 
    for (i = 0; i < CC_LUT_SIZE; i++)
    {

@@ -17,7 +17,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "common.h"
+extern "C" {
+  #include "common.h"
+}
 
 bool libretro_supports_bitmasks    = false;
 bool libretro_supports_ff_override = false;
@@ -34,7 +36,10 @@ static retro_input_state_t input_state_cb;
 
 void retro_set_input_state(retro_input_state_t cb) { input_state_cb = cb; }
 
-extern void set_fastforward_override(bool fastforward);
+extern "C" {
+  // TODO move libretro API to a separate header file
+  extern void set_fastforward_override(bool fastforward);
+}
 
 static void trigger_key(u32 key)
 {

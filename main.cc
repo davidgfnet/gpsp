@@ -17,7 +17,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+extern "C" {
 #include "common.h"
+}
+
 #include <ctype.h>
 
 timer_type timer[4];
@@ -169,14 +172,13 @@ u32 function_cc update_gba(int remaining_cycles)
   u32 changed_pc = 0;
   u32 frame_complete = 0;
   irq_type irq_raised = IRQ_NONE;
-  int dma_cycles;
+  u32 dma_cycles;
   trace_update_gba(remaining_cycles);
 
   remaining_cycles = MAX(remaining_cycles, -64);
 
   do
   {
-    unsigned i;
     // Number of cycles we ask to run - cycles that we did not execute
     // (remaining_cycles can be negative and should be close to zero)
     unsigned completed_cycles = execute_cycles - remaining_cycles;
@@ -331,10 +333,9 @@ u32 function_cc update_gba(int remaining_cycles)
         execute_cycles = MIN(execute_cycles, dma_cyc);  // Continue sleeping.
     }
 
-    for (i = 0; i < 4; i++)
-    {
-       if (timer[i].status == TIMER_PRESCALE &&
-           timer[i].count < execute_cycles)
+    // TODO: fix timer counter!
+    for (unsigned i = 0; i < 4; i++) {
+       if (timer[i].status == TIMER_PRESCALE && (unsigned)timer[i].count < execute_cycles)
           execute_cycles = timer[i].count;
     }
   } while(reg[CPU_HALT_STATE] != CPU_ACTIVE && !frame_complete);
@@ -368,9 +369,7 @@ void print_regs(void)
 }
 #endif
 
-bool main_check_savestate(const u8 *src)
-{
-  int i;
+bool main_check_savestate(const u8 *src) {
   const u8 *p1 = bson_find_key(src, "emu");
   const u8 *p2 = bson_find_key(src, "timers");
   if (!p1 || !p2)
@@ -382,9 +381,8 @@ bool main_check_savestate(const u8 *src)
       !bson_contains_key(p1, "sleep-cycles", BSON_TYPE_INT32))
     return false;
 
-  for (i = 0; i < 4; i++)
-  {
-    char tname[2] = {'0' + i, 0};
+  for (unsigned i = 0; i < 4; i++) {
+    char tname[2] = {(char)('0' + i), 0};
     const u8 *p = bson_find_key(p2, tname);
     if (!p)
       return false;
@@ -402,9 +400,7 @@ bool main_check_savestate(const u8 *src)
   return true;
 }
 
-bool main_read_savestate(const u8 *src)
-{
-  int i;
+bool main_read_savestate(const u8 *src) {
   const u8 *p1 = bson_find_key(src, "emu");
   const u8 *p2 = bson_find_key(src, "timers");
   if (!p1 || !p2)
@@ -419,9 +415,8 @@ bool main_read_savestate(const u8 *src)
   if (!bson_read_int32(p1, "frame-count", &frame_counter))
     frame_counter = 60 * 10;  // Use "fake" 10 seconds.
 
-  for (i = 0; i < 4; i++)
-  {
-    char tname[2] = {'0' + i, 0};
+  for (unsigned i = 0; i < 4; i++) {
+    char tname[2] = {(char)('0' + i), 0};
     const u8 *p = bson_find_key(p2, tname);
 
     if (!(
@@ -438,9 +433,7 @@ bool main_read_savestate(const u8 *src)
   return true;
 }
 
-unsigned main_write_savestate(u8* dst)
-{
-  int i;
+unsigned main_write_savestate(u8* dst) {
   u8 *wbptr, *wbptr2, *startp = dst;
   bson_start_document(dst, "emu", wbptr);
   bson_write_int32(dst, "frame-count", frame_counter);
@@ -451,9 +444,8 @@ unsigned main_write_savestate(u8* dst)
   bson_finish_document(dst, wbptr);
 
   bson_start_document(dst, "timers", wbptr);
-  for (i = 0; i < 4; i++)
-  {
-    char tname[2] = {'0' + i, 0};
+  for (unsigned i = 0; i < 4; i++) {
+    char tname[2] = {(char)('0' + i), 0};
     bson_start_document(dst, tname, wbptr2);
     bson_write_int32(dst, "count", timer[i].count);
     bson_write_int32(dst, "reload", timer[i].reload);

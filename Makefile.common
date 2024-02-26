@@ -4,22 +4,22 @@ INCFLAGS   := -I$(CORE_DIR)/libretro -I$(LIBRETRO_COMM_DIR)/include  -I$(CORE_DI
 
 SOURCES_ASM := $(CORE_DIR)/bios_data.S
 
-SOURCES_CC := $(CORE_DIR)/video.cc \
+SOURCES_CC := $(CORE_DIR)/main.cc \
+              $(CORE_DIR)/video.cc \
               $(CORE_DIR)/cpu_common.cc \
               $(CORE_DIR)/cpu.cc \
               $(CORE_DIR)/memory.cc \
-              $(CORE_DIR)/dma.cc
+              $(CORE_DIR)/dma.cc \
+              $(CORE_DIR)/sound.cc \
+              $(CORE_DIR)/cheats.cc \
+	      $(CORE_DIR)/savestate.cc \
+              $(CORE_DIR)/gbp.cc \
+              $(CORE_DIR)/serial.cc \
+              $(CORE_DIR)/rfu.cc \
+              $(CORE_DIR)/input.cc \
 
-SOURCES_C := $(CORE_DIR)/main.c \
-             $(CORE_DIR)/common.c \
-             $(CORE_DIR)/savestate.c \
-             $(CORE_DIR)/input.c \
-             $(CORE_DIR)/sound.c \
-             $(CORE_DIR)/cheats.c \
+SOURCES_C := $(CORE_DIR)/common.c \
              $(CORE_DIR)/memmap.c \
-             $(CORE_DIR)/serial.c \
-             $(CORE_DIR)/gbp.c \
-             $(CORE_DIR)/rfu.c \
              $(CORE_DIR)/libretro/libretro.c \
              $(CORE_DIR)/gba_cc_lut.c \
              $(LIBRETRO_COMM_DIR)/compat/compat_posix_string.c \

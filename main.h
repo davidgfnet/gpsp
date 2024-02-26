@@ -45,6 +45,9 @@ typedef struct
   u32 status;
 } timer_type;
 
+void iowrite_timer_cnt(u32 timer_number, u32 value);
+void iowrite_timer_reload(u32 tim_id, u32 value);
+
 extern timer_type timer[4];
 
 typedef enum

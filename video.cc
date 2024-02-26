@@ -21,6 +21,7 @@
 extern "C" {
   #include "common.h"
 }
+#include "gba_memory_cpp.h"
 
 u16* gba_screen_pixels = NULL;
 
@@ -193,7 +194,7 @@ static inline void rend_part_tile_Nbpp(u32 bg_comb, u32 px_comb,
     u16 pxflg = px_comb | tilepal;
     const u16 *subpal = &paltbl[tilepal];
     // Read packed pixel data, skip start pixels
-    u32 tilepix = eswap32(*(u32*)tile_ptr);
+    u32 tilepix = memswap(*(u32*)tile_ptr);
     if (hflip) tilepix <<= (start * 4);
     else       tilepix >>= (start * 4);
     // Only 32 bits (8 pixels * 4 bits)
@@ -234,7 +235,7 @@ static inline void render_tile_Nbpp(
 
   if (is8bpp) {
     for (u32 j = 0; j < 2; j++) {
-      u32 tilepix = eswap32(((u32*)tile_ptr)[hflip ? 1-j : j]);
+      u32 tilepix = memswap(((u32*)tile_ptr)[hflip ? 1-j : j]);
       if (tilepix) {
         for (u32 i = 0; i < 4; i++, dest_ptr++) {
           u8 pval = hflip ? (tilepix >> (24 - i*8)) : (tilepix >> (i*8));
@@ -257,7 +258,7 @@ static inline void render_tile_Nbpp(
       }
     }
   } else {
-    u32 tilepix = eswap32(*(u32*)tile_ptr);
+    u32 tilepix = memswap(*(u32*)tile_ptr);
     if (tilepix) {  // We can skip it all if the row is transparent
       u16 tilepal = (tile >> 12) << 4;
       u16 pxflg = px_comb | tilepal;
@@ -359,7 +360,7 @@ static void render_scanline_text_fast(u32 layer,
     u32 todraw = MIN(end, partial_hcnt); // [1..7]
     u32 stop = tile_hoff + todraw;   // Usually 8, unless short run.
 
-    u16 tile = eswap16(*map_ptr++);
+    u16 tile = memswap(*map_ptr++);
     if (tile & 0x400)   // Tile horizontal flip
       rend_part_tile_Nbpp<stype, rdtype, is8bpp, isbase, true>(
         bg_comb, px_comb, dest_ptr, tile_hoff, stop, tile, tile_base, vflip_off, paltbl);
@@ -379,7 +380,7 @@ static void render_scanline_text_fast(u32 layer,
   u32 todraw = MIN(end, pixel_run) / 8;
 
   for (u32 i = 0; i < todraw; i++, dest_ptr += 8) {
-    u16 tile = eswap16(*map_ptr++);
+    u16 tile = memswap(*map_ptr++);
     if (tile & 0x400)   // Tile horizontal flip
       render_tile_Nbpp<stype, rdtype, is8bpp, isbase, true>(
         bg_comb, px_comb, dest_ptr, tile, tile_base, vflip_off, paltbl);
@@ -400,7 +401,7 @@ static void render_scanline_text_fast(u32 layer,
 
   todraw = end / 8;
   for (u32 i = 0; i < todraw; i++, dest_ptr += 8) {
-    u16 tile = eswap16(*map_ptr++);
+    u16 tile = memswap(*map_ptr++);
     if (tile & 0x400)   // Tile horizontal flip
       render_tile_Nbpp<stype, rdtype, is8bpp, isbase, true>(
         bg_comb, px_comb, dest_ptr, tile, tile_base, vflip_off, paltbl);
@@ -413,7 +414,7 @@ static void render_scanline_text_fast(u32 layer,
 
   // Finalize the tile rendering the left side of it (from 0 up to "end").
   if (end) {
-    u16 tile = eswap16(*map_ptr++);
+    u16 tile = memswap(*map_ptr++);
     if (tile & 0x400)   // Tile horizontal flip
       rend_part_tile_Nbpp<stype, rdtype, is8bpp, isbase, true>(
         bg_comb, px_comb, dest_ptr, 0, end, tile, tile_base, vflip_off, paltbl);
@@ -487,7 +488,7 @@ static void render_scanline_text_mosaic(u32 layer,
   // Iterate pixel by pixel, loading data every N pixels to honor mosaic effect
   u8 pval = 0;
   for (u32 i = 0; start < end; start++, i++, dest_ptr++) {
-    u16 tile = eswap16(*map_ptr);
+    u16 tile = memswap(*map_ptr);
 
     if (!(i % mosh)) {
       const u8 *tile_ptr = &tile_base[(tile & 0x3FF) * (is8bpp ? 64 : 32)];
@@ -882,7 +883,7 @@ static inline void render_scanline_bitmap(
     for (u32 i = 0; pixcnt; i++, pixcnt--, valptr++) {
       // Pretty much pixel copier
       if (!mosaic || !(i % mosh))
-        val = sizeof(pixfmt) == 2 ? eswap16(*valptr) : *valptr;
+        val = memswap(*valptr);
       bitmap_pixel_write<rdtype, dsttype, mode, pixfmt>(dst_ptr++, val, palptr, px_attr);
     }
   }
@@ -909,7 +910,7 @@ static inline void render_scanline_bitmap(
 
       if (!mosaic || !(i % mosh)) {
         pixfmt *valptr = &src_ptr[pixel_x + (pixel_y * width)];
-        val = sizeof(pixfmt) == 2 ? eswap16(*valptr) : *valptr;
+        val = memswap(*valptr);
       }
 
       bitmap_pixel_write<rdtype, dsttype, mode, pixfmt>(dst_ptr++, val, palptr, px_attr);
@@ -937,7 +938,7 @@ static inline void render_scanline_bitmap(
       // Lookup pixel and draw it.
       if (!mosaic || !(i % mosh)) {
         pixfmt *valptr = &src_ptr[pixel_x + (pixel_y * width)];
-        val = sizeof(pixfmt) == 2 ? eswap16(*valptr) : *valptr;
+        val = memswap(*valptr);
       }
 
       bitmap_pixel_write<rdtype, dsttype, mode, pixfmt>(dst_ptr++, val, palptr, px_attr);
@@ -1038,7 +1039,7 @@ static inline void render_obj_tile_Nbpp(u32 px_comb,
 
   if (is8bpp) {
     for (u32 j = 0; j < 2; j++) {
-      u32 tilepix = eswap32(((u32*)tile_ptr)[hflip ? 1-j : j]);
+      u32 tilepix = memswap(((u32*)tile_ptr)[hflip ? 1-j : j]);
       if (tilepix) {
         for (u32 i = 0; i < 4; i++, dest_ptr++) {
           u8 pval = hflip ? (tilepix >> (24 - i*8)) : (tilepix >> (i*8));
@@ -1061,7 +1062,7 @@ static inline void render_obj_tile_Nbpp(u32 px_comb,
         dest_ptr += 4;
     }
   } else {
-    u32 tilepix = eswap32(*(u32*)tile_ptr);
+    u32 tilepix = memswap(*(u32*)tile_ptr);
     if (tilepix) {   // Can skip all pixels if the row is just transparent
       for (u32 i = 0; i < 8; i++, dest_ptr++) {
         u8 pval = (hflip ? (tilepix >> ((7-i)*4)) : (tilepix >> (i*4))) & 0xF;
@@ -1215,10 +1216,10 @@ static void render_affine_object(
   const u32 tile_bwidth = is8bpp ? tile_width_8bpp : tile_width_4bpp;
 
   // Affine params
-  s32 dx = (s16)eswap16(affp->dx);
-  s32 dy = (s16)eswap16(affp->dy);
-  s32 dmx = (s16)eswap16(affp->dmx);
-  s32 dmy = (s16)eswap16(affp->dmy);
+  s32 dx = (s16)memswap(affp->dx);
+  s32 dy = (s16)memswap(affp->dy);
+  s32 dmx = (s16)memswap(affp->dmx);
+  s32 dmy = (s16)memswap(affp->dmy);
 
   // Object dimensions and boundaries
   u32 obj_dimw = obji->obj_w;
@@ -1432,8 +1433,8 @@ void render_scanline_objs(
     u32 objoff = objlist[objn];
     const t_oam *oamentry = &((t_oam*)oam_ram)[objoff];
 
-    u16 obj_attr0 = eswap16(oamentry->attr0);
-    u16 obj_attr1 = eswap16(oamentry->attr1);
+    u16 obj_attr0 = memswap(oamentry->attr0);
+    u16 obj_attr1 = memswap(oamentry->attr1);
     u16 obj_shape = obj_attr0 >> 14;
     u16 obj_size = (obj_attr1 >> 14);
     bool is_affine = obj_attr0 & 0x100;
@@ -1445,7 +1446,7 @@ void render_scanline_objs(
       .obj_w = obj_dim_table[obj_shape][obj_size][0],
       .obj_h = obj_dim_table[obj_shape][obj_size][1],
       .attr1 = obj_attr1,
-      .attr2 = eswap16(oamentry->attr2),
+      .attr2 = memswap(oamentry->attr2),
       .is_double = (obj_attr0 & 0x200) != 0,
     };
 
@@ -1528,7 +1529,7 @@ static void order_obj(u32 video_mode)
   for(obj_num = 0; obj_num < 128; obj_num++)
   {
     t_oam *oam_ptr = &oam_base[obj_num];
-    u16 obj_attr0 = eswap16(oam_ptr->attr0);
+    u16 obj_attr0 = memswap(oam_ptr->attr0);
 
     // Bit 9 disables regular sprites (that is, non-affine ones).
     if ((obj_attr0 & 0x0300) == 0x0200)
@@ -1541,13 +1542,13 @@ static void order_obj(u32 video_mode)
     if ((obj_shape == 0x3) || (obj_mode == OBJ_MOD_INVALID))
       continue;
 
-    u16 obj_attr2 = eswap16(oam_ptr->attr2);
+    u16 obj_attr2 = memswap(oam_ptr->attr2);
 
     // On bitmap modes, objs 0-511 are not usable, ingore them.
     if ((video_mode >= 3) && (!(obj_attr2 & 0x200)))
       continue;
 
-    u16 obj_attr1 = eswap16(oam_ptr->attr1);
+    u16 obj_attr1 = memswap(oam_ptr->attr1);
     // Calculate object size (from size and shape attr bits)
     u16 obj_size = (obj_attr1 >> 14);
     s32 obj_height = obj_dim_table[obj_shape][obj_size][1];

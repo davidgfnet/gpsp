@@ -25,6 +25,24 @@ extern "C" {
 
 u32 dma_bus_val;
 
+template <u32 regnum>
+inline u16 read_dmareg16(u32 dmachan) {
+  u16 value = io_registers[regnum + dmachan * 6];
+  return memswap(value);
+}
+template <u32 regnum>
+inline u32 read_dmareg32(u32 dmachan) {
+  u16 lo = io_registers[regnum + dmachan * 6];
+  u16 hi = io_registers[regnum + dmachan * 6 + 1];
+  u32 ret = lo | (hi << 16);
+  return memswap(ret);
+}
+template <u32 regnum>
+inline void write_dmareg16(u32 dmachan, u16 value) {
+  io_registers[regnum + dmachan * 6] = memswap(value);
+}
+
+
 // DMA memory regions can be one of the following:
 // IWRAM - 32kb offset from the contiguous iwram region.
 // EWRAM - also contiguous but with self modifying code check mirror.
@@ -329,8 +347,8 @@ cpu_alert_type dma_transfer(unsigned dma_chan, int *usedcycles)
   if((dmach->repeat_type == DMA_NO_REPEAT) ||
    (dmach->start_type == DMA_START_IMMEDIATELY))
   {
-    u32 cntrl = read_dmareg(REG_DMA0CNT_H, dma_chan);
-    write_dmareg(REG_DMA0CNT_H, dma_chan, cntrl & (~0x8000));
+    u16 cntrl = read_dmareg16<REG_DMA0CNT_H>(dma_chan);
+    write_dmareg16<REG_DMA0CNT_H>(dma_chan, cntrl & (~0x8000));
     dmach->start_type = DMA_INACTIVE;
   }
 
@@ -351,10 +369,8 @@ cpu_alert_type iowrite_dma_cnt(u32 dma_number, u32 value) {
   if(value & 0x8000) {
     if(dma[dma_number].start_type == DMA_INACTIVE) {
       u32 start_type = ((value >> 12) & 0x03);
-      u32 src_address = 0xFFFFFFF & (read_dmareg(REG_DMA0SAD, dma_number) |
-                         (read_dmareg(REG_DMA0SAD + 1, dma_number) << 16));
-      u32 dst_address = 0xFFFFFFF & (read_dmareg(REG_DMA0DAD, dma_number) |
-                         (read_dmareg(REG_DMA0DAD + 1, dma_number) << 16));
+      u32 src_address = 0xFFFFFFF & read_dmareg32<REG_DMA0SAD>(dma_number);
+      u32 dst_address = 0xFFFFFFF & read_dmareg32<REG_DMA0DAD>(dma_number);
 
       dma[dma_number].source_address = src_address;
       dma[dma_number].dest_address = dst_address;
@@ -376,7 +392,7 @@ cpu_alert_type iowrite_dma_cnt(u32 dma_number, u32 value) {
           dma[dma_number].direct_sound_channel = DMA_DIRECT_SOUND_A;
       }
       else {
-        u32 length = read_dmareg(REG_DMA0CNT_L, dma_number);
+        u32 length = read_dmareg16<REG_DMA0CNT_L>(dma_number);
 
         // Autodetecting EEPROM size (a bit of a hack!)
         if((dma_number == 3) && ((dst_address >> 24) == 0x0D) &&
@@ -386,8 +402,7 @@ cpu_alert_type iowrite_dma_cnt(u32 dma_number, u32 value) {
         if(dma_number < 3)
           length &= 0x3FFF;
 
-        if(length == 0)
-        {
+        if(length == 0) {
           if(dma_number == 3)
             length = 0x10000;
           else
@@ -399,7 +414,7 @@ cpu_alert_type iowrite_dma_cnt(u32 dma_number, u32 value) {
         dma[dma_number].dest_direction = ((value >> 5) & 3);
       }
 
-      write_dmareg(REG_DMA0CNT_H, dma_number, value);
+      write_dmareg16<REG_DMA0CNT_H>(dma_number, value);
 
       if(start_type == DMA_START_IMMEDIATELY) {
         // Excutes the DMA now! Copies the data and returns side effects.
@@ -417,7 +432,7 @@ cpu_alert_type iowrite_dma_cnt(u32 dma_number, u32 value) {
     // Disables DMA
     dma[dma_number].start_type = DMA_INACTIVE;
     dma[dma_number].direct_sound_channel = DMA_NO_DIRECT_SOUND;
-    write_dmareg(REG_DMA0CNT_H, dma_number, value);
+    write_dmareg16<REG_DMA0CNT_H>(dma_number, value);
   }
 
   return CPU_ALERT_NONE;

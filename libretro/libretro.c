@@ -11,7 +11,6 @@
 #include "../memmap.h"
 #include "libretro_core_options.h"
 
-#include "../gba_memory.h"
 #include "../gba_cc_lut.h"
 
 #if defined(VITA) && defined(HAVE_DYNAREC)

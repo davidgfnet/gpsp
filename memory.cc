@@ -22,6 +22,7 @@ extern "C" {
   #include "common.h"
   #include "streams/file_stream.h"
 }
+#include "gba_memory_cpp.h"
 
 #define sound_update_frequency_step(timer_number)                             \
   timer[timer_number].frequency_step =                                        \
@@ -205,9 +206,7 @@ u32 flash_bank_cnt;
 
 u32 flash_device_id = FLASH_DEVICE_MACRONIX_64KB;
 
-void reload_timing_info()
-{
-  int i;
+void reload_timing_info() {
   uint16_t waitcnt = read_ioreg(REG_WAITCNT);
 
   /* Sequential 16 and 32 bit accesses to ROM */
@@ -215,26 +214,72 @@ void reload_timing_info()
   ws_cyc_seq[0xA][0] = ws_cyc_seq[0xB][0] = 1 + ws1_seq[(waitcnt >>  7) & 1];
   ws_cyc_seq[0xC][0] = ws_cyc_seq[0xD][0] = 1 + ws2_seq[(waitcnt >> 10) & 1];
 
-  for (i = 0x8; i <= 0xD; i++)
-  {
-    /* 32 bit accesses just cost double due to 16 bit bus */
+  /* 32 bit accesses just cost double due to 16 bit bus */
+  for (int i = 0x8; i <= 0xD; i++)
     ws_cyc_seq[i][1] = ws_cyc_seq[i][0] * 2;
-  }
 
   /* Sequential 16 and 32 bit accesses to ROM */
   ws_cyc_nseq[0x8][0] = ws_cyc_nseq[0x9][0] = 1 + ws012_nonseq[(waitcnt >> 2) & 3];
   ws_cyc_nseq[0xA][0] = ws_cyc_nseq[0xB][0] = 1 + ws012_nonseq[(waitcnt >> 5) & 3];
   ws_cyc_nseq[0xC][0] = ws_cyc_nseq[0xD][0] = 1 + ws012_nonseq[(waitcnt >> 8) & 3];
 
-  for (i = 0x8; i <= 0xD; i++)
-  {
-    /* 32 bit accesses are a non-seq (16) + seq access (16) */
+  /* 32 bit accesses are a non-seq (16) + seq access (16) */
+  for (int i = 0x8; i <= 0xD; i++)
     ws_cyc_nseq[i][1] = 1 + ws_cyc_nseq[i][0] + ws_cyc_seq[i][0];
-  }
 }
 
-u8 read_backup(u32 address)
-{
+// Funny memory areas and their read handlers:
+
+template <typename rdtype> inline rdtype unmapped_rom_read(u32 address);
+template <typename rdtype> inline rdtype read_openbus(u32 address);
+template <typename rdtype> inline rdtype read_backup(u32 address);
+
+// Unmapped ROM area returns some funny value left in the bus (the address)
+template <> inline u8 unmapped_rom_read(u32 addr) {
+  return (((addr) >> 1) >> (((addr) & 1) * 8)) & 0xFF;
+}
+template <> inline u16 unmapped_rom_read(u32 addr) {
+  return ((addr) >> 1) & 0xFFFF;
+}
+template <> inline u32 unmapped_rom_read(u32 addr) {
+  return ((((addr) & ~3) >> 1) & 0xFFFF) | (((((addr) & ~3) + 2) >> 1) << 16);
+}
+
+// Open BUS reads returns some future opcode (prefetch?)
+template <> inline u8 read_openbus(u32 address) {
+  if (reg[REG_CPSR] & 0x20)
+    return read_memory8(reg[REG_PC] + 4 + (address & 0x01));
+  else
+    return read_memory8(reg[REG_PC] + 8 + (address & 0x03));
+}
+template <> inline u16 read_openbus(u32 address) {
+  if (reg[REG_CPSR] & 0x20)
+    return read_memory16(reg[REG_PC] + 4);
+  else
+    return read_memory16(reg[REG_PC] + 8 + (address & 0x02));
+}
+template <> inline u32 read_openbus(u32 address) {
+  if (reg[REG_CPSR] & 0x20) {
+    u32 instv = read_memory16(reg[REG_PC] + 4);
+    return instv | (instv << 16);
+  } else
+    return read_memory32(reg[REG_PC] + 8);
+}
+
+// It just reads at byte level, and replicates byte for larger reads.
+template <> inline u8 read_backup(u32 address) {
+  return read_backup(address & 0xFFFF);
+}
+template <> inline u16 read_backup(u32 address) {
+  u16 value = read_backup(address & 0xFFFF);
+  return value | (value << 8);
+}
+template <> inline u32 read_backup(u32 address) {
+  u32 value = read_backup(address & 0xFFFF);
+  return value | (value << 8) | (value << 16) | (value << 24);
+}
+
+u8 read_backup(u32 address) {
   u8 value = 0;
 
   if(backup_type == BACKUP_EEPROM)
@@ -243,58 +288,128 @@ u8 read_backup(u32 address)
   if(backup_type == BACKUP_UNKN)
     backup_type = BACKUP_SRAM;
 
-  if(backup_type == BACKUP_SRAM)
-    value = gamepak_backup[address];
-  else if(flash_mode == FLASH_ID_MODE)
-  {
-    if (flash_bank_cnt == FLASH_SIZE_128KB)
-    {
-      /* ID manufacturer type */
-      if(address == 0x0000)
-        value = FLASH_MANUFACTURER_MACRONIX;
-      /* ID device type */
-      else if(address == 0x0001)
-        value = FLASH_DEVICE_MACRONIX_128KB;
+  if (backup_type == BACKUP_SRAM)
+    return gamepak_backup[address];
+  else if (flash_mode == FLASH_ID_MODE) {
+    if (flash_bank_cnt == FLASH_SIZE_128KB) {
+      if (address == 0x0000)     /* ID manufacturer type */
+        return FLASH_MANUFACTURER_MACRONIX;
+      else if(address == 0x0001) /* ID device type */
+        return FLASH_DEVICE_MACRONIX_128KB;
+    } else {
+      if (address == 0x0000)     /* ID manufacturer type */
+        return FLASH_MANUFACTURER_PANASONIC;
+      else if(address == 0x0001) /* ID device type */
+        return FLASH_DEVICE_PANASONIC_64KB;
     }
-    else
-    {
-      /* ID manufacturer type */
-      if(address == 0x0000)
-        value = FLASH_MANUFACTURER_PANASONIC;
-      /* ID device type */
-      else if(address == 0x0001)
-        value = FLASH_DEVICE_PANASONIC_64KB;
-    }
-  }
-  else
-  {
+  } else {
     u32 fulladdr = address + 64*1024*flash_bank_num;
-    value = gamepak_backup[fulladdr];
+    return gamepak_backup[fulladdr];
   }
 
   return value;
 }
 
-#define read_backup8()                                                        \
-  value = read_backup(address & 0xFFFF);                                      \
+void function_cc write_backup(u32 address, u32 value) {
+  value &= 0xFF;
 
-#define read_backup16()                                                       \
-  value = read_backup(address & 0xFFFF);                                      \
-  value = value | (value << 8);
+  if (backup_type == BACKUP_EEPROM)
+    return;
 
-#define read_backup32()                                                       \
-  value = read_backup(address & 0xFFFF);                                      \
-  value = value | (value << 8);                                               \
-  value = value | (value << 16);
+  if (backup_type == BACKUP_UNKN)
+    backup_type = BACKUP_SRAM;
 
-#define write_eeprom8(addr, value)
+  // gamepak SRAM or Flash ROM
+  if ((address == 0x5555) && (flash_mode != FLASH_WRITE_MODE)) {
+    if((flash_command_position == 0) && (value == 0xAA)) {
+      backup_type = BACKUP_FLASH;
+      flash_command_position = 1;
+    }
 
-#define write_eeprom16(addr, value)                                           \
-  write_eeprom(addr, value)
+    if (flash_command_position == 2) {
+      switch(value) {
+        case 0x90:
+          // Enter ID mode, this also tells the emulator that we're using
+          // flash, not SRAM
 
-#define write_eeprom32(addr, value)
+          if(flash_mode == FLASH_BASE_MODE)
+            flash_mode = FLASH_ID_MODE;
 
-// EEPROM is 512 bytes by default; it is autodetecte as 8KB if
+          break;
+
+        case 0x80:
+          // Enter erase mode
+          if(flash_mode == FLASH_BASE_MODE)
+            flash_mode = FLASH_ERASE_MODE;
+          break;
+
+        case 0xF0:
+          // Terminate ID mode
+          if(flash_mode == FLASH_ID_MODE)
+            flash_mode = FLASH_BASE_MODE;
+          break;
+
+        case 0xA0:
+          // Write mode
+          if(flash_mode == FLASH_BASE_MODE)
+            flash_mode = FLASH_WRITE_MODE;
+          break;
+
+        case 0xB0:
+          // Bank switch
+          // Here the chip is now officially 128KB.
+          flash_bank_cnt = FLASH_SIZE_128KB;
+          if(flash_mode == FLASH_BASE_MODE)
+            flash_mode = FLASH_BANKSWITCH_MODE;
+          break;
+
+        case 0x10:
+          // Erase chip
+          if(flash_mode == FLASH_ERASE_MODE)
+          {
+            memset(gamepak_backup, 0xFF, 1024 * 128);
+            flash_mode = FLASH_BASE_MODE;
+          }
+          break;
+
+        default:
+          break;
+      }
+      flash_command_position = 0;
+    }
+    if(backup_type == BACKUP_SRAM)
+      gamepak_backup[0x5555] = value;
+  }
+  else if((address == 0x2AAA) && (value == 0x55) && (flash_command_position == 1))
+    flash_command_position = 2;
+  else {
+    if((flash_command_position == 2) &&
+     (flash_mode == FLASH_ERASE_MODE) && (value == 0x30))
+    {
+      // Erase sector
+      u32 fulladdr = (address & 0xF000) + 64*1024*flash_bank_num;
+      memset(&gamepak_backup[fulladdr], 0xFF, 1024 * 4);
+      flash_mode = FLASH_BASE_MODE;
+      flash_command_position = 0;
+    }
+    else if ((flash_command_position == 0) &&
+             (flash_mode == FLASH_BANKSWITCH_MODE) && (address == 0x0000) &&
+             (flash_bank_cnt == FLASH_SIZE_128KB)) {
+      flash_bank_num = value & 1;
+      flash_mode = FLASH_BASE_MODE;
+    }
+    else if((flash_command_position == 0) && (flash_mode == FLASH_WRITE_MODE)) {
+      // Write value to flash ROM
+      u32 fulladdr = address + 64*1024*flash_bank_num;
+      gamepak_backup[fulladdr] = value;
+      flash_mode = FLASH_BASE_MODE;
+    }
+    else if (backup_type == BACKUP_SRAM)
+      gamepak_backup[address] = value;   // Write value to SRAM
+  }
+}
+
+// EEPROM is 512 bytes by default; it is autodetected as 8KB if
 // 14bit address DMAs are made (this is done in the DMA handler).
 
 u32 eeprom_size = EEPROM_512_BYTE;
@@ -302,10 +417,43 @@ u32 eeprom_mode = EEPROM_BASE_MODE;
 u32 eeprom_address = 0;
 u32 eeprom_counter = 0;
 
-void function_cc write_eeprom(u32 unused_address, u32 value)
-{
-  switch(eeprom_mode)
-  {
+u32 function_cc read_eeprom(void) {
+  u32 value;
+
+  switch(eeprom_mode) {
+    case EEPROM_BASE_MODE:
+      value = 1;
+      break;
+
+    case EEPROM_READ_MODE:
+      value = (gamepak_backup[eeprom_address + (eeprom_counter / 8)] >>
+       (7 - (eeprom_counter % 8))) & 0x01;
+      eeprom_counter++;
+      if(eeprom_counter == 64) {
+        eeprom_counter = 0;
+        eeprom_mode = EEPROM_BASE_MODE;
+      }
+      break;
+
+    case EEPROM_READ_HEADER_MODE:
+      value = 0;
+      eeprom_counter++;
+      if(eeprom_counter == 4) {
+        eeprom_mode = EEPROM_READ_MODE;
+        eeprom_counter = 0;
+      }
+      break;
+
+    default:
+      value = 0;
+      break;
+  }
+
+  return value;
+}
+
+void function_cc write_eeprom(u32 unused_address, u32 value) {
+  switch(eeprom_mode) {
     case EEPROM_BASE_MODE:
       backup_type = BACKUP_EEPROM;
       eeprom_address |= (value & 0x01) << (1 - eeprom_counter);
@@ -376,178 +524,64 @@ void function_cc write_eeprom(u32 unused_address, u32 value)
   }
 }
 
-#define read_memory_gamepak(type)                                             \
-  u32 gamepak_index = address >> 15;                                          \
-  u8 *map = memory_map_read[gamepak_index];                                   \
-                                                                              \
-  if(!map)                                                                    \
-    map = load_gamepak_page(gamepak_index & 0x3FF);                           \
-                                                                              \
-  value = readaddress##type(map, address & 0x7FFF)                            \
+// General memory read codepath (only for aligned loads)
+template<typename rdtype>
+inline u32 read_memory(u32 address) {
+  switch (address >> 24) {
+    case 0x00:  // BIOS address space
+      if (address >= 0x4000)
+        return read_openbus<rdtype>(address);
+      else if (reg[REG_PC] >= 0x4000)
+        return (rdtype)(reg[REG_BUS_VALUE] >> ((address & 0x03) << 3));
+      else
+        return read_mem<rdtype>(bios_rom, address);
+    case 0x02:  // EWRAM
+      return read_mem<rdtype>(ewram, address & 0x3FFFF);
+    case 0x03:  // IWRAM
+      return read_mem<rdtype>(&iwram[0x8000], address & 0x7FFF);
+    case 0x04:  // I/O registers
+      return read_mem<rdtype>((u8*)io_registers, address & 0x3FF);
+    case 0x05:  // Palette RAM
+      return read_mem<rdtype>((u8*)palette_ram, address & 0x3FF);
+    case 0x06:  // VRAM
+      return read_mem<rdtype>(vram, vram_address(address));
+    case 0x07:  // OAM RAM
+      return read_mem<rdtype>((u8*)oam_ram, address & 0x3FF);
 
+    case 0x0D:
+      if (backup_type == BACKUP_EEPROM)
+        return read_eeprom();
+      /* fallthrough */
+    case 0x08 ... 0x0C:  // Gamepak
+      if ((address & 0x1FFFFFF) >= gamepak_size)
+        return unmapped_rom_read<rdtype>(address);
+      else {
+        u32 rom_idx = address >> 15;
+        u8 *map = memory_map_read[rom_idx];
 
-#define unmapped_rom_read8(addr)                                              \
-  (((addr) >> 1) >> (((addr) & 1) * 8)) & 0xFF
+        if (!map)
+          map = load_gamepak_page(rom_idx & 0x3FF);
 
-#define unmapped_rom_read16(addr)                                             \
-  ((addr) >> 1) & 0xFFFF
-
-#define unmapped_rom_read32(addr)                                             \
-  ((((addr) & ~3) >> 1) & 0xFFFF) | (((((addr) & ~3) + 2) >> 1) << 16)
-
-#define read_open8()                                                          \
-  if(!(reg[REG_CPSR] & 0x20))                                                 \
-    value = read_memory8(reg[REG_PC] + 8 + (address & 0x03));                 \
-  else                                                                        \
-    value = read_memory8(reg[REG_PC] + 4 + (address & 0x01))                  \
-
-#define read_open16()                                                         \
-  if(!(reg[REG_CPSR] & 0x20))                                                 \
-    value = read_memory16(reg[REG_PC] + 8 + (address & 0x02));                \
-  else                                                                        \
-    value = read_memory16(reg[REG_PC] + 4)                                    \
-
-#define read_open32()                                                         \
-  if(!(reg[REG_CPSR] & 0x20))                                                 \
-    value = read_memory32(reg[REG_PC] + 8);                                   \
-  else                                                                        \
-  {                                                                           \
-    u32 current_instruction = read_memory16(reg[REG_PC] + 4);                 \
-    value = current_instruction | (current_instruction << 16);                \
-  }                                                                           \
-
-u32 function_cc read_eeprom(void)
-{
-  u32 value;
-
-  switch(eeprom_mode)
-  {
-    case EEPROM_BASE_MODE:
-      value = 1;
-      break;
-
-    case EEPROM_READ_MODE:
-      value = (gamepak_backup[eeprom_address + (eeprom_counter / 8)] >>
-       (7 - (eeprom_counter % 8))) & 0x01;
-      eeprom_counter++;
-      if(eeprom_counter == 64)
-      {
-        eeprom_counter = 0;
-        eeprom_mode = EEPROM_BASE_MODE;
+        return read_mem<rdtype>(map, address & 0x7FFF);
       }
-      break;
-
-    case EEPROM_READ_HEADER_MODE:
-      value = 0;
-      eeprom_counter++;
-      if(eeprom_counter == 4)
-      {
-        eeprom_mode = EEPROM_READ_MODE;
-        eeprom_counter = 0;
-      }
-      break;
-
+    case 0x0E:
+    case 0x0F:
+      return read_backup<rdtype>(address);
     default:
-      value = 0;
-      break;
-  }
-
-  return value;
+      return read_openbus<rdtype>(address);
+  };
 }
 
 
-#define read_memory(type)                                                     \
-  switch(address >> 24)                                                       \
-  {                                                                           \
-    case 0x00:                                                                \
-      /* BIOS */                                                              \
-      if (address < 0x4000) {                                                 \
-        if(reg[REG_PC] >= 0x4000)                                             \
-          value = (u##type)(reg[REG_BUS_VALUE] >> ((address & 0x03) << 3));   \
-        else                                                                  \
-          value = readaddress##type(bios_rom, address & 0x3FFF);              \
-      } else {                                                                \
-        read_open##type();                                                    \
-      }                                                                       \
-      break;                                                                  \
-                                                                              \
-    case 0x02:                                                                \
-      /* external work RAM */                                                 \
-      value = readaddress##type(ewram, (address & 0x3FFFF));                  \
-      break;                                                                  \
-                                                                              \
-    case 0x03:                                                                \
-      /* internal work RAM */                                                 \
-      value = readaddress##type(iwram, (address & 0x7FFF) + 0x8000);          \
-      break;                                                                  \
-                                                                              \
-    case 0x04:                                                                \
-      /* I/O registers */                                                     \
-      value = readaddress##type(io_registers, address & 0x3FF);               \
-      break;                                                                  \
-                                                                              \
-    case 0x05:                                                                \
-      /* palette RAM */                                                       \
-      value = readaddress##type(palette_ram, address & 0x3FF);                \
-      break;                                                                  \
-                                                                              \
-    case 0x06:                                                                \
-      /* VRAM */                                                              \
-      address &= 0x1FFFF;                                                     \
-      if(address >= 0x18000)                                                  \
-        address -= 0x8000;                                                    \
-                                                                              \
-      value = readaddress##type(vram, address);                               \
-      break;                                                                  \
-                                                                              \
-    case 0x07:                                                                \
-      /* OAM RAM */                                                           \
-      value = readaddress##type(oam_ram, address & 0x3FF);                    \
-      break;                                                                  \
-                                                                              \
-    case 0x0D:                                                                \
-      if (backup_type == BACKUP_EEPROM) {                                     \
-        value = read_eeprom();                                                \
-        break;                                                                \
-      }                                                                       \
-      /* fallthrough */                                                       \
-    case 0x08:                                                                \
-    case 0x09:                                                                \
-    case 0x0A:                                                                \
-    case 0x0B:                                                                \
-    case 0x0C:                                                                \
-      /* gamepak ROM */                                                       \
-      if((address & 0x1FFFFFF) >= gamepak_size)                               \
-        value = unmapped_rom_read##type(address);                             \
-      else                                                                    \
-      {                                                                       \
-        read_memory_gamepak(type);                                            \
-      }                                                                       \
-      break;                                                                  \
-                                                                              \
-    case 0x0E:                                                                \
-    case 0x0F:                                                                \
-      read_backup##type();                                                    \
-      break;                                                                  \
-                                                                              \
-    default:                                                                  \
-      read_open##type();                                                      \
-      break;                                                                  \
-  }                                                                           \
-
-
-static inline s32 signext28(u32 value)
-{
+static inline s32 signext28(u32 value) {
   s32 ret = (s32)(value << 4);
   return ret >> 4;
 }
 
-cpu_alert_type function_cc write_io_register16(u32 address, u32 value)
-{
+cpu_alert_type function_cc write_io_register16(u32 address, u32 value) {
   uint16_t ioreg = (address & 0x3FE) >> 1;
   value &= 0xffff;
-  switch(ioreg)
-  {
+  switch(ioreg) {
     case REG_DISPCNT:
       // Changing the lowest 3 bits might require object re-sorting
       reg[OAM_UPDATED] |= ((value & 0x07) != (read_ioreg(REG_DISPCNT) & 0x07));
@@ -705,8 +739,7 @@ cpu_alert_type function_cc write_io_register16(u32 address, u32 value)
   return CPU_ALERT_NONE;
 }
 
-cpu_alert_type function_cc write_io_register8(u32 address, u32 value)
-{
+cpu_alert_type function_cc write_io_register8(u32 address, u32 value) {
   if (address == 0x301) {
     if (value & 1)
       reg[CPU_HALT_STATE] = CPU_STOP;
@@ -723,8 +756,7 @@ cpu_alert_type function_cc write_io_register8(u32 address, u32 value)
   return write_io_register16(address & 0x3FE, value);
 }
 
-cpu_alert_type function_cc write_io_register32(u32 address, u32 value)
-{
+cpu_alert_type function_cc write_io_register32(u32 address, u32 value) {
   // Handle sound FIFO data write
   if (address == 0xA0) {
     sound_timer_queue32(0, value);
@@ -742,170 +774,6 @@ cpu_alert_type function_cc write_io_register32(u32 address, u32 value)
   return allow | alhigh;
 }
 
-#define write_palette8(address, value)                                        \
-{                                                                             \
-  u32 aladdr = address & ~1U;                                                 \
-  u16 val16 = (value << 8) | value;                                           \
-  address16(palette_ram, aladdr) = eswap16(val16);                            \
-  address16(palette_ram_converted, aladdr) = convert_palette(val16);          \
-}
-
-#define write_palette16(address, value)                                       \
-{                                                                             \
-  u32 palette_address = address;                                              \
-  address16(palette_ram, palette_address) = eswap16(value);                   \
-  value = convert_palette(value);                                             \
-  address16(palette_ram_converted, palette_address) = value;                  \
-}                                                                             \
-
-#define write_palette32(address, value)                                       \
-{                                                                             \
-  u32 palette_address = address;                                              \
-  u32 value_high = value >> 16;                                               \
-  u32 value_low = value & 0xFFFF;                                             \
-  address32(palette_ram, palette_address) = eswap32(value);                   \
-  value_high = convert_palette(value_high);                                   \
-  address16(palette_ram_converted, palette_address + 2) = value_high;         \
-  value_low = convert_palette(value_low);                                     \
-  address16(palette_ram_converted, palette_address) = value_low;              \
-}                                                                             \
-
-
-void function_cc write_backup(u32 address, u32 value)
-{
-  value &= 0xFF;
-
-  if(backup_type == BACKUP_EEPROM)
-    return;
-
-  if(backup_type == BACKUP_UNKN)
-    backup_type = BACKUP_SRAM;
-
-  // gamepak SRAM or Flash ROM
-  if((address == 0x5555) && (flash_mode != FLASH_WRITE_MODE))
-  {
-    if((flash_command_position == 0) && (value == 0xAA))
-    {
-      backup_type = BACKUP_FLASH;
-      flash_command_position = 1;
-    }
-
-    if(flash_command_position == 2)
-    {
-      switch(value)
-      {
-        case 0x90:
-          // Enter ID mode, this also tells the emulator that we're using
-          // flash, not SRAM
-
-          if(flash_mode == FLASH_BASE_MODE)
-            flash_mode = FLASH_ID_MODE;
-
-          break;
-
-        case 0x80:
-          // Enter erase mode
-          if(flash_mode == FLASH_BASE_MODE)
-            flash_mode = FLASH_ERASE_MODE;
-          break;
-
-        case 0xF0:
-          // Terminate ID mode
-          if(flash_mode == FLASH_ID_MODE)
-            flash_mode = FLASH_BASE_MODE;
-          break;
-
-        case 0xA0:
-          // Write mode
-          if(flash_mode == FLASH_BASE_MODE)
-            flash_mode = FLASH_WRITE_MODE;
-          break;
-
-        case 0xB0:
-          // Bank switch
-          // Here the chip is now officially 128KB.
-          flash_bank_cnt = FLASH_SIZE_128KB;
-          if(flash_mode == FLASH_BASE_MODE)
-            flash_mode = FLASH_BANKSWITCH_MODE;
-          break;
-
-        case 0x10:
-          // Erase chip
-          if(flash_mode == FLASH_ERASE_MODE)
-          {
-            memset(gamepak_backup, 0xFF, 1024 * 128);
-            flash_mode = FLASH_BASE_MODE;
-          }
-          break;
-
-        default:
-          break;
-      }
-      flash_command_position = 0;
-    }
-    if(backup_type == BACKUP_SRAM)
-      gamepak_backup[0x5555] = value;
-  }
-  else
-
-  if((address == 0x2AAA) && (value == 0x55) &&
-   (flash_command_position == 1))
-    flash_command_position = 2;
-  else
-  {
-    if((flash_command_position == 2) &&
-     (flash_mode == FLASH_ERASE_MODE) && (value == 0x30))
-    {
-      // Erase sector
-      u32 fulladdr = (address & 0xF000) + 64*1024*flash_bank_num;
-      memset(&gamepak_backup[fulladdr], 0xFF, 1024 * 4);
-      flash_mode = FLASH_BASE_MODE;
-      flash_command_position = 0;
-    }
-    else
-
-    if((flash_command_position == 0) &&
-     (flash_mode == FLASH_BANKSWITCH_MODE) && (address == 0x0000) &&
-     (flash_bank_cnt == FLASH_SIZE_128KB))
-    {
-      flash_bank_num = value & 1;
-      flash_mode = FLASH_BASE_MODE;
-    }
-    else
-
-    if((flash_command_position == 0) && (flash_mode == FLASH_WRITE_MODE))
-    {
-      // Write value to flash ROM
-      u32 fulladdr = address + 64*1024*flash_bank_num;
-      gamepak_backup[fulladdr] = value;
-      flash_mode = FLASH_BASE_MODE;
-    }
-    else
-
-    if(backup_type == BACKUP_SRAM)
-    {
-      // Write value to SRAM
-      gamepak_backup[address] = value;
-    }
-  }
-}
-
-#define write_backup8()                                                       \
-  write_backup(address & 0xFFFF, value)                                       \
-
-#define write_backup16()                                                      \
-
-#define write_backup32()                                                      \
-
-#define write_vram8()                                                         \
-  address &= ~0x01;                                                           \
-  address16(vram, address) = eswap16((value << 8) | value)                    \
-
-#define write_vram16()                                                        \
-  address16(vram, address) = eswap16(value)                                   \
-
-#define write_vram32()                                                        \
-  address32(vram, address) = eswap32(value)                                   \
 
 // RTC code derived from VBA's (due to lack of any real publically available
 // documentation...)
@@ -1135,142 +1003,117 @@ void function_cc write_gpio(u32 address, u32 value) {
   update_gpio_romregs();
 }
 
-#define write_gpio8()                                                         \
+// EEPROM writes only happen in 16 bit mode
+template <typename wrtype> inline cpu_alert_type write_eeprom(u32 value) {
+  return CPU_ALERT_NONE;
+}
+template <> inline cpu_alert_type write_eeprom<u16>(u32 value) {
+  write_eeprom(0, value);
+  return CPU_ALERT_NONE;
+}
+// SRAM/FLASH can only be accessed using byte writes
+template <typename wrtype> inline cpu_alert_type write_backup(u32 address, u32 value) {
+  return CPU_ALERT_NONE;
+}
+template <> inline cpu_alert_type write_backup<u8>(u32 address, u32 value) {
+  write_backup(address, value);
+  return CPU_ALERT_NONE;
+}
+// OAM writes are not allowed at byte granularity
+template <typename wrtype> inline cpu_alert_type oam_write(u32 address, u32 value) {
+  write_mem<wrtype>((u8*)oam_ram, address & 0x3FF, value);
+  return CPU_ALERT_NONE;
+}
+template <> inline cpu_alert_type oam_write<u8>(u32 address, u32 value) {
+  return CPU_ALERT_NONE;
+}
+// GPIO writes are also 16 bit only
+template <typename wrtype> inline cpu_alert_type gpio_write(u32 address, u32 value) {
+  return CPU_ALERT_NONE;
+}
+template <> inline cpu_alert_type gpio_write<u16>(u32 address, u32 value) {
+  write_gpio(address & 0xFF, value);
+  return CPU_ALERT_NONE;
+}
 
-#define write_gpio16()                                                        \
-  write_gpio(address & 0xFF, value)                                           \
 
-#define write_gpio32()                                                        \
+template<typename wrtype>
+inline cpu_alert_type write_memory(u32 address, wrtype value) {
+  switch (address >> 24) {
+    case 0x02:  // EWRAM (checks for SMC)
+      write_mem<wrtype>(ewram, address & 0x3FFFF, value);
+      if (read_mem<wrtype>(&ewram[0x40000], address & 0x3FFFF))
+        return CPU_ALERT_SMC;
+      return CPU_ALERT_NONE;
 
-#define write_memory(type)                                                    \
-  switch(address >> 24)                                                       \
-  {                                                                           \
-    case 0x02:                                                                \
-      /* external work RAM */                                                 \
-      address##type(ewram, (address & 0x3FFFF)) = eswap##type(value);         \
-      break;                                                                  \
-                                                                              \
-    case 0x03:                                                                \
-      /* internal work RAM */                                                 \
-      address##type(iwram, (address & 0x7FFF) + 0x8000) = eswap##type(value); \
-      break;                                                                  \
-                                                                              \
-    case 0x04:                                                                \
-      /* I/O registers */                                                     \
-      return write_io_register##type(address & 0x3FF, value);                 \
-                                                                              \
-    case 0x05:                                                                \
-      /* palette RAM */                                                       \
-      write_palette##type(address & 0x3FF, value);                            \
-      break;                                                                  \
-                                                                              \
-    case 0x06:                                                                \
-      /* VRAM */                                                              \
-      address &= 0x1FFFF;                                                     \
-      if(address >= 0x18000)                                                  \
-        address -= 0x8000;                                                    \
-                                                                              \
-      write_vram##type();                                                     \
-      break;                                                                  \
-                                                                              \
-    case 0x07:                                                                \
-      /* OAM RAM */                                                           \
-      if (type != 8) {                                                        \
-        reg[OAM_UPDATED] = 1;                                                 \
-        address##type(oam_ram, address & 0x3FF) = eswap##type(value);         \
-      }                                                                       \
-      break;                                                                  \
-                                                                              \
-    case 0x08:                                                                \
-      /* gamepak ROM or RTC */                                                \
-      write_gpio##type();                                                     \
-      break;                                                                  \
-                                                                              \
-    case 0x09:                                                                \
-    case 0x0A:                                                                \
-    case 0x0B:                                                                \
-    case 0x0C:                                                                \
-      /* gamepak ROM space */                                                 \
-      break;                                                                  \
-                                                                              \
-    case 0x0D:                                                                \
-      write_eeprom##type(address, value);                                     \
-      break;                                                                  \
-                                                                              \
-    case 0x0E:                                                                \
-      write_backup##type();                                                   \
-      break;                                                                  \
-  }                                                                           \
+    case 0x03:  // IWRAM (checks for SMC)
+      write_mem<wrtype>(&iwram[0x8000], address & 0x7FFF, value);
+      if (read_mem<wrtype>(iwram, address & 0x7FFF))
+        return CPU_ALERT_SMC;
+      return CPU_ALERT_NONE;
 
-u32 function_cc read_memory8(u32 address)
-{
-  u8 value;
-  read_memory(8);
-  return value;
+    case 0x04:  // I/O registers
+      return write_ioregcb<wrtype>(address & 0x3FF, value);
+    case 0x05:  // Palette RAM
+      write_palette<wrtype>(address & 0x3FF, value);
+      return CPU_ALERT_NONE;
+    case 0x06:  // VRAM
+      write_vram<wrtype>(vram_address(address), value);
+      return CPU_ALERT_NONE;
+    case 0x07:  // OAM RAM
+      reg[OAM_UPDATED] = 1;
+      return oam_write<wrtype>(address, value);
+    case 0x08:  // GPIO mapped area
+      return gpio_write<wrtype>(address, value);
+    case 0x0D:  // EEPROM mapped area
+      return write_eeprom<wrtype>(value);
+    case 0x0E:  // FLASH/SRAM mapped area
+      return write_backup<wrtype>(address & 0xFFFF, value);
+    default:
+      return CPU_ALERT_NONE;
+  };
+}
+
+u32 function_cc read_memory8(u32 address) {
+  return read_memory<u8>(address);
+}
+
+// unaligned reads are actually 32bit (rotated)
+u32 function_cc read_memory16(u32 address) {
+  u32 ret = read_memory<u16>(address & ~1U);
+  if (address & 1)
+    return rotr32(ret, 8);
+  return ret;
+}
+
+u32 function_cc read_memory32(u32 address) {
+  u32 ret = read_memory<u32>(address & ~3U);
+  u32 rot = (address & 0x3) * 8;
+  return rotr32(ret, rot);
 }
 
 u32 function_cc read_memory8s(u32 address) {
-  return (u32)((s8)read_memory8(address));
-}
-
-u16 function_cc read_memory16_signed(u32 address)
-{
-  u16 value;
-
-  if(address & 0x01)
-    return (s8)read_memory8(address);
-
-  read_memory(16);
-
-  return value;
+  return (u32)((s8)read_memory<u8>(address));
 }
 
 u32 function_cc read_memory16s(u32 address) {
-  return (u32)((s16)read_memory16_signed(address));
+  if (!(address & 1))
+    return read_memory<u16>(address);
+
+  s8 val = read_memory8s(address);
+  return (u32)((s32)val);
 }
 
-// unaligned reads are actually 32bit
-
-u32 function_cc read_memory16(u32 address)
-{
-  u32 value;
-  bool unaligned = (address & 0x01);
-  address &= ~0x01;
-  read_memory(16);
-  if (unaligned) {
-    ror(value, value, 8);
-  }
-
-  return value;
+cpu_alert_type function_cc write_memory8(u32 address, u8 value) {
+  return write_memory<u8>(address, value);
 }
 
-
-u32 function_cc read_memory32(u32 address)
-{
-  u32 value;
-  u32 rotate = (address & 0x03) * 8;
-  address &= ~0x03;
-  read_memory(32);
-  ror(value, value, rotate);
-  return value;
+cpu_alert_type function_cc write_memory16(u32 address, u16 value) {
+  return write_memory<u16>(address, value);
 }
 
-cpu_alert_type function_cc write_memory8(u32 address, u8 value)
-{
-  write_memory(8);
-  return CPU_ALERT_NONE;
-}
-
-cpu_alert_type function_cc write_memory16(u32 address, u16 value)
-{
-  write_memory(16);
-  return CPU_ALERT_NONE;
-}
-
-cpu_alert_type function_cc write_memory32(u32 address, u32 value)
-{
-  write_memory(32);
-  return CPU_ALERT_NONE;
+cpu_alert_type function_cc write_memory32(u32 address, u32 value) {
+  return write_memory<u32>(address, value);
 }
 
 typedef struct
@@ -1757,5 +1600,4 @@ s32 load_bios(char *name)
   filestream_close(fd);
   return 0;
 }
-
 

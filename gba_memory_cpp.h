@@ -58,26 +58,26 @@ inline void write_mem(u8 *block, u32 offset, memtype value) {
 // If necessary, memory can be read using the regular handlers, this is for
 // special cases that need some handling like open bus.
 template <typename memtype>
-inline memtype read_memcb(u32 address);
+inline u32 read_memcb(u32 address);
 
 template <>
-inline u8 read_memcb(u32 address) {
+inline u32 read_memcb<u8>(u32 address) {
   return read_memory8(address);
 }
 template <>
-inline s8 read_memcb(u32 address) {
-  return (s8)read_memory8(address);
+inline u32 read_memcb<s8>(u32 address) {
+  return read_memory8s(address);
 }
 template <>
-inline u16 read_memcb(u32 address) {
+inline u32 read_memcb<u16>(u32 address) {
   return read_memory16(address);
 }
 template <>
-inline s16 read_memcb(u32 address) {
-  return read_memory16_signed(address);
+inline u32 read_memcb<s16>(u32 address) {
+  return read_memory16s(address);
 }
 template <>
-inline u32 read_memcb(u32 address) {
+inline u32 read_memcb<u32>(u32 address) {
   return read_memory32(address);
 }
 

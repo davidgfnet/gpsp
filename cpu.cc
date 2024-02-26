@@ -438,7 +438,7 @@ inline static void spsr_write(const ARMInst &it, u32 wval) {
 }
 
 template <typename memtype>
-memtype perform_memload(u32 address) {
+u32 perform_memload(u32 address) {
   u8 region = address >> 24;
   const u32 align_mask = sizeof(memtype) - 1;  // 0, 1, 3 for each type
 
@@ -469,7 +469,7 @@ cpu_alert_type perform_memstore(u32 address, u32 data) {
 
 template<typename memmode>
 inline static cpu_alert_type arm_swap(const ARMInst &it, s32 &cyccnt) {
-  memmode tmp = perform_memload<memmode>(read_reg<8>(it.rn()));
+  u32 tmp = perform_memload<memmode>(read_reg<8>(it.rn()));
   cpu_alert_type ret = perform_memstore<memmode>(read_reg<8>(it.rn()), read_reg<8>(it.rm()));
   reg[it.rd()] = tmp;
 
@@ -1832,7 +1832,7 @@ void execute_arm(u32 cycles)
          using_instruction(thumb);
          reg[REG_PC] &= ~0x01;
 
-         u16 opcode16 = readaddress16(pc_address_block, (reg[REG_PC] & 0x7FFF));
+         u16 opcode16 = read_mem<u16>(pc_address_block, (reg[REG_PC] & 0x7FFF));
 
          #ifdef TRACE_INSTRUCTIONS
          interp_trace_instruction(reg[REG_PC], 0);
@@ -1844,7 +1844,7 @@ void execute_arm(u32 cycles)
          using_instruction(arm);
          reg[REG_PC] &= ~0x03;
 
-         u32 opcode32 = readaddress32(pc_address_block, (reg[REG_PC] & 0x7FFF));
+         u32 opcode32 = read_mem<u32>(pc_address_block, (reg[REG_PC] & 0x7FFF));
 
          if (arm_null_inst(opcode32))   // Check for instruction condition
            arm_pc_offset(4);

@@ -20,6 +20,10 @@
 #ifndef CPU_H
 #define CPU_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include "gpsp_config.h"
 
@@ -79,5 +83,9 @@ void init_dynarec_caches(void);
 void flush_dynarec_caches(void);
 void init_emitter(bool);
 void init_bios_hooks(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

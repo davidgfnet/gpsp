@@ -20,8 +20,9 @@
 #ifndef __GPSP_CHEATS_H__
 #define __GPSP_CHEATS_H__
 
-#define MAX_CHEATS       20
-#define MAX_CHEAT_CODES  64
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef enum {
    CheatNoError = 0,
@@ -36,6 +37,10 @@ cheat_error cheat_parse(unsigned index, const char *code);
 void cheat_clear(void);
 
 extern u32 cheat_master_hook;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

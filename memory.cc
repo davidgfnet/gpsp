@@ -18,11 +18,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
-  #include "common.h"
-  #include "streams/file_stream.h"
-}
+#include "common.h"
 #include "gba_memory_cpp.h"
+
+#include "streams/file_stream.h"
 
 // Flash devices and manufacturers
 #define FLASH_DEVICE_UNDEFINED       0x00

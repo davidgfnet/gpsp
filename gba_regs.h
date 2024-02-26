@@ -18,6 +18,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#ifndef GBA_REGS_H
+#define GBA_REGS_H
+
 // Access to timer registers
 #define REG_TMXD(n)   (REG_TM0D   + (2 * (n)))
 #define REG_TMXCNT(n) (REG_TM0CNT + (2 * (n)))
@@ -150,4 +153,6 @@ typedef enum {
 #define REG_BGxPB(n)   (REG_BG2PB + ((n)-2)*8)
 #define REG_BGxPC(n)   (REG_BG2PC + ((n)-2)*8)
 #define REG_BGxPD(n)   (REG_BG2PD + ((n)-2)*8)
+
+#endif
 

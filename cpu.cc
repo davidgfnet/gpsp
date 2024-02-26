@@ -18,12 +18,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
-  #include "common.h"
-  #include "decoder.h"
-  #include "cpu_instrument.h"
-}
+#include "common.h"
+#include "decoder.h"
 #include "gba_memory_cpp.h"
+#include "cpu_instrument.h"
 
 // Flag management
 enum FlagNum {

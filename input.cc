@@ -17,9 +17,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
-  #include "common.h"
-}
+#include "common.h"
 
 bool libretro_supports_bitmasks    = false;
 bool libretro_supports_ff_override = false;

@@ -17,9 +17,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
-  #include "common.h"
-}
+#include "common.h"
 
 static const u32 gbp_seq[16] = {
   0x0000494E,

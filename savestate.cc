@@ -17,9 +17,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
-  #include "common.h"
-}
+#include "common.h"
 
 const u8 *state_mem_read_ptr;
 u8 *state_mem_write_ptr;
@@ -112,7 +110,7 @@ bool bson_read_bytes(const u8 *srcp, const char *key, void* buffer, unsigned cnt
 
 bool gba_load_state(const void* src)
 {
-  u32 i, tmp;
+  u32 tmp;
   u8* srcptr = (u8*)src;
   u32 docsize = bson_read_u32(srcptr);
   if (docsize != GBA_STATE_MEM_SIZE)
@@ -144,10 +142,8 @@ bool gba_load_state(const void* src)
   }
 
   // Generate converted palette (since it is not saved)
-  for(i = 0; i < 512; i++)
-  {
+  for (unsigned i = 0; i < 512; i++)
      palette_ram_converted[i] = convert_palette(eswap16(palette_ram[i]));
-  }
 
   video_reload_counters();
 
@@ -163,8 +159,7 @@ bool gba_load_state(const void* src)
   return true;
 }
 
-void gba_save_state(void* dst)
-{
+void gba_save_state(void* dst) {
   u8 *stptr = (u8*)dst;
   u8 *wrptr = (u8*)dst;
 

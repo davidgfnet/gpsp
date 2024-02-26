@@ -17,6 +17,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#ifndef DECODER_HH
+#define DECODER_HH
+
 // ARM and Thumb decoding code, for convenience and to unify all the decoding
 // paths existing in the emulator.
 
@@ -188,4 +191,6 @@ public:
     return ((opcode >> 4) & 0xF0) | (opcode & 0x0F);
   }
 };
+
+#endif
 

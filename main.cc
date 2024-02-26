@@ -17,11 +17,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-extern "C" {
 #include "common.h"
-}
-
-#include <ctype.h>
 
 timer_type timer[4];
 

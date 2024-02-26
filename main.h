@@ -22,6 +22,10 @@
 
 #include <stdio.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define TIMER_INACTIVE                0
 #define TIMER_PRESCALE                1
 #define TIMER_CASCADE                 2
@@ -112,6 +116,10 @@ void print_regs(void);
     printf("update_gba: %d remaining cycles\n", (remcyc));
 #else  /* TRACE_EVENTS */
   #define trace_update_gba(x)
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

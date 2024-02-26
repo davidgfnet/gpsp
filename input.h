@@ -22,6 +22,10 @@
 
 #include "libretro.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum
 {
   BUTTON_L      = 0x200,
@@ -79,5 +83,9 @@ u32 update_input(void);
 bool input_check_savestate(const u8 *src);
 unsigned input_write_savestate(u8* dst);
 bool input_read_savestate(const u8 *src);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

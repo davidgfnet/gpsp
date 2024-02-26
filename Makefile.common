@@ -12,7 +12,7 @@ SOURCES_CC := $(CORE_DIR)/main.cc \
               $(CORE_DIR)/dma.cc \
               $(CORE_DIR)/sound.cc \
               $(CORE_DIR)/cheats.cc \
-	      $(CORE_DIR)/savestate.cc \
+              $(CORE_DIR)/savestate.cc \
               $(CORE_DIR)/gbp.cc \
               $(CORE_DIR)/serial.cc \
               $(CORE_DIR)/rfu.cc \

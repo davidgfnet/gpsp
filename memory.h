@@ -26,30 +26,21 @@
 #define FEAT_DISABLE      0
 #define FEAT_ENABLE       1
 
-#define FLASH_DEVICE_UNDEFINED       0x00
-#define FLASH_DEVICE_MACRONIX_64KB   0x1C
-#define FLASH_DEVICE_AMTEL_64KB      0x3D
-#define FLASH_DEVICE_SST_64K         0xD4
-#define FLASH_DEVICE_PANASONIC_64KB  0x1B
-#define FLASH_DEVICE_MACRONIX_128KB  0x09
-
-#define FLASH_MANUFACTURER_MACRONIX  0xC2
-#define FLASH_MANUFACTURER_AMTEL     0x1F
-#define FLASH_MANUFACTURER_PANASONIC 0x32
-#define FLASH_MANUFACTURER_SST       0xBF
-
+// Memory read handlers
 u32 function_cc read_memory8(u32 address);
 u32 function_cc read_memory8s(u32 address);
 u32 function_cc read_memory16(u32 address);
-u16 function_cc read_memory16_signed(u32 address);
 u32 function_cc read_memory16s(u32 address);
 u32 function_cc read_memory32(u32 address);
+// Memory write handlers
 cpu_alert_type function_cc write_memory8(u32 address, u8 value);
 cpu_alert_type function_cc write_memory16(u32 address, u16 value);
 cpu_alert_type function_cc write_memory32(u32 address, u32 value);
+// I/O specific write handlers
 cpu_alert_type function_cc write_io_register8 (u32 address, u32 value);
 cpu_alert_type function_cc write_io_register16(u32 address, u32 value);
 cpu_alert_type function_cc write_io_register32(u32 address, u32 value);
+
 u32 function_cc read_eeprom(void);
 void function_cc write_eeprom(u32 address, u32 value);
 u8 read_backup(u32 address);
@@ -59,12 +50,6 @@ void function_cc write_gpio(u32 address, u32 value);
 void write_rumble(bool oldv, bool newv);
 void rumble_frame_reset();
 float rumble_active_pct();
-
-/* EDIT: Shouldn't this be extern ?! */
-extern const u32 def_seq_cycles[16][2];
-/* Cycles can change depending on WAITCNT */
-extern u8 ws_cyc_seq[16][2];
-extern u8 ws_cyc_nseq[16][2];
 
 extern u32 gamepak_size;
 extern char gamepak_title[13];

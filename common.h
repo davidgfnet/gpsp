@@ -131,16 +131,12 @@ typedef u32 fixed8_24;
 #define fixed_div(numerator, denominator, bits)                               \
   (((numerator * (1 << bits)) + (denominator / 2)) / denominator)             \
 
-#define address8(base, offset)                                                \
-  *((u8 *)((u8 *)base + (offset)))                                            \
-
 #define address16(base, offset)                                               \
   *((u16 *)((u8 *)base + (offset)))                                           \
 
 #define address32(base, offset)                                               \
   *((u32 *)((u8 *)base + (offset)))                                           \
 
-#define eswap8(value)  (value)
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
   #define eswap16(value) __builtin_bswap16(value)
   #define eswap32(value) __builtin_bswap32(value)
@@ -149,16 +145,9 @@ typedef u32 fixed8_24;
   #define eswap32(value) (value)
 #endif
 
-#define  readaddress8(base, offset) eswap8( address8( base, offset))
-#define readaddress16(base, offset) eswap16(address16(base, offset))
-#define readaddress32(base, offset) eswap32(address32(base, offset))
-
 #define read_ioreg(regnum) (eswap16(io_registers[(regnum)]))
 #define write_ioreg(regnum, val) io_registers[(regnum)] = eswap16(val)
 #define read_ioreg32(regnum) (read_ioreg(regnum) | (read_ioreg((regnum)+1) << 16))
-
-#define read_dmareg(regnum, dmachan) (eswap16(io_registers[(regnum) + (dmachan) * 6]))
-#define write_dmareg(regnum, dmachan, val) io_registers[(regnum) + (dmachan) * 6] = eswap16(val)
 
 // Random generation
 u16 rand_gen();

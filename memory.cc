@@ -24,139 +24,18 @@ extern "C" {
 }
 #include "gba_memory_cpp.h"
 
-#define sound_update_frequency_step(timer_number)                             \
-  timer[timer_number].frequency_step =                                        \
-   float_to_fp8_24((GBC_BASE_RATE / sound_frequency) / (timer_reload))        \
+// Flash devices and manufacturers
+#define FLASH_DEVICE_UNDEFINED       0x00
+#define FLASH_DEVICE_MACRONIX_64KB   0x1C
+#define FLASH_DEVICE_AMTEL_64KB      0x3D
+#define FLASH_DEVICE_SST_64K         0xD4
+#define FLASH_DEVICE_PANASONIC_64KB  0x1B
+#define FLASH_DEVICE_MACRONIX_128KB  0x09
 
-#define count_timer(timer_number)                                             \
-  timer[timer_number].reload = 0x10000 - value;                               \
-  if(timer_number < 2)                                                        \
-  {                                                                           \
-    u32 timer_reload =                                                        \
-     timer[timer_number].reload << timer[timer_number].prescale;              \
-    sound_update_frequency_step(timer_number);                                \
-  }                                                                           \
-
-#define adjust_sound_buffer(timer_number, channel)                            \
-  if(timer[timer_number].direct_sound_channels & (0x01 << channel))           \
-  {                                                                           \
-    direct_sound_channel[channel].buffer_index =                              \
-     (gbc_sound_buffer_index + buffer_adjust) % BUFFER_SIZE;                  \
-  }                                                                           \
-
-static const u32 prescale_table[] = { 0, 6, 8, 10 };
-
-static void trigger_timer(u32 timer_number, u32 value)
-{
-   if (value & 0x80)
-   {
-      if(timer[timer_number].status == TIMER_INACTIVE)
-      {
-         u32 prescale = prescale_table[value & 0x03];
-         u32 timer_reload = timer[timer_number].reload;
-
-         if((value >> 2) & 0x01)
-            timer[timer_number].status = TIMER_CASCADE;
-         else
-            timer[timer_number].status = TIMER_PRESCALE;
-
-         timer[timer_number].prescale = prescale;
-         timer[timer_number].irq = ((value >> 6) & 0x1);
-
-         write_ioreg(REG_TMXD(timer_number), (u32)(-timer_reload));
-
-         timer_reload <<= prescale;
-         timer[timer_number].count = timer_reload;
-
-         if(timer_reload < execute_cycles)
-            execute_cycles = timer_reload;
-
-         if(timer_number < 2)
-         {
-            u32 buffer_adjust =
-               (u32)(((float)(cpu_ticks - gbc_sound_last_cpu_ticks) *
-                        sound_frequency) / GBC_BASE_RATE) * 2;
-
-            sound_update_frequency_step(timer_number);
-            adjust_sound_buffer(timer_number, 0);
-            adjust_sound_buffer(timer_number, 1);
-         }
-      }
-   }
-   else
-   {
-      if(timer[timer_number].status != TIMER_INACTIVE)
-      {
-         timer[timer_number].status = TIMER_INACTIVE;
-      }
-   }
-   write_ioreg(REG_TMXCNT(timer_number), value);
-}
-
-/* Memory timings */
-const u8 ws012_nonseq[] = {4, 3, 2, 8};
-const u8 ws0_seq[] = {2, 1};
-const u8 ws1_seq[] = {4, 1};
-const u8 ws2_seq[] = {8, 1};
-
-/* Divided by region and bus width (16/32) */
-u8 ws_cyc_seq[16][2] =
-{
-  { 1, 1 }, // BIOS
-  { 1, 1 }, // Invalid
-  { 3, 6 }, // EWRAM (default settings)
-  { 1, 1 }, // IWRAM
-  { 1, 1 }, // IO Registers
-  { 1, 2 }, // Palette RAM
-  { 1, 2 }, // VRAM
-  { 1, 2 }, // OAM
-  { 0, 0 }, // Gamepak (wait 0)
-  { 0, 0 }, // Gamepak (wait 0)
-  { 0, 0 }, // Gamepak (wait 1)
-  { 0, 0 }, // Gamepak (wait 1)
-  { 0, 0 }, // Gamepak (wait 2)
-  { 0, 0 }, // Gamepak (wait 2)
-  { 1, 1 }, // Invalid
-  { 1, 1 }, // Invalid
-};
-u8 ws_cyc_nseq[16][2] =
-{
-  { 1, 1 }, // BIOS
-  { 1, 1 }, // Invalid
-  { 3, 6 }, // EWRAM (default settings)
-  { 1, 1 }, // IWRAM
-  { 1, 1 }, // IO Registers
-  { 1, 2 }, // Palette RAM
-  { 1, 2 }, // VRAM
-  { 1, 2 }, // OAM
-  { 0, 0 }, // Gamepak (wait 0)
-  { 0, 0 }, // Gamepak (wait 0)
-  { 0, 0 }, // Gamepak (wait 1)
-  { 0, 0 }, // Gamepak (wait 1)
-  { 0, 0 }, // Gamepak (wait 2)
-  { 0, 0 }, // Gamepak (wait 2)
-  { 1, 1 }, // Invalid
-  { 1, 1 }, // Invalid
-};
-
-const u32 def_seq_cycles[16][2] =
-{
-  { 1, 1 }, // BIOS
-  { 1, 1 }, // Invalid
-  { 3, 6 }, // EWRAM (default settings)
-  { 1, 1 }, // IWRAM
-  { 1, 1 }, // IO Registers
-  { 1, 2 }, // Palette RAM
-  { 1, 2 }, // VRAM
-  { 1, 2 }, // OAM
-  { 3, 6 }, // Gamepak (wait 0)
-  { 3, 6 }, // Gamepak (wait 0)
-  { 5, 9 }, // Gamepak (wait 1)
-  { 5, 9 }, // Gamepak (wait 1)
-  { 9, 17 }, // Gamepak (wait 2)
-  { 9, 17 }, // Gamepak (wait 2)
-};
-
+#define FLASH_MANUFACTURER_MACRONIX  0xC2
+#define FLASH_MANUFACTURER_AMTEL     0x1F
+#define FLASH_MANUFACTURER_PANASONIC 0x32
+#define FLASH_MANUFACTURER_SST       0xBF
 
 u8 bios_rom[1024 * 16];
 
@@ -205,28 +84,6 @@ u32 flash_bank_num;  // 0 or 1
 u32 flash_bank_cnt;
 
 u32 flash_device_id = FLASH_DEVICE_MACRONIX_64KB;
-
-void reload_timing_info() {
-  uint16_t waitcnt = read_ioreg(REG_WAITCNT);
-
-  /* Sequential 16 and 32 bit accesses to ROM */
-  ws_cyc_seq[0x8][0] = ws_cyc_seq[0x9][0] = 1 + ws0_seq[(waitcnt >>  4) & 1];
-  ws_cyc_seq[0xA][0] = ws_cyc_seq[0xB][0] = 1 + ws1_seq[(waitcnt >>  7) & 1];
-  ws_cyc_seq[0xC][0] = ws_cyc_seq[0xD][0] = 1 + ws2_seq[(waitcnt >> 10) & 1];
-
-  /* 32 bit accesses just cost double due to 16 bit bus */
-  for (int i = 0x8; i <= 0xD; i++)
-    ws_cyc_seq[i][1] = ws_cyc_seq[i][0] * 2;
-
-  /* Sequential 16 and 32 bit accesses to ROM */
-  ws_cyc_nseq[0x8][0] = ws_cyc_nseq[0x9][0] = 1 + ws012_nonseq[(waitcnt >> 2) & 3];
-  ws_cyc_nseq[0xA][0] = ws_cyc_nseq[0xB][0] = 1 + ws012_nonseq[(waitcnt >> 5) & 3];
-  ws_cyc_nseq[0xC][0] = ws_cyc_nseq[0xD][0] = 1 + ws012_nonseq[(waitcnt >> 8) & 3];
-
-  /* 32 bit accesses are a non-seq (16) + seq access (16) */
-  for (int i = 0x8; i <= 0xD; i++)
-    ws_cyc_nseq[i][1] = 1 + ws_cyc_nseq[i][0] + ws_cyc_seq[i][0];
-}
 
 // Funny memory areas and their read handlers:
 
@@ -691,16 +548,16 @@ cpu_alert_type function_cc write_io_register16(u32 address, u32 value) {
     case REG_DMA3CNT_H: return iowrite_dma_cnt(3, value);
 
     // Timer counter reload
-    case REG_TM0D: count_timer(0); break;
-    case REG_TM1D: count_timer(1); break;
-    case REG_TM2D: count_timer(2); break;
-    case REG_TM3D: count_timer(3); break;
+    case REG_TM0D: iowrite_timer_reload(0, value); break;
+    case REG_TM1D: iowrite_timer_reload(1, value); break;
+    case REG_TM2D: iowrite_timer_reload(2, value); break;
+    case REG_TM3D: iowrite_timer_reload(3, value); break;
 
     /* Timer control register (0..3)*/
-    case REG_TM0CNT: trigger_timer(0, value); break;
-    case REG_TM1CNT: trigger_timer(1, value); break;
-    case REG_TM2CNT: trigger_timer(2, value); break;
-    case REG_TM3CNT: trigger_timer(3, value); break;
+    case REG_TM0CNT: iowrite_timer_cnt(0, value); break;
+    case REG_TM1CNT: iowrite_timer_cnt(1, value); break;
+    case REG_TM2CNT: iowrite_timer_cnt(2, value); break;
+    case REG_TM3CNT: iowrite_timer_cnt(3, value); break;
 
     // Serial port registers
     case REG_SIOCNT:
@@ -833,14 +690,14 @@ void update_gpio_romregs() {
     if (map) {
       if (gpio_regs[2]) {
         // Registers are visible, readable:
-        address16(map, 0xC4) = eswap16(gpio_regs[0]);
-        address16(map, 0xC6) = eswap16(gpio_regs[1]);
-        address16(map, 0xC8) = eswap16(gpio_regs[2]);
+        write_mem<u16>(map, 0xC4, gpio_regs[0]);
+        write_mem<u16>(map, 0xC6, gpio_regs[1]);
+        write_mem<u16>(map, 0xC8, gpio_regs[2]);
       } else {
         // Registers are write-only, just read out zero
-        address16(map, 0xC4) = 0;
-        address16(map, 0xC6) = 0;
-        address16(map, 0xC8) = 0;
+        write_mem<u16>(map, 0xC4, 0);
+        write_mem<u16>(map, 0xC6, 0);
+        write_mem<u16>(map, 0xC8, 0);
       }
     }
   }

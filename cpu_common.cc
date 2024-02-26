@@ -171,6 +171,94 @@ cpu_alert_type flag_interrupt(irq_type irq_raised)
   return check_interrupt();
 }
 
+// Memory timing tables
+
+/* Memory timings */
+const u8 ws012_nonseq[] = {4, 3, 2, 8};
+const u8 ws0_seq[] = {2, 1};
+const u8 ws1_seq[] = {4, 1};
+const u8 ws2_seq[] = {8, 1};
+
+/* Divided by region and bus width (16/32) */
+u8 ws_cyc_seq[16][2] =
+{
+  { 1, 1 }, // BIOS
+  { 1, 1 }, // Invalid
+  { 3, 6 }, // EWRAM (default settings)
+  { 1, 1 }, // IWRAM
+  { 1, 1 }, // IO Registers
+  { 1, 2 }, // Palette RAM
+  { 1, 2 }, // VRAM
+  { 1, 2 }, // OAM
+  { 0, 0 }, // Gamepak (wait 0)
+  { 0, 0 }, // Gamepak (wait 0)
+  { 0, 0 }, // Gamepak (wait 1)
+  { 0, 0 }, // Gamepak (wait 1)
+  { 0, 0 }, // Gamepak (wait 2)
+  { 0, 0 }, // Gamepak (wait 2)
+  { 1, 1 }, // Invalid
+  { 1, 1 }, // Invalid
+};
+u8 ws_cyc_nseq[16][2] =
+{
+  { 1, 1 }, // BIOS
+  { 1, 1 }, // Invalid
+  { 3, 6 }, // EWRAM (default settings)
+  { 1, 1 }, // IWRAM
+  { 1, 1 }, // IO Registers
+  { 1, 2 }, // Palette RAM
+  { 1, 2 }, // VRAM
+  { 1, 2 }, // OAM
+  { 0, 0 }, // Gamepak (wait 0)
+  { 0, 0 }, // Gamepak (wait 0)
+  { 0, 0 }, // Gamepak (wait 1)
+  { 0, 0 }, // Gamepak (wait 1)
+  { 0, 0 }, // Gamepak (wait 2)
+  { 0, 0 }, // Gamepak (wait 2)
+  { 1, 1 }, // Invalid
+  { 1, 1 }, // Invalid
+};
+
+const u32 def_seq_cycles[16][2] =
+{
+  { 1, 1 }, // BIOS
+  { 1, 1 }, // Invalid
+  { 3, 6 }, // EWRAM (default settings)
+  { 1, 1 }, // IWRAM
+  { 1, 1 }, // IO Registers
+  { 1, 2 }, // Palette RAM
+  { 1, 2 }, // VRAM
+  { 1, 2 }, // OAM
+  { 3, 6 }, // Gamepak (wait 0)
+  { 3, 6 }, // Gamepak (wait 0)
+  { 5, 9 }, // Gamepak (wait 1)
+  { 5, 9 }, // Gamepak (wait 1)
+  { 9, 17 }, // Gamepak (wait 2)
+  { 9, 17 }, // Gamepak (wait 2)
+};
+
+void reload_timing_info() {
+  uint16_t waitcnt = read_ioreg(REG_WAITCNT);
+
+  /* Sequential 16 and 32 bit accesses to ROM */
+  ws_cyc_seq[0x8][0] = ws_cyc_seq[0x9][0] = 1 + ws0_seq[(waitcnt >>  4) & 1];
+  ws_cyc_seq[0xA][0] = ws_cyc_seq[0xB][0] = 1 + ws1_seq[(waitcnt >>  7) & 1];
+  ws_cyc_seq[0xC][0] = ws_cyc_seq[0xD][0] = 1 + ws2_seq[(waitcnt >> 10) & 1];
+
+  /* 32 bit accesses just cost double due to 16 bit bus */
+  for (int i = 0x8; i <= 0xD; i++)
+    ws_cyc_seq[i][1] = ws_cyc_seq[i][0] * 2;
+
+  /* Sequential 16 and 32 bit accesses to ROM */
+  ws_cyc_nseq[0x8][0] = ws_cyc_nseq[0x9][0] = 1 + ws012_nonseq[(waitcnt >> 2) & 3];
+  ws_cyc_nseq[0xA][0] = ws_cyc_nseq[0xB][0] = 1 + ws012_nonseq[(waitcnt >> 5) & 3];
+  ws_cyc_nseq[0xC][0] = ws_cyc_nseq[0xD][0] = 1 + ws012_nonseq[(waitcnt >> 8) & 3];
+
+  /* 32 bit accesses are a non-seq (16) + seq access (16) */
+  for (int i = 0x8; i <= 0xD; i++)
+    ws_cyc_nseq[i][1] = 1 + ws_cyc_nseq[i][0] + ws_cyc_seq[i][0];
+}
+
 // Savestate related routines (common to both dynarec and interpreter)
 
 

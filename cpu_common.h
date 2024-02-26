@@ -136,6 +136,13 @@ extern u32 reg[64];
 extern u32 reg_mode[7][7];
 extern u32 spsr[6];
 
+// TODO: This must go away in favour of WAITCNT dependant timings (below)
+extern const u32 def_seq_cycles[16][2];
+/* Cycles can change depending on WAITCNT */
+extern u8 ws_cyc_seq[16][2];
+extern u8 ws_cyc_nseq[16][2];
+
+void reload_timing_info();
 
 #ifdef __cplusplus
 }

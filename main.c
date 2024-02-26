@@ -34,11 +34,9 @@ u32 oam_update_count = 0;
 
 char main_path[512];
 
-static unsigned update_timers(irq_type *irq_raised, unsigned completed_cycles)
-{
+static unsigned update_timers(irq_type *irq_raised, unsigned completed_cycles) {
    unsigned i, ret = 0;
-   for (i = 0; i < 4; i++)
-   {
+   for (i = 0; i < 4; i++) {
       if(timer[i].status == TIMER_INACTIVE)
          continue;
 
@@ -74,6 +72,69 @@ static unsigned update_timers(irq_type *irq_raised, unsigned completed_cycles)
       timer[i].count += (timer[i].reload << timer[i].prescale);
    }
    return ret;
+}
+
+
+#define sound_update_frequency_step(timer_number)                             \
+  timer[timer_number].frequency_step =                                        \
+   float_to_fp8_24((GBC_BASE_RATE / sound_frequency) / (timer_reload))        \
+
+#define adjust_sound_buffer(timer_number, channel)                            \
+  if(timer[timer_number].direct_sound_channels & (0x01 << channel))           \
+  {                                                                           \
+    direct_sound_channel[channel].buffer_index =                              \
+     (gbc_sound_buffer_index + buffer_adjust) % BUFFER_SIZE;                  \
+  }                                                                           \
+
+static const u32 prescale_table[] = { 0, 6, 8, 10 };
+
+void iowrite_timer_cnt(u32 tim_id, u32 value) {
+   if (value & 0x80) {
+      if(timer[tim_id].status == TIMER_INACTIVE)
+      {
+         u32 prescale = prescale_table[value & 0x03];
+         u32 timer_reload = timer[tim_id].reload;
+
+         if((value >> 2) & 0x01)
+            timer[tim_id].status = TIMER_CASCADE;
+         else
+            timer[tim_id].status = TIMER_PRESCALE;
+
+         timer[tim_id].prescale = prescale;
+         timer[tim_id].irq = ((value >> 6) & 0x1);
+
+         write_ioreg(REG_TMXD(tim_id), (u32)(-timer_reload));
+
+         timer_reload <<= prescale;
+         timer[tim_id].count = timer_reload;
+
+         // TODO Investigate this (seems wrong). Might require a bail-early flag.
+         if (timer_reload < execute_cycles)
+            execute_cycles = timer_reload;
+
+         if (tim_id < 2) {
+            u32 buffer_adjust =
+               (u32)(((float)(cpu_ticks - gbc_sound_last_cpu_ticks) *
+                        sound_frequency) / GBC_BASE_RATE) * 2;
+
+            sound_update_frequency_step(tim_id);
+            adjust_sound_buffer(tim_id, 0);
+            adjust_sound_buffer(tim_id, 1);
+         }
+      }
+   } else {
+      if(timer[tim_id].status != TIMER_INACTIVE)
+         timer[tim_id].status = TIMER_INACTIVE;
+   }
+   write_ioreg(REG_TMXCNT(tim_id), value);
+}
+
+void iowrite_timer_reload(u32 tim_id, u32 value) {
+  timer[tim_id].reload = 0x10000 - value;
+  if (tim_id < 2) {
+    u32 timer_reload = timer[tim_id].reload << timer[tim_id].prescale;
+    sound_update_frequency_step(tim_id);
+  }
 }
 
 void init_main(void)

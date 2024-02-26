@@ -39,14 +39,15 @@ inline s8 memswap(s8 v) { return v; }
 // For little endian platforms this is just a single load.
 // The signed case is always a bit special (for s16).
 template <typename memtype>
-inline memtype read_mem(const u8 *block, u32 offset) {
+inline u32 read_mem(const u8 *block, u32 offset) {
   const memtype *ptr = (memtype*)(&block[offset]);
-  return memswap(*ptr);
+  return (u32)memswap(*ptr);
 }
 template <>
-inline s16 read_mem(const u8 *block, u32 offset) {
+inline u32 read_mem<s16>(const u8 *block, u32 offset) {
+  // Value must be read as u16 for the byteswap to work correctly...
   const u16 *ptr = (u16*)(&block[offset]);
-  return (s16)memswap(*ptr);
+  return (u32)((s16)memswap(*ptr));
 }
 
 template <typename memtype>

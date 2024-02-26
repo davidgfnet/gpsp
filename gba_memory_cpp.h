@@ -138,6 +138,24 @@ inline void write_palette(u32 address, u32 value) {
   write_palette<u16>(address + 2, (u16)(value >> 16));
 }
 
+// Some useful address generation functions
+inline u32 vram_address(u32 address) {
+  address &= 0x1FFFF;          // Round to 128KB
+  if (address >= 0x18000)
+    return address - 0x08000;  // Last 32KB bank is mapped twice
+  return address;
+}
+
+template <typename memtype>
+inline void write_vram(u32 address, memtype value) {
+  write_mem<memtype>(vram, address, value);
+}
+template <>
+inline void write_vram(u32 address, u8 value) {
+  // the byte is duplicated and a full half-word is written (16 bit bus!)
+  write_vram<u16>(address & ~1U, (value << 8) | value);
+}
+
 
 #endif
 

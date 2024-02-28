@@ -954,7 +954,7 @@ u32 function_cc read_memory8s(u32 address) {
 
 u32 function_cc read_memory16s(u32 address) {
   if (!(address & 1))
-    return read_memory<u16>(address);
+    return (s32)((s16)read_memory<u16>(address));
 
   s8 val = read_memory8s(address);
   return (u32)((s32)val);

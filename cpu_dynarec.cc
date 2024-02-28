@@ -97,24 +97,30 @@ typedef struct
 #define arm_decode_data_proc_reg(opcode)                                      \
   u32 rn = (opcode >> 16) & 0x0F;                                             \
   u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 rm = opcode & 0x0F                                                      \
+  u32 rm = opcode & 0x0F;                                                     \
+  (void)rn;                                                                   \
+  (void)rd;
 
 #define arm_decode_data_proc_imm(opcode)                                      \
   u32 rn = (opcode >> 16) & 0x0F;                                             \
   u32 rd = (opcode >> 12) & 0x0F;                                             \
   u32 imm = opcode & 0xFF;                                                    \
-  u32 imm_ror = ((opcode >> 8) & 0x0F) * 2                                    \
+  u32 imm_ror = ((opcode >> 8) & 0x0F) * 2;                                   \
+  (void)rn;                                                                   \
+  (void)rd;
 
 #define arm_decode_psr_reg(opcode)                                            \
   u32 psr_pfield = ((opcode >> 16) & 1) | ((opcode >> 18) & 2);               \
   u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 rm = opcode & 0x0F                                                      \
+  u32 rm = opcode & 0x0F;                                                     \
+  (void)rd;
 
 #define arm_decode_psr_imm(opcode)                                            \
   u32 psr_pfield = ((opcode >> 16) & 1) | ((opcode >> 18) & 2);               \
   u32 rd = (opcode >> 12) & 0x0F;                                             \
   u32 imm = opcode & 0xFF;                                                    \
-  u32 imm_ror = ((opcode >> 8) & 0x0F) * 2                                    \
+  u32 imm_ror = ((opcode >> 8) & 0x0F) * 2;                                   \
+  (void)rd
 
 #define arm_decode_branchx(opcode)                                            \
   u32 rn = opcode & 0x0F                                                      \
@@ -123,7 +129,9 @@ typedef struct
   u32 rd = (opcode >> 16) & 0x0F;                                             \
   u32 rn = (opcode >> 12) & 0x0F;                                             \
   u32 rs = (opcode >> 8) & 0x0F;                                              \
-  u32 rm = opcode & 0x0F                                                      \
+  u32 rm = opcode & 0x0F;                                                     \
+  (void)rn;                                                                   \
+  (void)rd;
 
 #define arm_decode_multiply_long()                                            \
   u32 rdhi = (opcode >> 16) & 0x0F;                                           \
@@ -179,7 +187,8 @@ typedef struct
   u32 rd = opcode & 0x07                                                      \
 
 #define thumb_decode_imm()                                                    \
-  u32 imm = opcode & 0xFF                                                     \
+  u32 imm = opcode & 0xFF;                                                    \
+  (void)imm
 
 #define thumb_decode_alu_op()                                                 \
   u32 rs = (opcode >> 3) & 0x07;                                              \
@@ -187,7 +196,8 @@ typedef struct
 
 #define thumb_decode_hireg_op()                                               \
   u32 rs = (opcode >> 3) & 0x0F;                                              \
-  u32 rd = ((opcode >> 4) & 0x08) | (opcode & 0x07)                           \
+  u32 rd = ((opcode >> 4) & 0x08) | (opcode & 0x07);                          \
+  (void)rd;
 
 #define thumb_decode_mem_reg()                                                \
   u32 ro = (opcode >> 6) & 0x07;                                              \
@@ -243,11 +253,7 @@ typedef struct
   void platform_cache_sync(void *baseaddr, void *endptr) {
     ctr_flush_invalidate_cache();
   }
-#elif defined(ARM_ARCH) || defined(ARM64_ARCH)
-  void platform_cache_sync(void *baseaddr, void *endptr) {
-    __clear_cache(baseaddr, endptr);
-  }
-#elif defined(MIPS_ARCH)
+#elif defined(ARM_ARCH) || defined(ARM64_ARCH) || defined(MIPS_ARCH)
   void platform_cache_sync(void *baseaddr, void *endptr) {
     __builtin___clear_cache(baseaddr, endptr);
   }
@@ -2549,7 +2555,6 @@ u8 function_cc *block_lookup_translate_##type(u32 pc)                         \
 {                                                                             \
   u8 pcregion = (pc >> 24);                                                   \
   u16 *location;                                                              \
-  u32 block_tag;                                                              \
                                                                               \
   block_lookup_address_pc_##type();                                           \
                                                                               \
@@ -2955,6 +2960,7 @@ block_exit_type block_exits[MAX_EXITS];
            if so don't end the block. Starts from the top and works           \
            down because the most recent branch is most likely to              \
            join after the end (if/then form) */                               \
+        int i;                                                                \
         for(i = block_exit_position - 2; i >= 0; i--)                         \
         {                                                                     \
           if(block_exits[i].branch_target == block_end_pc)                    \
@@ -2972,7 +2978,7 @@ block_exit_type block_exits[MAX_EXITS];
       type##_set_condition(condition);                                        \
     }                                                                         \
                                                                               \
-    for(i = 0; i < translation_gate_targets; i++)                             \
+    for(unsigned i = 0; i < translation_gate_targets; i++)                    \
     {                                                                         \
       if(block_end_pc == translation_gate_target_pc[i])                       \
         goto block_end;                                                       \
@@ -3010,7 +3016,6 @@ if (ram_region) {                                                             \
 bool translate_block_arm(u32 pc, bool ram_region)
 {
   u32 opcode = 0;
-  u32 last_opcode;
   u32 condition;
   u32 last_condition;
   u32 pc_region = (pc >> 15);
@@ -3027,7 +3032,6 @@ bool translate_block_arm(u32 pc, bool ram_region)
   u8 *backpatch_address = NULL;
   u8 *translation_ptr = NULL;
   u8 *translation_cache_limit = NULL;
-  s32 i;
   u32 flag_status;
   block_exit_type external_block_exits[MAX_EXITS];
   generate_block_extra_vars_arm();
@@ -3063,8 +3067,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
     scan_block(arm, no);
   }
 
-  for(i = 0; i < block_exit_position; i++)
-  {
+  for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
 
     if((branch_target > block_start_pc) &&
@@ -3127,8 +3130,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
      in the unlikely case that block was too big (and not finalized) */
   generate_translation_gate(arm);
 
-  for(i = 0; i < block_exit_position; i++)
-  {
+  for (unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
 
     if((branch_target >= block_start_pc) && (branch_target < block_end_pc))
@@ -3157,8 +3159,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
   else
     rom_translation_ptr = translation_ptr;
 
-  for(i = 0; i < external_block_exit_position; i++)
-  {
+  for(unsigned i = 0; i < external_block_exit_position; i++) {
     branch_target = external_block_exits[i].branch_target;
     if(branch_target == 0x00000008)
       translation_target = bios_swi_entrypoint;
@@ -3176,7 +3177,6 @@ bool translate_block_thumb(u32 pc, bool ram_region)
 {
   u32 opcode = 0;
   u32 last_opcode;
-  u32 condition;
   u32 pc_region = (pc >> 15);
   u32 new_pc_region;
   u8 *pc_address_block = memory_map_read[pc_region];
@@ -3191,7 +3191,6 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   u8 *backpatch_address = NULL;
   u8 *translation_ptr = NULL;
   u8 *translation_cache_limit = NULL;
-  s32 i;
   u32 flag_status;
   block_exit_type external_block_exits[MAX_EXITS];
   generate_block_extra_vars_thumb();
@@ -3226,8 +3225,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
     scan_block(thumb, no);
   }
 
-  for(i = 0; i < block_exit_position; i++)
-  {
+  for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
 
     if((branch_target > block_start_pc) &&
@@ -3284,8 +3282,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
      in the unlikely case that block was too big (and not finalized) */
   generate_translation_gate(thumb);
 
-  for(i = 0; i < block_exit_position; i++)
-  {
+  for (unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
 
     if((branch_target >= block_start_pc) && (branch_target < block_end_pc))
@@ -3314,8 +3311,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   else
     rom_translation_ptr = translation_ptr;
 
-  for(i = 0; i < external_block_exit_position; i++)
-  {
+  for (unsigned i = 0; i < external_block_exit_position; i++) {
     branch_target = external_block_exits[i].branch_target;
     if(branch_target == 0x00000008)
       translation_target = bios_swi_entrypoint;

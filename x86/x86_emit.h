@@ -20,15 +20,21 @@
 #ifndef X86_EMIT_H
 #define X86_EMIT_H
 
-u32 x86_update_gba(u32 pc);
+extern "C" {
 
-// Although these are defined as a function, don't call them as
-// such (jump to it instead)
-void x86_indirect_branch_arm(u32 address);
-void x86_indirect_branch_thumb(u32 address);
-void x86_indirect_branch_dual(u32 address);
+  u32 x86_update_gba(u32 pc);
 
-void function_cc execute_store_cpsr(u32 new_cpsr, u32 store_mask);
+  // Although these are defined as a function, don't call them as
+  // such (jump to it instead)
+  void x86_indirect_branch_arm(u32 address);
+  void x86_indirect_branch_thumb(u32 address);
+  void x86_indirect_branch_dual(u32 address);
+
+  void function_cc execute_store_cpsr(u32 new_cpsr, u32 store_mask);
+  u32 execute_store_cpsr_body();
+
+  u32 function_cc execute_arm_translate_internal(u32 cycles, void *regptr);
+}
 
 typedef enum
 {
@@ -2269,8 +2275,6 @@ void init_emitter(bool must_swap) {
   rom_cache_watermark = INITIAL_ROM_WATERMARK;
   init_bios_hooks();
 }
-
-u32 function_cc execute_arm_translate_internal(u32 cycles, void *regptr);
 
 u32 execute_arm_translate(u32 cycles) {
   return execute_arm_translate_internal(cycles, &reg[0]);

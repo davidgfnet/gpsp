@@ -27,25 +27,31 @@
    is fairly limited and cannot map to armv4 well.
    All flags are kept in registers and loaded/restored as needed. */
 
-u32 a64_update_gba(u32 pc);
+extern "C" {
+  u32 a64_update_gba(u32 pc);
 
-// Although these are defined as a function, don't call them as
-// such (jump to it instead)
-void a64_indirect_branch_arm(u32 address);
-void a64_indirect_branch_thumb(u32 address);
-void a64_indirect_branch_dual(u32 address);
+  // Although these are defined as a function, don't call them as
+  // such (jump to it instead)
+  void a64_indirect_branch_arm(u32 address);
+  void a64_indirect_branch_thumb(u32 address);
+  void a64_indirect_branch_dual(u32 address);
 
-u32 execute_read_cpsr();
-u32 execute_read_spsr();
-void execute_swi(u32 pc);
-void a64_cheat_hook(void);
+  u32 execute_read_cpsr();
+  u32 execute_read_spsr();
+  void execute_swi(u32 pc);
+  void a64_cheat_hook(void);
 
-u32 execute_spsr_restore(u32 address);
-void execute_store_cpsr(u32 new_cpsr, u32 store_mask);
-void execute_store_spsr(u32 new_spsr, u32 store_mask);
+  u32 execute_spsr_restore(u32 address);
+  void execute_store_cpsr(u32 new_cpsr, u32 store_mask);
+  void execute_store_spsr(u32 new_spsr, u32 store_mask);
+  u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask);
+  u32 execute_spsr_restore_body(u32 address);
 
-void execute_aligned_store32(u32 addr, u32 data);
-u32 execute_aligned_load32(u32 addr);
+  void execute_aligned_store32(u32 addr, u32 data);
+  u32 execute_aligned_load32(u32 addr);
+
+  u32 execute_arm_translate_internal(u32 cycles, void *regptr);
+}
 
 typedef enum
 {
@@ -1886,7 +1892,6 @@ void init_emitter(bool must_swap) {
   memcpy(ldst_lookup_tables, ldst_handler_functions, sizeof(ldst_lookup_tables));
 }
 
-u32 execute_arm_translate_internal(u32 cycles, void *regptr);
 
 u32 execute_arm_translate(u32 cycles) {
   return execute_arm_translate_internal(cycles, &reg[0]);

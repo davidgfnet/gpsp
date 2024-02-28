@@ -34,7 +34,7 @@ SOURCES_C := $(CORE_DIR)/common.c \
              $(LIBRETRO_COMM_DIR)/vfs/vfs_implementation.c
 
 ifeq ($(HAVE_DYNAREC), 1)
-  SOURCES_C += $(CORE_DIR)/cpu_threaded.c
+  SOURCES_CC += $(CORE_DIR)/cpu_dynarec.cc
   ifeq ($(CPU_ARCH), x86_32)
     SOURCES_ASM += $(CORE_DIR)/x86/x86_stub.S
   else ifeq ($(CPU_ARCH), arm)

@@ -35,23 +35,31 @@
 #define execute_store_u32 tmemst[2][3]
 #define execute_aligned_store32 tmemst[3][3]
 
-u32 mips_update_gba(u32 pc);
+extern "C" {
+  u32 mips_update_gba(u32 pc);
 
-// Although these are defined as a function, don't call them as
-// such (jump to it instead)
-void mips_indirect_branch_arm(u32 address);
-void mips_indirect_branch_thumb(u32 address);
-void mips_indirect_branch_dual(u32 address);
+  // Although these are defined as a function, don't call them as
+  // such (jump to it instead)
+  void mips_indirect_branch_arm(u32 address);
+  void mips_indirect_branch_thumb(u32 address);
+  void mips_indirect_branch_dual(u32 address);
 
-u32 execute_read_cpsr();
-u32 execute_read_spsr();
-void execute_swi(u32 pc);
-void mips_cheat_hook(void);
+  u32 execute_read_cpsr();
+  u32 execute_read_spsr();
+  void execute_swi(u32 pc);
+  void mips_cheat_hook(void);
+  void smc_write();
+  void write_io_epilogue();
 
-u32 execute_spsr_restore(u32 address);
-void execute_store_cpsr(u32 new_cpsr, u32 store_mask);
-void execute_store_spsr(u32 new_spsr, u32 store_mask);
+  u32 execute_spsr_restore(u32 address);
+  void execute_store_cpsr(u32 new_cpsr, u32 store_mask);
+  void execute_store_spsr(u32 new_spsr, u32 store_mask);
 
+  u32 execute_spsr_restore_body(u32 address);
+  u32 execute_store_cpsr_body(u32 _cpsr, u32 address);
+
+  u32 execute_arm_translate_internal(u32 cycles, void *regptr);
+}
 
 #define reg_base    mips_reg_s0
 #define reg_cycles  mips_reg_s1
@@ -2014,8 +2022,6 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
 extern u32 tmemld[11][16];
 extern u32 tmemst[ 4][16];
 extern u32 thnjal[15*16];
-void smc_write();
-void write_io_epilogue();
 
 // This is a pointer table to the open load stubs, used by the BIOS (optimization)
 u32* openld_core_ptrs[11];
@@ -2680,7 +2686,6 @@ static void emit_phand(
 // - mem stubs: There's stubs for load & store, and every memory region
 //    and possible operand size and misaligment (+sign extensions)
 void init_emitter(bool must_swap) {
-  int i;
   // Initialize memory to a debuggable state
   rom_cache_watermark = INITIAL_ROM_WATERMARK;
 
@@ -2725,7 +2730,7 @@ void init_emitter(bool must_swap) {
   emit_openload_stub(5, false, 2, &translation_ptr);  // ld a32
 
   // Here we emit the ignore store area, just checks and does nothing
-  for (i = 0; i < 4; i++)
+  for (int i = 0; i < 4; i++)
     emit_ignorestore_stub(i, &translation_ptr);
 
   // Here go the save game handlers
@@ -2733,25 +2738,25 @@ void init_emitter(bool must_swap) {
 
   // Generate memory handlers
   const t_stub_meminfo ldinfo [] = {
-    { emit_pmemld_stub,  0, 0x4000, false, false, (u32)bios_rom, 0},
+    { (void*)emit_pmemld_stub,  0, 0x4000, false, false, (u32)bios_rom, 0},
     // 1 Open load / Ignore store
-    { emit_pmemld_stub,  2, 0x8000, true,  false, (u32)ewram, 0 },      // memsize wrong on purpose
-    { emit_pmemld_stub,  3, 0x8000, true,  false, (u32)&iwram[0x8000], 0 },
-    { emit_pmemld_stub,  4,  0x400, false, false, (u32)io_registers, 0 },
-    { emit_pmemld_stub,  5,  0x400, false, true,  (u32)palette_ram, 0x100 },
-    { emit_pmemld_stub,  6,    0x0, false, true,  (u32)vram, 0 },             // same, vram is a special case
-    { emit_pmemld_stub,  7,  0x400, false, true,  (u32)oam_ram, 0x900 },
-    { emit_pmemld_stub,  8, 0x8000, false, false,  0, 0 },
-    { emit_pmemld_stub,  9, 0x8000, false, false,  0, 0 },
-    { emit_pmemld_stub, 10, 0x8000, false, false,  0, 0 },
-    { emit_pmemld_stub, 11, 0x8000, false, false,  0, 0 },
-    { emit_pmemld_stub, 12, 0x8000, false, false,  0, 0 },
+    { (void*)emit_pmemld_stub,  2, 0x8000, true,  false, (u32)ewram, 0 },      // memsize wrong on purpose
+    { (void*)emit_pmemld_stub,  3, 0x8000, true,  false, (u32)&iwram[0x8000], 0 },
+    { (void*)emit_pmemld_stub,  4,  0x400, false, false, (u32)io_registers, 0 },
+    { (void*)emit_pmemld_stub,  5,  0x400, false, true,  (u32)palette_ram, 0x100 },
+    { (void*)emit_pmemld_stub,  6,    0x0, false, true,  (u32)vram, 0 },             // same, vram is a special case
+    { (void*)emit_pmemld_stub,  7,  0x400, false, true,  (u32)oam_ram, 0x900 },
+    { (void*)emit_pmemld_stub,  8, 0x8000, false, false,  0, 0 },
+    { (void*)emit_pmemld_stub,  9, 0x8000, false, false,  0, 0 },
+    { (void*)emit_pmemld_stub, 10, 0x8000, false, false,  0, 0 },
+    { (void*)emit_pmemld_stub, 11, 0x8000, false, false,  0, 0 },
+    { (void*)emit_pmemld_stub, 12, 0x8000, false, false,  0, 0 },
     // 13 is EEPROM mapped already (a bit special)
-    { emit_pmemld_stub, 14,      0, false, false,  0, 0 },                    // Mapped via function call
+    { (void*)emit_pmemld_stub, 14,      0, false, false,  0, 0 },                    // Mapped via function call
     // 15 Open load / Ignore store
   };
 
-  for (i = 0; i < sizeof(ldinfo)/sizeof(ldinfo[0]); i++) {
+  for (int i = 0; i < sizeof(ldinfo)/sizeof(ldinfo[0]); i++) {
     ldhldr_t handler = (ldhldr_t)ldinfo[i].emitter;
     /*          region  info      signext sz al  isaligned */
     handler(0, &ldinfo[i], false, 0, 0, false, must_swap, &translation_ptr);  // ld u8
@@ -2771,17 +2776,17 @@ void init_emitter(bool must_swap) {
   }
 
   const t_stub_meminfo stinfo [] = {
-    { emit_pmemst_stub, 2, 0x8000, true,  false, (u32)ewram, 0 },
-    { emit_pmemst_stub, 3, 0x8000, true,  false, (u32)&iwram[0x8000], 0 },
+    { (void*)emit_pmemst_stub, 2, 0x8000, true,  false, (u32)ewram, 0 },
+    { (void*)emit_pmemst_stub, 3, 0x8000, true,  false, (u32)&iwram[0x8000], 0 },
     // I/O is special and mapped with a function call
-    { emit_palette_hdl, 5,  0x400, false, true,  (u32)palette_ram, 0x100 },
-    { emit_pmemst_stub, 6,    0x0, false, true,  (u32)vram, 0 },          // same, vram is a special case
-    { emit_pmemst_stub, 7,  0x400, false, true,  (u32)oam_ram, 0x900 },
+    { (void*)emit_palette_hdl, 5,  0x400, false, true,  (u32)palette_ram, 0x100 },
+    { (void*)emit_pmemst_stub, 6,    0x0, false, true,  (u32)vram, 0 },          // same, vram is a special case
+    { (void*)emit_pmemst_stub, 7,  0x400, false, true,  (u32)oam_ram, 0x900 },
   };
 
   // Store only for "regular"-ish mem regions
   //
-  for (i = 0; i < sizeof(stinfo)/sizeof(stinfo[0]); i++) {
+  for (int i = 0; i < sizeof(stinfo)/sizeof(stinfo[0]); i++) {
     sthldr_t handler = (sthldr_t)stinfo[i].emitter;
     handler(0, &stinfo[i], 0, false, &translation_ptr);  // st u8
     handler(1, &stinfo[i], 1, false, &translation_ptr);  // st u16
@@ -2791,7 +2796,7 @@ void init_emitter(bool must_swap) {
 
   // Generate JAL tables
   u32 *tmemptr = &tmemld[0][0];
-  for (i = 0; i < 15*16; i++)
+  for (int i = 0; i < 15*16; i++)
     thnjal[i] = ((tmemptr[i] >> 2) & 0x3FFFFFF) | (mips_opcode_jal << 26);
 
   // Ensure rom flushes do not wipe this area
@@ -2800,7 +2805,6 @@ void init_emitter(bool must_swap) {
   init_bios_hooks();
 }
 
-u32 execute_arm_translate_internal(u32 cycles, void *regptr);
 u32 execute_arm_translate(u32 cycles) {
   return execute_arm_translate_internal(cycles, &reg[0]);
 }

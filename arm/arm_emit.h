@@ -22,34 +22,38 @@
 
 #include "arm_codegen.h"
 
-void generate_indirect_branch_arm(void);
-u32 arm_prepare_load_reg(u8 **tptr, u32 scratch_reg, u32 reg_index);
-u32 arm_prepare_load_reg_pc(u8 **tptr, u32 scratch_reg, u32 reg_index, u32 pc_offset);
-u32 arm_prepare_store_reg(u32 scratch_reg, u32 reg_index);
-u32 thumb_prepare_load_reg(u8 **tptr, u32 scratch_reg, u32 reg_index);
-u32 thumb_prepare_load_reg_pc(u8 **tptr, u32 scratch_reg, u32 reg_index, u32 pc_offset);
-u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index);
-void thumb_cheat_hook(void);
-void arm_cheat_hook(void);
+extern "C" {
+  void generate_indirect_branch_arm(void);
+  u32 arm_prepare_load_reg(u8 **tptr, u32 scratch_reg, u32 reg_index);
+  u32 arm_prepare_load_reg_pc(u8 **tptr, u32 scratch_reg, u32 reg_index, u32 pc_offset);
+  u32 arm_prepare_store_reg(u32 scratch_reg, u32 reg_index);
+  u32 thumb_prepare_load_reg(u8 **tptr, u32 scratch_reg, u32 reg_index);
+  u32 thumb_prepare_load_reg_pc(u8 **tptr, u32 scratch_reg, u32 reg_index, u32 pc_offset);
+  u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index);
+  void thumb_cheat_hook(void);
+  void arm_cheat_hook(void);
 
-u32 arm_update_gba_arm(u32 pc);
-u32 arm_update_gba_thumb(u32 pc);
-u32 arm_update_gba_idle_arm(u32 pc);
-u32 arm_update_gba_idle_thumb(u32 pc);
+  u32 arm_update_gba_arm(u32 pc);
+  u32 arm_update_gba_thumb(u32 pc);
+  u32 arm_update_gba_idle_arm(u32 pc);
+  u32 arm_update_gba_idle_thumb(u32 pc);
 
-/* Although these are defined as a function, don't call them as
- * such (jump to it instead) */
-void arm_indirect_branch_arm(u32 address);
-void arm_indirect_branch_thumb(u32 address);
-void arm_indirect_branch_dual_arm(u32 address);
-void arm_indirect_branch_dual_thumb(u32 address);
+  /* Although these are defined as a function, don't call them as
+   * such (jump to it instead) */
+  void arm_indirect_branch_arm(u32 address);
+  void arm_indirect_branch_thumb(u32 address);
+  void arm_indirect_branch_dual_arm(u32 address);
+  void arm_indirect_branch_dual_thumb(u32 address);
 
-void execute_store_cpsr(u32 new_cpsr);
-u32 execute_store_cpsr_body(u32 _cpsr, u32 store_mask, u32 address);
-u32 execute_spsr_restore(u32 address);
+  void execute_store_cpsr(u32 new_cpsr);
+  u32 execute_store_cpsr_body(u32 _cpsr, u32 store_mask, u32 address);
+  u32 execute_spsr_restore_body(u32 pc);
+  u32 execute_spsr_restore(u32 address);
 
-void execute_swi_arm(u32 pc);
-void execute_swi_thumb(u32 pc);
+  void execute_swi_arm(u32 pc);
+  void execute_swi_thumb(u32 pc);
+  u32 execute_arm_translate_internal(u32 cycles, void *regptr);
+}
 
 #define armfn_gbaup_idle_arm       0
 #define armfn_gbaup_idle_thumb     1
@@ -2083,7 +2087,6 @@ void init_emitter(bool must_swap) {
   reg[REG_USERDEF + armfn_debug_trace] = (u32)trace_instruction;
 }
 
-u32 execute_arm_translate_internal(u32 cycles, void *regptr);
 u32 execute_arm_translate(u32 cycles) {
   return execute_arm_translate_internal(cycles, &reg[0]);
 }

@@ -1165,7 +1165,7 @@ void translate_icache_sync() {
                                                                               \
     case 0x30 ... 0x31:                                                       \
       /* TST rn, imm */                                                       \
-      arm_data_proc_test(tst, imm);                                           \
+      arm_data_proc_test(tst, imm_flags);                                     \
       break;                                                                  \
                                                                               \
     case 0x32:                                                                \
@@ -1175,7 +1175,7 @@ void translate_icache_sync() {
                                                                               \
     case 0x33:                                                                \
       /* TEQ rn, imm */                                                       \
-      arm_data_proc_test(teq, imm);                                           \
+      arm_data_proc_test(teq, imm_flags);                                     \
       break;                                                                  \
                                                                               \
     case 0x34 ... 0x35:                                                       \

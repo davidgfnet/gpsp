@@ -759,7 +759,7 @@ inline static void thumb_shift_reg(const ThumbInst &it) {
   using_register(thumb, it.rd(), op_src_dest);
   using_register(thumb, it.rs(), op_src);
 
-  u32 shift = reg[it.rs()];
+  u32 shift = reg[it.rs()] & 0xFF;   // Only the LSB byte
 
   if (shift) {
     switch (mode) {

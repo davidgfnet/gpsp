@@ -288,7 +288,6 @@ extern "C" {
 #define generate_shift_reg(ireg, name, flags_op)                              \
   generate_load_reg_pc(ireg, rm, 12);                                         \
   generate_load_reg(a1, ((opcode >> 8) & 0x0F));                              \
-  generate_and_imm(a1, 0xFF);                                                 \
   generate_##name##_##flags_op##_reg(ireg);                                   \
 
 #ifdef TRACE_INSTRUCTIONS
@@ -324,7 +323,7 @@ extern "C" {
 #define generate_asr_no_flags_reg(ireg)                                       \
 {                                                                             \
   u8 *jmpinst;                                                                \
-  generate_mov(a2, a1);                                                       \
+  x86_emit_movzxb(reg_a2, reg_a1);                                            \
   generate_shift_right_arithmetic_var(a0);                                    \
   generate_cmp_imm(a2, 32);                                                   \
   x86_emit_j_filler(x86_condition_code_l, jmpinst);                           \
@@ -336,9 +335,8 @@ extern "C" {
 #define generate_asr_flags_reg(ireg)                                          \
 {                                                                             \
   u8 *jmpinst1, *jmpinst2;                                                    \
-  generate_mov(a2, a1);                                                       \
-  generate_or(a2, a2);                                                        \
-  x86_emit_j_filler(x86_condition_code_z, jmpinst1);                          \
+  x86_emit_movzxb(reg_a2, reg_a1);                                            \
+  x86_emit_jecxz_filler(jmpinst1);                                            \
   generate_shift_right_arithmetic_var(a0);                                    \
   generate_update_flag(c, REG_C_FLAG)                                         \
   generate_cmp_imm(a2, 32);                                                   \
@@ -346,7 +344,7 @@ extern "C" {
   generate_shift_right_arithmetic(a0, 16);                                    \
   generate_shift_right_arithmetic(a0, 16);                                    \
   generate_update_flag(c, REG_C_FLAG)                                         \
-  generate_branch_patch_conditional(jmpinst1, translation_ptr);               \
+  generate_branch_patch_jecxz(jmpinst1, translation_ptr);                     \
   generate_branch_patch_conditional(jmpinst2, translation_ptr);               \
   generate_mov(ireg, a0);                                                     \
 }
@@ -354,7 +352,7 @@ extern "C" {
 #define generate_lsl_no_flags_reg(ireg)                                       \
 {                                                                             \
   u8 *jmpinst;                                                                \
-  generate_mov(a2, a1);                                                       \
+  x86_emit_movzxb(reg_a2, reg_a1);                                            \
   generate_shift_left_var(a0);                                                \
   generate_cmp_imm(a2, 32);                                                   \
   x86_emit_j_filler(x86_condition_code_l, jmpinst);                           \
@@ -366,9 +364,8 @@ extern "C" {
 #define generate_lsl_flags_reg(ireg)                                          \
 {                                                                             \
   u8 *jmpinst1, *jmpinst2;                                                    \
-  generate_mov(a2, a1);                                                       \
-  generate_or(a2, a2);                                                        \
-  x86_emit_j_filler(x86_condition_code_z, jmpinst1);                          \
+  x86_emit_movzxb(reg_a2, reg_a1);                                            \
+  x86_emit_jecxz_filler(jmpinst1);                                            \
   generate_sub_imm(a2, 1);                                                    \
   generate_shift_left_var(a0);                                                \
   generate_or(a0, a0);                                                        \
@@ -377,8 +374,8 @@ extern "C" {
   generate_cmp_imm(a2, 32);                                                   \
   x86_emit_j_filler(x86_condition_code_l, jmpinst2);                          \
   generate_load_imm(a0, 0);                                                   \
-  generate_store_reg(a0, REG_C_FLAG)                                          \
-  generate_branch_patch_conditional(jmpinst1, translation_ptr);               \
+  generate_store_reg_i32(0, REG_C_FLAG);                                      \
+  generate_branch_patch_jecxz(jmpinst1, translation_ptr);                     \
   generate_branch_patch_conditional(jmpinst2, translation_ptr);               \
   generate_mov(ireg, a0);                                                     \
 }
@@ -386,7 +383,7 @@ extern "C" {
 #define generate_lsr_no_flags_reg(ireg)                                       \
 {                                                                             \
   u8 *jmpinst;                                                                \
-  generate_mov(a2, a1);                                                       \
+  x86_emit_movzxb(reg_a2, reg_a1);                                            \
   generate_shift_right_var(a0);                                               \
   generate_cmp_imm(a2, 32);                                                   \
   x86_emit_j_filler(x86_condition_code_l, jmpinst);                           \
@@ -398,9 +395,8 @@ extern "C" {
 #define generate_lsr_flags_reg(ireg)                                          \
 {                                                                             \
   u8 *jmpinst1, *jmpinst2;                                                    \
-  generate_mov(a2, a1);                                                       \
-  generate_or(a2, a2);                                                        \
-  x86_emit_j_filler(x86_condition_code_z, jmpinst1);                          \
+  x86_emit_movzxb(reg_a2, reg_a1);                                            \
+  x86_emit_jecxz_filler(jmpinst1);                                            \
   generate_sub_imm(a2, 1);                                                    \
   generate_shift_right_var(a0);                                               \
   generate_test_imm(a0, 1);                                                   \
@@ -408,30 +404,27 @@ extern "C" {
   generate_shift_right(a0, 1);                                                \
   generate_cmp_imm(a2, 32);                                                   \
   x86_emit_j_filler(x86_condition_code_l, jmpinst2);                          \
-  generate_xor(a0, a0);                                                       \
-  generate_store_reg(a0, REG_C_FLAG)                                          \
-  generate_branch_patch_conditional(jmpinst1, translation_ptr);               \
+  generate_load_imm(a0, 0);                                                   \
+  generate_store_reg_i32(0, REG_C_FLAG);                                      \
+  generate_branch_patch_jecxz(jmpinst1, translation_ptr);                     \
   generate_branch_patch_conditional(jmpinst2, translation_ptr);               \
   generate_mov(ireg, a0);                                                     \
 }
 
 #define generate_ror_no_flags_reg(ireg)                                       \
-  generate_mov(a2, a1);                                                       \
+  x86_emit_movzxb(reg_a2, reg_a1);                                            \
   generate_rotate_right_var(a0);                                              \
   generate_mov(ireg, a0);
 
 #define generate_ror_flags_reg(ireg)                                          \
 {                                                                             \
   u8 *jmpinst;                                                                \
-  generate_mov(a2, a1);                                                       \
-  generate_or(a2, a2);                                                        \
-  x86_emit_j_filler(x86_condition_code_z, jmpinst);                           \
-  generate_sub_imm(a2, 1);                                                    \
+  x86_emit_movzxb(reg_a2, reg_a1);                                            \
+  x86_emit_jecxz_filler(jmpinst);                                             \
   generate_rotate_right_var(a0);                                              \
-  generate_test_imm(a0, 1);                                                   \
-  generate_update_flag(nz, REG_C_FLAG)                                        \
-  generate_rotate_right(a0, 1);                                               \
-  generate_branch_patch_conditional(jmpinst, translation_ptr);                \
+  x86_emit_bittest(reg_a0, 31);                                               \
+  generate_update_flag(c, REG_C_FLAG);                                        \
+  generate_branch_patch_jecxz(jmpinst, translation_ptr);                      \
   generate_mov(ireg, a0);                                                     \
 }
 
@@ -895,8 +888,8 @@ u32 function_cc execute_spsr_restore(u32 address)
   if((flag_status & 0x02) && (imm_ror != 0))                                  \
   {                                                                           \
     /* Generate carry flag from integer rotation */                           \
-    generate_load_imm(a0, ((imm >> (imm_ror - 1)) & 0x01));                   \
-    generate_store_reg(a0, REG_C_FLAG);                                       \
+    u32 flagbit = ((imm >> (imm_ror - 1)) & 0x01);                            \
+    generate_store_reg_i32(flagbit, REG_C_FLAG);                              \
   }                                                                           \
   ror(imm, imm, imm_ror);                                                     \
   generate_load_imm(a0, imm)                                                  \

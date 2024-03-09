@@ -135,6 +135,7 @@ typedef enum
   x86_opcode_lea_reg_rm                 = 0x8D,
   x86_opcode_j                          = 0x80,
   x86_opcode_cdq                        = 0x99,
+  x86_opcode_jecxz                      = 0xE3,
   x86_opcode_jmp                        = 0xE9,
   x86_opcode_jmp_reg                    = 0x04FF,
   x86_opcode_ext                        = 0x0F
@@ -149,6 +150,9 @@ typedef enum
   x86_opcode_setnz                      = 0x95,
   x86_opcode_sets                       = 0x98,
   x86_opcode_setns                      = 0x99,
+  x86_opcode_movzxb                     = 0xB6,
+  x86_opcode_movzxw                     = 0xB7,
+  x86_opcode_bt                         = 0xBA,
 } x86_ext_opcodes;
 
 typedef enum
@@ -226,6 +230,16 @@ typedef enum
 #define x86_emit_setcc_mem(ccode, base, offset)                               \
   x86_emit_byte(x86_opcode_ext);                                              \
   x86_emit_opcode_1b_mem(set##ccode, x86_reg_eax, base, offset);              \
+
+// Note: Only AL, BL, CL and DL can be used as source!
+#define x86_emit_movzxb(dest, src)                                            \
+  x86_emit_byte(x86_opcode_ext);                                              \
+  x86_emit_opcode_1b_reg(movzxb, dest, src);                                  \
+
+#define x86_emit_bittest(src, bitnum)                                         \
+  x86_emit_byte(x86_opcode_ext);                                              \
+  x86_emit_opcode_1b_reg(bt, 0x04, src);                                      \
+  x86_emit_byte(bitnum);                                                      \
 
 #define x86_emit_add_reg_mem(dst, base, offset)                               \
   x86_emit_opcode_1b_mem(add_reg_rm, dst, base, offset);                      \
@@ -365,6 +379,11 @@ typedef enum
 
 #define x86_emit_lea_reg_mem(dest, base, offset)                              \
   x86_emit_opcode_1b_mem(lea_reg_rm, dest, base, offset)                      \
+
+#define x86_emit_jecxz_filler(writeback_location)                             \
+  x86_emit_byte(x86_opcode_jecxz);                                            \
+  (writeback_location) = translation_ptr;                                     \
+  translation_ptr += 1                                                        \
 
 #define x86_emit_j_filler(condition_code, writeback_location)                 \
   x86_emit_byte(x86_opcode_ext);                                              \
@@ -546,6 +565,9 @@ typedef enum
 #define generate_cycle_update()                                               \
   x86_emit_sub_reg_imm(reg_cycles, cycle_count);                              \
   cycle_count = 0                                                             \
+
+#define generate_branch_patch_jecxz(dest, offset)                             \
+  *((u8 *)(dest)) = x86_relative_offset(dest, offset, 1)                      \
 
 #define generate_branch_patch_conditional(dest, offset)                       \
   *((u32 *)(dest)) = x86_relative_offset(dest, offset, 4)                     \

@@ -132,11 +132,6 @@ inline static bool arm_null_inst(const ARMInst &inst) {
   }                                                                           \
 }
 
-#define arm_pc_offset(val)                                                    \
-  reg[REG_PC] += val                                                          \
-
-#define thumb_pc_offset(val)                                                  \
-  reg[REG_PC] += val                                                          \
 
 typedef enum { MulReg, MulAdd } MulMode;
 typedef enum { SiSigned, SiUnsigned } SignMode;
@@ -155,7 +150,7 @@ typedef enum { AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec } AddrMode;
 template<FlagMode fm>
 inline static u32 calc_op2_shimm(const ARMInst &it) {
   u32 imm = it.op2sa();      // Shift amount [0..31]
-  u32 rmval = reg[it.rm()];  // Register to shift/rotate.
+  u32 rmval = read_reg<8>(it.rm());  // Register to shift/rotate.
   bool cflag = isset_flag<FLAG_C>();
 
   switch (it.op2smode()) {
@@ -199,12 +194,9 @@ inline static u32 calc_op2_shimm(const ARMInst &it) {
 // Calculates operand 2 when register is shifted/rotated by another register.
 template<FlagMode fm>
 inline static u32 calc_op2_shreg(const ARMInst &it) {
-  u32 rmval = reg[it.rm()];  // Register to shift/rotate.
-
-  u32 amount = reg[it.rs()]; // Register that contains the rotation amount
-  if (it.rs() == REG_PC)     // Correct for PC value
-    amount += 4;
-  amount &= 0xff;            // Only the 8 LSB are meaningful for this operation
+  u32 rmval = read_reg<8>(it.rm());   // Register to shift/rotate.
+  // Register that contains the rotation amount: it is read one cycle later (hence +12)
+  u32 amount = read_reg<12>(it.rs()) & 0xff;   // Only the LSB byte is used!
 
   if (amount) {
     bool cflag;
@@ -272,17 +264,16 @@ inline static u32 calculate_op2(const ARMInst &it) {
 // Performs all arm logic operations (result + flags)
 template<LogicMode mode, FlagMode fm, ArmOp2 op2m>
 inline static cpu_alert_type arm_logic(const ARMInst &it) {
-  arm_pc_offset(8);     // Reading the PC should read PC+8
-
   // Calculate the 2nd operand, according to mode.
   u32 op2v = calculate_op2<fm, op2m>(it);
+  u32 op1v = read_reg<8>(it.rn());
 
   u32 res;
   switch (mode) {
-  case LgcAnd: res = reg[it.rn()] & op2v; break;
-  case LgcOrr: res = reg[it.rn()] | op2v; break;
-  case LgcXor: res = reg[it.rn()] ^ op2v; break;
-  case LgcBic: res = reg[it.rn()] & (~op2v); break;
+  case LgcAnd: res = op1v & op2v; break;
+  case LgcOrr: res = op1v | op2v; break;
+  case LgcXor: res = op1v ^ op2v; break;
+  case LgcBic: res = op1v & (~op2v); break;
   case LgcNot: res = ~op2v; break;
   case LgcMov: res =  op2v; break;
   };
@@ -290,7 +281,7 @@ inline static cpu_alert_type arm_logic(const ARMInst &it) {
   if (fm == FlagsSet)
     set_NZ_flags(res);
 
-  arm_pc_offset(-4);
+  reg[REG_PC] += 4;
   reg[it.rd()] = res;
 
   if (fm == FlagsSet && it.rd() == REG_PC)
@@ -302,28 +293,25 @@ inline static cpu_alert_type arm_logic(const ARMInst &it) {
 // Performs tst/teq operations (only updates flags)
 template<LogicMode mode, ArmOp2 op2m>
 inline static void arm_logic_test(const ARMInst &it) {
-  arm_pc_offset(8);     // Reading the PC should read PC+8
-
   // Calculate the 2nd operand, according to mode.
   u32 op2v = calculate_op2<FlagsSet, op2m>(it);
+  u32 op1v = read_reg<8>(it.rn());
 
   u32 res;
   switch (mode) {
-  case LgcAnd: res = reg[it.rn()] & op2v; break;
-  case LgcXor: res = reg[it.rn()] ^ op2v; break;
+  case LgcAnd: res = op1v & op2v; break;
+  case LgcXor: res = op1v ^ op2v; break;
   };
 
   set_NZ_flags(res);
-  arm_pc_offset(-4);
+  reg[REG_PC] += 4;
 }
 
 // Performs add/adc/cmn operations
 template<FlagMode fm, ArmOp2 op2m, bool writeback>
 inline static cpu_alert_type arm_add(const ARMInst &it, bool cin) {
-  arm_pc_offset(8);     // Reading the PC should read PC+8
-
   // Calculate the 2nd operand, according to mode.
-  u32 op1v = reg[it.rn()];
+  u32 op1v = read_reg<8>(it.rn());
   u32 op2v = calculate_op2<fm, op2m>(it);
 
   // Calculate the result and its carry as well.
@@ -335,7 +323,7 @@ inline static cpu_alert_type arm_add(const ARMInst &it, bool cin) {
       cout = true;
   }
 
-  arm_pc_offset(-4);
+  reg[REG_PC] += 4;
   if (writeback)
     reg[it.rd()] = res;
 
@@ -353,10 +341,8 @@ inline static cpu_alert_type arm_add(const ARMInst &it, bool cin) {
 // Performs sub/sbc/cmp operations
 template<FlagMode fm, ArmOp2 op2m, OperandMode opm, bool writeback>
 inline static cpu_alert_type arm_sub(const ARMInst &it, bool bin) {
-  arm_pc_offset(8);     // Reading the PC should read PC+8
-
   // Calculate the 2nd operand, according to mode.
-  u32 regv = reg[it.rn()];
+  u32 regv = read_reg<8>(it.rn());
   u32 op2v = calculate_op2<fm, op2m>(it);
 
   u32 opn1 = opm == OpDirect ? regv : op2v;
@@ -365,7 +351,7 @@ inline static cpu_alert_type arm_sub(const ARMInst &it, bool bin) {
   // Calculate the result and its carry as well.
   u32 res = opn1 + ~opn2 + (bin ? 1 : 0);
 
-  arm_pc_offset(-4);
+  reg[REG_PC] += 4;
   if (writeback)
     reg[it.rd()] = res;
 
@@ -390,7 +376,7 @@ inline static void arm_mul32(const ARMInst &it) {
   if (fm == FlagsSet)
     set_NZ_flags(res);
   reg[it.rn()] = res;
-  arm_pc_offset(4);
+  reg[REG_PC] += 4;
 }
 
 // Performs 64 bit multiplications
@@ -409,15 +395,14 @@ inline static void arm_mul64(const ARMInst &it) {
 
   reg[it.rdhi()] = res >> 32;
   reg[it.rdlo()] = res & 0xFFFFFFFF;
-  arm_pc_offset(4);
+  reg[REG_PC] += 4;
 }
 
 // Writes CPSR and SPSR registers
 inline static cpu_alert_type cpsr_write(const ARMInst &it, u32 wval) {
   const u32 smask = cpsr_masks[it.psr_field()][PRIVMODE(reg[CPU_MODE])];
   reg[REG_CPSR] = (wval & smask) | (reg[REG_CPSR] & (~smask));
-
-  arm_pc_offset(4);
+  reg[REG_PC] += 4;
 
   // Writing the CPU mode and/or Interrupt flags could mean a mode change or
   // an interrupt triggering.
@@ -432,7 +417,7 @@ inline static void spsr_write(const ARMInst &it, u32 wval) {
   const u32 smask = spsr_masks[it.psr_field()];
   const u32 cur_spsr = REG_SPSR(reg[CPU_MODE]);
   REG_SPSR(reg[CPU_MODE]) = (wval & smask) | (cur_spsr & (~smask));
-  arm_pc_offset(4);
+  reg[REG_PC] += 4;
 }
 
 template <typename memtype>
@@ -471,7 +456,7 @@ inline static cpu_alert_type arm_swap(const ARMInst &it, s32 &cyccnt) {
   cpu_alert_type ret = perform_memstore<memmode>(read_reg<8>(it.rn()), read_reg<8>(it.rm()));
   reg[it.rd()] = tmp;
 
-  arm_pc_offset(4);
+  reg[REG_PC] += 4;
   return ret;
 }
 
@@ -479,7 +464,7 @@ template<AccMode mode, typename memmode>
 inline static cpu_alert_type thumb_memop(u32 rd, u32 addr, s32 &cyccnt) {
   u8 region = addr >> 24;
 
-  thumb_pc_offset(2);  // Advance PC
+  reg[REG_PC] += 2;  // Advance PC
 
   // Account for access timing
   if (region < 16)
@@ -494,8 +479,6 @@ inline static cpu_alert_type thumb_memop(u32 rd, u32 addr, s32 &cyccnt) {
 
 template<AccMode mode, typename memmode, MemOp2 op2m, MemIdxMode midx>
 inline static cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
-  arm_pc_offset(8);  // Advance PC
-
   // Offset can be:
   // - 12 bit offset
   // - Regmode flexible operand (reg shifted/rotated by 5 bit immediate)
@@ -507,11 +490,11 @@ inline static cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
                (op2m == Op2MinusReg)  ? -calc_op2_shimm<FlagsIgnore>(it) :
                (op2m == HOp2PlusImm)  ?  it.off8() :
                (op2m == HOp2MinusImm) ? -it.off8() :
-               (op2m == HOp2PlusReg)  ?  reg[it.rm()] :
-                                        -reg[it.rm()];
+               (op2m == HOp2PlusReg)  ?  read_reg<8>(it.rm()) :
+                                        -read_reg<8>(it.rm());
 
   // Calculate the address (might use offset depending on the mode)
-  u32 address = reg[it.rn()];
+  u32 address = read_reg<8>(it.rn());
   if (midx == MemIdxPre || midx == MemIdxPreWB)
     address += offval;
 
@@ -526,9 +509,9 @@ inline static cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
   if (region < 16)
     cyccnt -= ws_cyc_nseq[region][sizeof(memmode) / 4];
 
-  arm_pc_offset(-4);
-  // TODO: Offset is really 12, but we use 8, since we already incremented by 4
+  reg[REG_PC] += 4;
   if (mode == AccStore)
+    // Note: PC write has a +12 offset, using +8 since we already incremented PC!
     return perform_memstore<memmode>(address, read_reg<8>(it.rd()));
 
   reg[it.rd()] = perform_memload<memmode>(address);
@@ -582,7 +565,7 @@ inline static cpu_alert_type arm_block_mem(const ARMInst &it, s32 &cyccnt) {
   if (region < 16)
     cyccnt -= ws_cyc_seq[region][1] * numops;
 
-  arm_pc_offset(4);  // Advance PC
+  reg[REG_PC] += 4;  // Advance PC
 
   for (u32 i = 0; i < 16; i++)  {
     if ((reglist >> i) & 0x01) {
@@ -638,7 +621,7 @@ inline static cpu_alert_type thumb_block_mem(u32 rn, u32 reglist, s32 &cyccnt) {
   if (region < 16)
     cyccnt -= ws_cyc_seq[region][1] * numops;
 
-  thumb_pc_offset(2);  // Advance PC
+  reg[REG_PC] += 2;  // Advance PC
 
   if (mode == AccLoad) {
     for (u32 i = 0; i < 8; i++)  {
@@ -679,7 +662,7 @@ inline static void thumb_add(u32 rd, u32 op1v, u32 op2v, bool carry) {
   set_NZ_flags(res);
   set_flag<FLAG_V>((~((op1v) ^ (op2v)) & ((op1v) ^ (res))) & 0x80000000);
   set_flag<FLAG_C>(caout);
-  thumb_pc_offset(2);
+  reg[REG_PC] += 2;  // Advance PC
 }
 
 inline static void thumb_sub(u32 rd, u32 op1v, u32 op2v, bool nborrow) {
@@ -689,7 +672,7 @@ inline static void thumb_sub(u32 rd, u32 op1v, u32 op2v, bool nborrow) {
   set_NZ_flags(res);
   set_flag<FLAG_C>(nborrow ? (op2v <= op1v) : op2v < op1v);
   set_flag<FLAG_V>(((op1v ^ op2v) & (~op2v ^ res)) & 0x80000000);
-  thumb_pc_offset(2);
+  reg[REG_PC] += 2;  // Advance PC
 }
 
 inline static void thumb_cmp(u32 op1v, u32 op2v) {
@@ -697,7 +680,7 @@ inline static void thumb_cmp(u32 op1v, u32 op2v) {
   set_NZ_flags(res);
   set_flag<FLAG_C>(op2v <= op1v);
   set_flag<FLAG_V>(((op1v ^ op2v) & (~op2v ^ res)) & 0x80000000);
-  thumb_pc_offset(2);
+  reg[REG_PC] += 2;  // Advance PC
 }
 
 inline static void thumb_cmn(u32 op1v, u32 op2v) {
@@ -705,7 +688,7 @@ inline static void thumb_cmn(u32 op1v, u32 op2v) {
   set_NZ_flags(res);
   set_flag<FLAG_C>(res < op1v);
   set_flag<FLAG_V>((~((op1v) ^ (op2v)) & ((op1v) ^ (res))) & 0x80000000);
-  thumb_pc_offset(2);
+  reg[REG_PC] += 2;  // Advance PC
 }
 
 
@@ -724,7 +707,7 @@ inline static void thumb_logic_reg(const ThumbInst &it) {
   };
 
   set_NZ_flags(reg[it.rd()]);
-  thumb_pc_offset(2);
+  reg[REG_PC] += 2;  // Advance PC
 }
 
 template<ShiftMode mode>
@@ -751,7 +734,7 @@ inline static void thumb_shift_imm(const ThumbInst &it) {
   };
 
   set_NZ_flags(reg[it.rd()]);
-  thumb_pc_offset(2);
+  reg[REG_PC] += 2;  // Advance PC
 }
 
 template<ShiftMode mode>
@@ -796,7 +779,7 @@ inline static void thumb_shift_reg(const ThumbInst &it) {
   }
 
   set_NZ_flags(reg[it.rd()]);
-  thumb_pc_offset(2);
+  reg[REG_PC] += 2;  // Advance PC
 }
 
 inline static u32 thumb_hireg_read(u32 rs) {
@@ -808,7 +791,7 @@ inline static void thumb_hireg_write(u32 rd, u32 value) {
     reg[REG_PC] = value & (~1U);
   } else {
     reg[rd] = value;
-    thumb_pc_offset(2);
+    reg[REG_PC] += 2;  // Advance PC
   }
 }
 
@@ -817,13 +800,10 @@ inline static void thumb_hireg_write(u32 rd, u32 value) {
 #define thumb_cond_br(condition)                                              \
 {                                                                             \
   if(condition)                                                               \
-  {                                                                           \
-    thumb_pc_offset(inst.cbr_offset() + 4);                                   \
-  }                                                                           \
+    reg[REG_PC] += inst.cbr_offset() + 4;                                     \
   else                                                                        \
-  {                                                                           \
-    thumb_pc_offset(2);                                                       \
-  }                                                                           \
+    reg[REG_PC] += 2;  /* Advance PC */                                       \
+                                                                              \
   cyccnt -= ws_cyc_nseq[reg[REG_PC] >> 24][0];                                \
 }                                                                             \
 
@@ -872,7 +852,7 @@ cpu_alert_type execute_thumb_instruction(u16 opcode16, s32 &cyccnt) {
          /* MOV r0..7, imm */
          reg[inst.rd8()] = inst.imm8();
          set_NZ_flags(inst.imm8());
-         thumb_pc_offset(2);
+         reg[REG_PC] += 2;
          break;
 
       case 0x28 ... 0x2F:
@@ -918,7 +898,8 @@ cpu_alert_type execute_thumb_instruction(u16 opcode16, s32 &cyccnt) {
                thumb_shift_reg<ShfROR>(inst);
                break;
             case 0x08:             /* TST rd, rs */
-               set_NZ_flags(reg[inst.rd()] & reg[inst.rs()]); thumb_pc_offset(2);
+               set_NZ_flags(reg[inst.rd()] & reg[inst.rs()]);
+               reg[REG_PC] += 2;
                break;
             case 0x09:             /* NEG rd, rs */
                thumb_sub(inst.rd(), 0, reg[inst.rs()], true);
@@ -1005,16 +986,16 @@ cpu_alert_type execute_thumb_instruction(u16 opcode16, s32 &cyccnt) {
       case 0xA0 ... 0xA7:
          /* ADD r0..7, pc, +imm */
          reg[inst.rd8()] = (reg[REG_PC] & ~2) + 4 + inst.imm8() * 4;
-         thumb_pc_offset(2);
+         reg[REG_PC] += 2;
          break;
       case 0xA8 ... 0xAF:
          /* ADD r0..7, sp, +imm */
          reg[inst.rd8()] = reg[REG_SP] + inst.imm8() * 4;
-         thumb_pc_offset(2);
+         reg[REG_PC] += 2;
          break;
       case 0xB0 ... 0xB3:          /* ADD sp, -/+imm */
          reg[REG_SP] += inst.imm71() * 4;
-         thumb_pc_offset(2);
+         reg[REG_PC] += 2;
          break;
 
       case 0xB4:  /* PUSH rlist */
@@ -1090,7 +1071,7 @@ cpu_alert_type execute_thumb_instruction(u16 opcode16, s32 &cyccnt) {
 
       case 0xF0 ... 0xF7:          /* (low word) BL label */
          reg[REG_LR] = reg[REG_PC] + 4 + inst.abr_offset_hi();
-         thumb_pc_offset(2);
+         reg[REG_PC] += 2;
          break;
 
       case 0xF8 ... 0xFF:          /* (high word) BL label */
@@ -1331,7 +1312,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          }
          else {/* MRS rd, cpsr */
             reg[inst.rd()] = reg[REG_CPSR];
-            arm_pc_offset(4);
+            reg[REG_PC] += 4;
          }
          break;
 
@@ -1394,7 +1375,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          }
          else {/* MRS rd, spsr */
             reg[inst.rd()] = REG_SPSR(reg[CPU_MODE]);
-            arm_pc_offset(4);
+            reg[REG_PC] += 4;
          }
          break;
 
@@ -1845,7 +1826,7 @@ void execute_arm(u32 cycles)
          u32 opcode32 = read_mem<u32>(pc_address_block, (reg[REG_PC] & 0x7FFF));
 
          if (arm_null_inst(opcode32))   // Check for instruction condition
-           arm_pc_offset(4);
+           reg[REG_PC] += 4;    // Skip this instruction
          else {
            #ifdef TRACE_INSTRUCTIONS
              interp_trace_instruction(reg[REG_PC], 1);

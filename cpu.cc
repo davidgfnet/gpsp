@@ -146,6 +146,13 @@ typedef enum { MemIdxPre, MemIdxPreWB, MemIdxPostWB } MemIdxMode;
 typedef enum { AccLoad, AccStore } AccMode;
 typedef enum { AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec } AddrMode;
 
+// Shifts by another reg require an extra cycle and affect PC value
+// TODO: account for this cycle!
+template<ArmOp2 op2m>
+inline static bool complex_shift(const ARMInst &it) {
+  return op2m == Op2Reg && !it.op2imm();
+}
+
 // Calculates operand 2 when register is shifted/rotated by an immediate.
 template<FlagMode fm>
 inline static u32 calc_op2_shimm(const ARMInst &it) {
@@ -194,7 +201,7 @@ inline static u32 calc_op2_shimm(const ARMInst &it) {
 // Calculates operand 2 when register is shifted/rotated by another register.
 template<FlagMode fm>
 inline static u32 calc_op2_shreg(const ARMInst &it) {
-  u32 rmval = read_reg<8>(it.rm());   // Register to shift/rotate.
+  u32 rmval = read_reg<12>(it.rm());   // Register to shift/rotate.
   // Register that contains the rotation amount: it is read one cycle later (hence +12)
   u32 amount = read_reg<12>(it.rs()) & 0xff;   // Only the LSB byte is used!
 
@@ -266,7 +273,8 @@ template<LogicMode mode, FlagMode fm, ArmOp2 op2m>
 inline static cpu_alert_type arm_logic(const ARMInst &it) {
   // Calculate the 2nd operand, according to mode.
   u32 op2v = calculate_op2<fm, op2m>(it);
-  u32 op1v = read_reg<8>(it.rn());
+  u32 op1v = complex_shift<op2m>(it) ? read_reg<12>(it.rn()) :
+                                       read_reg<8>(it.rn());
 
   u32 res;
   switch (mode) {
@@ -295,7 +303,8 @@ template<LogicMode mode, ArmOp2 op2m>
 inline static void arm_logic_test(const ARMInst &it) {
   // Calculate the 2nd operand, according to mode.
   u32 op2v = calculate_op2<FlagsSet, op2m>(it);
-  u32 op1v = read_reg<8>(it.rn());
+  u32 op1v = complex_shift<op2m>(it) ? read_reg<12>(it.rn()) :
+                                       read_reg<8>(it.rn());
 
   u32 res;
   switch (mode) {
@@ -311,8 +320,9 @@ inline static void arm_logic_test(const ARMInst &it) {
 template<FlagMode fm, ArmOp2 op2m, bool writeback>
 inline static cpu_alert_type arm_add(const ARMInst &it, bool cin) {
   // Calculate the 2nd operand, according to mode.
-  u32 op1v = read_reg<8>(it.rn());
   u32 op2v = calculate_op2<fm, op2m>(it);
+  u32 op1v = complex_shift<op2m>(it) ? read_reg<12>(it.rn()) :
+                                       read_reg<8>(it.rn());
 
   // Calculate the result and its carry as well.
   u32 res = op1v + op2v;
@@ -342,8 +352,9 @@ inline static cpu_alert_type arm_add(const ARMInst &it, bool cin) {
 template<FlagMode fm, ArmOp2 op2m, OperandMode opm, bool writeback>
 inline static cpu_alert_type arm_sub(const ARMInst &it, bool bin) {
   // Calculate the 2nd operand, according to mode.
-  u32 regv = read_reg<8>(it.rn());
   u32 op2v = calculate_op2<fm, op2m>(it);
+  u32 regv = complex_shift<op2m>(it) ? read_reg<12>(it.rn()) :
+                                       read_reg<8>(it.rn());
 
   u32 opn1 = opm == OpDirect ? regv : op2v;
   u32 opn2 = opm == OpDirect ? op2v : regv;

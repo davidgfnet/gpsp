@@ -1788,34 +1788,42 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
   block_exit_position++;                                                      \
 }                                                                             \
 
+#define update_nz_flags(_rd)                                                  \
+  if (it.gen_flag_n()) {                                                      \
+    mips_emit_srl(reg_n_cache, _rd, 31);                                      \
+  }                                                                           \
+  if (it.gen_flag_z()) {                                                      \
+    mips_emit_sltiu(reg_z_cache, _rd, 1);                                     \
+  }                                                                           \
 
 template <AluOperation aluop>
-inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = arm_to_mips_reg[it.rs()];
   u32 rd = arm_to_mips_reg[it.rd()];
+  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
   switch (aluop) {
   case OpOrr:
     mips_emit_or(rd, rd, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpAnd:
     mips_emit_and(rd, rd, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpXor:
     mips_emit_xor(rd, rd, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpBic:
     mips_emit_nor(reg_temp, rs, reg_zero);
     mips_emit_and(rd, rd, reg_temp);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpMul:
     mips_emit_multu(rd, rs);
     mips_emit_mflo(rd);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpAdd:
     generate_op_adds_reg(rd, rs, rd);
@@ -1833,9 +1841,10 @@ inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_s
 }
 
 template <AluOperation aluop>
-inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = arm_to_mips_reg[it.rs()];
   u32 rd = arm_to_mips_reg[it.rd()];
+  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
   switch (aluop) {
   case OpNeg:
@@ -1843,20 +1852,21 @@ inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_s
     break;
   case OpMvn:
     mips_emit_nor(rd, rs, reg_zero);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   };
 }
 
 template <TestOperation testop>
-inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = arm_to_mips_reg[it.rs()];
   u32 rd = arm_to_mips_reg[it.rd()];
+  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
   switch (testop) {
   case OpTst:
     mips_emit_and(reg_temp, rs, rd);
-    generate_op_logic_flags(reg_temp);
+    update_nz_flags(reg_temp);
     break;
   case OpCmp:
     generate_op_subs_reg(reg_temp, rd, rs);

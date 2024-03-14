@@ -22,7 +22,7 @@
 // - block memory needs psr swapping and user mode reg swapping
 
 #include "common.h"
-#include "decoder.h"
+#include "cpu_dynarec.h"
 
 #if defined(VITA)
 #include <psp2/kernel/sysmem.h>
@@ -103,7 +103,6 @@ typedef enum {
 typedef enum {
   OpTst, OpCmp, OpCmn
 } TestOperation;
-
 
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
@@ -1770,7 +1769,7 @@ void translate_icache_sync() {
   opcode = address16(pc_address_block, (pc & 0x7FFF));                        \
   emit_trace_thumb_instruction(pc);                                           \
   u8 hiop = opcode >> 8;                                                      \
-  ThumbInst inst(opcode);                                                     \
+  ThumbInst inst(opcode, flag_status);                                        \
                                                                               \
   switch(hiop)                                                                \
   {                                                                           \
@@ -1852,10 +1851,10 @@ void translate_icache_sync() {
     case 0x40:                                                                \
       switch((opcode >> 6) & 0x03) {                                          \
         case 0x00:           /* AND rd, rs */                                 \
-          thumb_aluop3<OpAnd>(translation_ptr, inst, flag_status);            \
+          thumb_aluop3<OpAnd>(translation_ptr, inst);                         \
           break;                                                              \
         case 0x01:           /* EOR rd, rs */                                 \
-          thumb_aluop3<OpXor>(translation_ptr, inst, flag_status);            \
+          thumb_aluop3<OpXor>(translation_ptr, inst);                         \
           break;                                                              \
                                                                               \
         case 0x02:                                                            \
@@ -1878,10 +1877,10 @@ void translate_icache_sync() {
           break;                                                              \
                                                                               \
         case 0x01:           /* ADC rd, rs */                                 \
-          thumb_aluop3<OpAdc>(translation_ptr, inst, flag_status);            \
+          thumb_aluop3<OpAdc>(translation_ptr, inst);                         \
           break;                                                              \
         case 0x02:           /* SBC rd, rs */                                 \
-          thumb_aluop3<OpSbc>(translation_ptr, inst, flag_status);            \
+          thumb_aluop3<OpSbc>(translation_ptr, inst);                         \
           break;                                                              \
                                                                               \
         case 0x03:                                                            \
@@ -1894,16 +1893,16 @@ void translate_icache_sync() {
     case 0x42:                                                                \
       switch((opcode >> 6) & 0x03) {                                          \
         case 0x00:           /* TST rd, rs */                                 \
-          thumb_testop<OpTst>(translation_ptr, inst, flag_status);            \
+          thumb_testop<OpTst>(translation_ptr, inst);                         \
           break;                                                              \
         case 0x01:           /* NEG rd, rs */                                 \
-          thumb_aluop2<OpNeg>(translation_ptr, inst, flag_status);            \
+          thumb_aluop2<OpNeg>(translation_ptr, inst);                         \
           break;                                                              \
         case 0x02:           /* CMP rd, rs */                                 \
-          thumb_testop<OpCmp>(translation_ptr, inst, flag_status);            \
+          thumb_testop<OpCmp>(translation_ptr, inst);                         \
           break;                                                              \
         case 0x03:           /* CMN rd, rs */                                 \
-          thumb_testop<OpCmn>(translation_ptr, inst, flag_status);            \
+          thumb_testop<OpCmn>(translation_ptr, inst);                         \
           break;                                                              \
       }                                                                       \
       break;                                                                  \
@@ -1911,17 +1910,17 @@ void translate_icache_sync() {
     case 0x43:                                                                \
       switch((opcode >> 6) & 0x03) {                                          \
         case 0x00:           /* ORR rd, rs */                                 \
-          thumb_aluop3<OpOrr>(translation_ptr, inst, flag_status);            \
+          thumb_aluop3<OpOrr>(translation_ptr, inst);                         \
           break;                                                              \
         case 0x01:           /* MUL rd, rs */                                 \
-          thumb_aluop3<OpMul>(translation_ptr, inst, flag_status);            \
+          thumb_aluop3<OpMul>(translation_ptr, inst);                         \
           cycle_count += 2;  /* Between 1 and 4 extra cycles */               \
           break;                                                              \
         case 0x02:           /* BIC rd, rs */                                 \
-          thumb_aluop3<OpBic>(translation_ptr, inst, flag_status);            \
+          thumb_aluop3<OpBic>(translation_ptr, inst);                         \
           break;                                                              \
         case 0x03:           /* MVN rd, rs */                                 \
-          thumb_aluop2<OpMvn>(translation_ptr, inst, flag_status);            \
+          thumb_aluop2<OpMvn>(translation_ptr, inst);                         \
           break;                                                              \
       }                                                                       \
       break;                                                                  \

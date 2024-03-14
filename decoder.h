@@ -23,11 +23,11 @@
 // ARM and Thumb decoding code, for convenience and to unify all the decoding
 // paths existing in the emulator.
 
-class ThumbInst {
+class ThumbInstDec {
 public:
   u16 opcode;
 
-  ThumbInst(u16 opcode)
+  ThumbInstDec(u16 opcode)
    : opcode(opcode) {}
 
   u32 imm8() const {
@@ -107,11 +107,11 @@ public:
 };
 
 
-class ARMInst {
+class ARMInstDec {
 public:
   u32 opcode;
 
-  ARMInst(u32 opcode)
+  ARMInstDec(u32 opcode)
    : opcode(opcode) {}
 
   u32 cond() const {

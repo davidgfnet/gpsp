@@ -1904,7 +1904,7 @@ static void trace_instruction(u32 pc, u32 mode)
 
 
 template <AluOperation aluop>
-inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = thumb_prepare_load_reg(&translation_ptr, reg_rs, it.rs());
   u32 rd = thumb_prepare_load_reg(&translation_ptr, reg_rd, it.rd());
 
@@ -1942,7 +1942,7 @@ inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_s
 }
 
 template <AluOperation aluop>
-inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = thumb_prepare_load_reg(&translation_ptr, reg_rs, it.rs());
   u32 rd = thumb_prepare_load_reg(&translation_ptr, reg_rd, it.rd());
 
@@ -1960,7 +1960,7 @@ inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_s
 }
 
 template <TestOperation testop>
-inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = thumb_prepare_load_reg(&translation_ptr, reg_rs, it.rs());
   u32 rd = thumb_prepare_load_reg(&translation_ptr, reg_rd, it.rd());
 

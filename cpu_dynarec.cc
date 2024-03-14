@@ -22,6 +22,8 @@
 // - block memory needs psr swapping and user mode reg swapping
 
 #include "common.h"
+#include "decoder.h"
+
 #if defined(VITA)
 #include <psp2/kernel/sysmem.h>
 #include <stdio.h>
@@ -90,6 +92,18 @@ typedef struct
   u32 branch_target;
   u8 *branch_source;
 } block_exit_type;
+
+typedef enum {
+  OpAnd, OpOrr, OpXor, OpBic,
+  OpAdd, OpAdc, OpSub, OpSbc,
+  OpMul,
+  OpNeg, OpMov, OpMvn,
+} AluOperation;
+
+typedef enum {
+  OpTst, OpCmp, OpCmn
+} TestOperation;
+
 
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
@@ -1756,6 +1770,7 @@ void translate_icache_sync() {
   opcode = address16(pc_address_block, (pc & 0x7FFF));                        \
   emit_trace_thumb_instruction(pc);                                           \
   u8 hiop = opcode >> 8;                                                      \
+  ThumbInst inst(opcode);                                                     \
                                                                               \
   switch(hiop)                                                                \
   {                                                                           \
@@ -1835,16 +1850,12 @@ void translate_icache_sync() {
     case 0x3F: thumb_data_proc(imm, subs, imm, 7, 7, imm); break;             \
                                                                               \
     case 0x40:                                                                \
-      switch((opcode >> 6) & 0x03)                                            \
-      {                                                                       \
-        case 0x00:                                                            \
-          /* AND rd, rs */                                                    \
-          thumb_data_proc(alu_op, ands, reg, rd, rd, rs);                     \
+      switch((opcode >> 6) & 0x03) {                                          \
+        case 0x00:           /* AND rd, rs */                                 \
+          thumb_aluop3<OpAnd>(translation_ptr, inst, flag_status);            \
           break;                                                              \
-                                                                              \
-        case 0x01:                                                            \
-          /* EOR rd, rs */                                                    \
-          thumb_data_proc(alu_op, eors, reg, rd, rd, rs);                     \
+        case 0x01:           /* EOR rd, rs */                                 \
+          thumb_aluop3<OpXor>(translation_ptr, inst, flag_status);            \
           break;                                                              \
                                                                               \
         case 0x02:                                                            \
@@ -1860,21 +1871,17 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x41:                                                                \
-      switch((opcode >> 6) & 0x03)                                            \
-      {                                                                       \
+      switch((opcode >> 6) & 0x03) {                                          \
         case 0x00:                                                            \
           /* ASR rd, rs */                                                    \
           thumb_shift(alu_op, asr, reg);                                      \
           break;                                                              \
                                                                               \
-        case 0x01:                                                            \
-          /* ADC rd, rs */                                                    \
-          thumb_data_proc(alu_op, adcs, reg, rd, rd, rs);                     \
+        case 0x01:           /* ADC rd, rs */                                 \
+          thumb_aluop3<OpAdc>(translation_ptr, inst, flag_status);            \
           break;                                                              \
-                                                                              \
-        case 0x02:                                                            \
-          /* SBC rd, rs */                                                    \
-          thumb_data_proc(alu_op, sbcs, reg, rd, rd, rs);                     \
+        case 0x02:           /* SBC rd, rs */                                 \
+          thumb_aluop3<OpSbc>(translation_ptr, inst, flag_status);            \
           break;                                                              \
                                                                               \
         case 0x03:                                                            \
@@ -1885,52 +1892,36 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x42:                                                                \
-      switch((opcode >> 6) & 0x03)                                            \
-      {                                                                       \
-        case 0x00:                                                            \
-          /* TST rd, rs */                                                    \
-          thumb_data_proc_test(alu_op, tst, reg, rd, rs);                     \
+      switch((opcode >> 6) & 0x03) {                                          \
+        case 0x00:           /* TST rd, rs */                                 \
+          thumb_testop<OpTst>(translation_ptr, inst, flag_status);            \
           break;                                                              \
-                                                                              \
-        case 0x01:                                                            \
-          /* NEG rd, rs */                                                    \
-          thumb_data_proc_unary(alu_op, neg, reg, rd, rs);                    \
+        case 0x01:           /* NEG rd, rs */                                 \
+          thumb_aluop2<OpNeg>(translation_ptr, inst, flag_status);            \
           break;                                                              \
-                                                                              \
-        case 0x02:                                                            \
-          /* CMP rd, rs */                                                    \
-          thumb_data_proc_test(alu_op, cmp, reg, rd, rs);                     \
+        case 0x02:           /* CMP rd, rs */                                 \
+          thumb_testop<OpCmp>(translation_ptr, inst, flag_status);            \
           break;                                                              \
-                                                                              \
-        case 0x03:                                                            \
-          /* CMN rd, rs */                                                    \
-          thumb_data_proc_test(alu_op, cmn, reg, rd, rs);                     \
+        case 0x03:           /* CMN rd, rs */                                 \
+          thumb_testop<OpCmn>(translation_ptr, inst, flag_status);            \
           break;                                                              \
       }                                                                       \
       break;                                                                  \
                                                                               \
     case 0x43:                                                                \
-      switch((opcode >> 6) & 0x03)                                            \
-      {                                                                       \
-        case 0x00:                                                            \
-          /* ORR rd, rs */                                                    \
-          thumb_data_proc(alu_op, orrs, reg, rd, rd, rs);                     \
+      switch((opcode >> 6) & 0x03) {                                          \
+        case 0x00:           /* ORR rd, rs */                                 \
+          thumb_aluop3<OpOrr>(translation_ptr, inst, flag_status);            \
           break;                                                              \
-                                                                              \
-        case 0x01:                                                            \
-          /* MUL rd, rs */                                                    \
-          thumb_data_proc(alu_op, muls, reg, rd, rs, rd);                     \
+        case 0x01:           /* MUL rd, rs */                                 \
+          thumb_aluop3<OpMul>(translation_ptr, inst, flag_status);            \
           cycle_count += 2;  /* Between 1 and 4 extra cycles */               \
           break;                                                              \
-                                                                              \
-        case 0x02:                                                            \
-          /* BIC rd, rs */                                                    \
-          thumb_data_proc(alu_op, bics, reg, rd, rd, rs);                     \
+        case 0x02:           /* BIC rd, rs */                                 \
+          thumb_aluop3<OpBic>(translation_ptr, inst, flag_status);            \
           break;                                                              \
-                                                                              \
-        case 0x03:                                                            \
-          /* MVN rd, rs */                                                    \
-          thumb_data_proc_unary(alu_op, mvns, reg, rd, rs);                   \
+        case 0x03:           /* MVN rd, rs */                                 \
+          thumb_aluop2<OpMvn>(translation_ptr, inst, flag_status);            \
           break;                                                              \
       }                                                                       \
       break;                                                                  \

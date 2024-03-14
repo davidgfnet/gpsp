@@ -1569,7 +1569,6 @@ u32 execute_store_cpsr_body()
   block_exit_position++;                                                      \
 }                                                                             \
 
-
 // Execute functions
 
 #define update_logical_flags()                                                \
@@ -1745,13 +1744,11 @@ u32 execute_store_cpsr_body()
   update_logical_flags()
 
 #define arm_data_proc_unary_mvn(rd, storefnc)                                 \
-  generate_not(a0);                                                           \
+  generate_xor_imm(a0, ~0U);    /* Using xor generates flags vs not */        \
   storefnc(a0, rd);
 
 #define arm_data_proc_unary_mvns(rd, storefnc)                                \
   arm_data_proc_unary_mvn(rd, storefnc);                                      \
-  /* NOT does not update the flag register */                                 \
-  generate_or(a0, a0);                                                        \
   update_logical_flags()
 
 #define arm_data_proc_unary_neg(rd, storefnc)                                 \
@@ -1839,6 +1836,131 @@ static void function_cc execute_swi(u32 pc)
    block_exits[block_exit_position].branch_source,                            \
    block_exits[block_exit_position].branch_target);                           \
   block_exit_position++                                                       \
+
+template <AluOperation aluop>
+inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  generate_load_reg(a0, it.rd());    // Load operands
+  generate_load_reg(a1, it.rs());
+
+  switch (aluop) {
+  case OpOrr:
+    generate_or(a0, a1);
+    break;
+  case OpAnd:
+    generate_and(a0, a1);
+    break;
+  case OpXor:
+    generate_xor(a0, a1);
+    break;
+  case OpBic:
+    generate_not(a1);
+    generate_and(a0, a1);
+    break;
+  case OpMul:
+    generate_multiply(a1);     // Multiplied by a0 (EAX) implicitely
+    generate_and(a0, a0);      // Force flag generation (ZF/SF)
+    break;
+  case OpAdd:
+    generate_add(a0, a1);
+    if (check_generate_c_flag) {
+      generate_update_flag(c, REG_C_FLAG)
+    }
+    if (check_generate_v_flag) {
+      generate_update_flag(o, REG_V_FLAG)
+    }
+    break;
+  case OpSub:
+    generate_sub(a0, a1);
+    if (check_generate_c_flag) {
+      generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
+    }
+    if (check_generate_v_flag) {
+      generate_update_flag(o, REG_V_FLAG)
+    }
+    break;
+  case OpAdc:
+    load_c_flag(a2);         // Load C flag into CFLAGS
+    generate_adc(a0, a1);
+    if (check_generate_c_flag) {
+      generate_update_flag(c, REG_C_FLAG)
+    }
+    if (check_generate_v_flag) {
+      generate_update_flag(o, REG_V_FLAG)
+    }
+    break;
+  case OpSbc:
+    load_inv_c_flag(a2);         // Load !C flag into CFLAGS
+    generate_sbb(a0, a1);
+    if (check_generate_c_flag) {
+      generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
+    }
+    if (check_generate_v_flag) {
+      generate_update_flag(o, REG_V_FLAG)
+    }
+    break;
+  };
+
+  update_logical_flags();
+  generate_store_reg(a0, it.rd());
+}
+
+template <AluOperation aluop>
+inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  generate_load_reg(a0, it.rs());   // Load operand
+
+  switch (aluop) {
+  case OpNeg:
+    generate_xor(a1, a1);
+    generate_sub(a1, a0);
+    if (check_generate_c_flag) {
+      generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
+    }
+    if (check_generate_v_flag) {
+      generate_update_flag(o, REG_V_FLAG)
+    }
+    generate_store_reg(a1, it.rd());
+    break;
+  case OpMvn:
+    generate_xor_imm(a0, ~0U);
+    generate_store_reg(a0, it.rd());
+    break;
+  };
+
+  update_logical_flags();
+}
+
+template <TestOperation testop>
+inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  generate_load_reg(a0, it.rd());    // Load operands
+  generate_load_reg(a1, it.rs());
+
+  switch (testop) {
+  case OpTst:
+    generate_and(a0, a1);
+    break;
+  case OpCmp:
+    generate_sub(a0, a1);
+    if (check_generate_c_flag) {
+      generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
+    }
+    if (check_generate_v_flag) {
+      generate_update_flag(o, REG_V_FLAG)
+    }
+    break;
+  case OpCmn:
+    generate_add(a0, a1);
+    if (check_generate_c_flag) {
+      generate_update_flag(c, REG_C_FLAG)
+    }
+    if (check_generate_v_flag) {
+      generate_update_flag(o, REG_V_FLAG)
+    }
+    break;
+  };
+
+  update_logical_flags();
+}
+
 
 #define arm_hle_div(cpu_mode)                                                 \
 {                                                                             \

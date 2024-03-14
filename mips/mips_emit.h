@@ -1778,8 +1778,6 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
   }                                                                           \
 }
 
-
-
 #define thumb_conditional_branch(condition)                                   \
 {                                                                             \
   generate_condition_##condition();                                           \
@@ -1789,6 +1787,86 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
   generate_branch_patch_conditional(backpatch_address, translation_ptr);      \
   block_exit_position++;                                                      \
 }                                                                             \
+
+
+template <AluOperation aluop>
+inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  u32 rs = arm_to_mips_reg[it.rs()];
+  u32 rd = arm_to_mips_reg[it.rd()];
+
+  switch (aluop) {
+  case OpOrr:
+    mips_emit_or(rd, rd, rs);
+    generate_op_logic_flags(rd);
+    break;
+  case OpAnd:
+    mips_emit_and(rd, rd, rs);
+    generate_op_logic_flags(rd);
+    break;
+  case OpXor:
+    mips_emit_xor(rd, rd, rs);
+    generate_op_logic_flags(rd);
+    break;
+  case OpBic:
+    mips_emit_nor(reg_temp, rs, reg_zero);
+    mips_emit_and(rd, rd, reg_temp);
+    generate_op_logic_flags(rd);
+    break;
+  case OpMul:
+    mips_emit_multu(rd, rs);
+    mips_emit_mflo(rd);
+    generate_op_logic_flags(rd);
+    break;
+  case OpAdd:
+    generate_op_adds_reg(rd, rs, rd);
+    break;
+  case OpSub:
+    generate_op_subs_reg(rd, rs, rd);
+    break;
+  case OpAdc:
+    generate_op_adcs_reg(rd, rs, rd);
+    break;
+  case OpSbc:
+    generate_op_sbcs_reg(rd, rd, rs);
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  u32 rs = arm_to_mips_reg[it.rs()];
+  u32 rd = arm_to_mips_reg[it.rd()];
+
+  switch (aluop) {
+  case OpNeg:
+    generate_op_subs_reg(rd, reg_zero, rs);
+    break;
+  case OpMvn:
+    mips_emit_nor(rd, rs, reg_zero);
+    generate_op_logic_flags(rd);
+    break;
+  };
+}
+
+template <TestOperation testop>
+inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  u32 rs = arm_to_mips_reg[it.rs()];
+  u32 rd = arm_to_mips_reg[it.rd()];
+
+  switch (testop) {
+  case OpTst:
+    mips_emit_and(reg_temp, rs, rd);
+    generate_op_logic_flags(reg_temp);
+    break;
+  case OpCmp:
+    generate_op_subs_reg(reg_temp, rd, rs);
+    break;
+  case OpCmn:
+    generate_op_adds_reg(reg_temp, rs, rd);
+    break;
+  };
+}
+
 
 #define arm_conditional_block_header()                                        \
   generate_condition();                                                       \

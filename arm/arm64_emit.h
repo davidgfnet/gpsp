@@ -1786,6 +1786,100 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask)
   block_exit_position++;                                                      \
 }                                                                             \
 
+/*template <unsigned pc_offset>
+static inline u32 load_alloc_reg(u8* & translation_ptr, u32 arm_reg, u32 tmp_reg) {
+  if (regn == REG_PC) {
+    generate_load_pc(arm_to_a64_reg[tmp_reg], pc + pc_offset);
+    return tmp_reg;
+  }
+  return arm_to_a64_reg[arm_reg];
+}*/
+
+template <AluOperation aluop>
+inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  u32 rs = arm_to_a64_reg[it.rs()];
+  u32 rd = arm_to_a64_reg[it.rd()];
+
+  switch (aluop) {
+  case OpOrr:
+    aa64_emit_orr(rd, rd, rs);
+    generate_op_logic_flags(rd);
+    break;
+  case OpAnd:
+    aa64_emit_and(rd, rd, rs);
+    generate_op_logic_flags(rd);
+    break;
+  case OpXor:
+    aa64_emit_xor(rd, rd, rs);
+    generate_op_logic_flags(rd);
+    break;
+  case OpBic:
+    aa64_emit_bic(rd, rd, rs);
+    generate_op_logic_flags(rd);
+    break;
+  case OpMul:
+    aa64_emit_mul(rd, rd, rs);
+    generate_op_logic_flags(rd);
+    break;
+  case OpAdd:
+    aa64_emit_adds(rd, rd, rs);
+    generate_op_arith_flags();
+    break;
+  case OpSub:
+    aa64_emit_subs(rd, rd, rs);
+    generate_op_arith_flags();
+    break;
+  case OpAdc:
+    load_c_flag();
+    aa64_emit_adcs(rd, rd, rs);
+    generate_op_arith_flags();
+    break;
+  case OpSbc:
+    load_c_flag();
+    aa64_emit_sbcs(rd, rd, rs);
+    generate_op_arith_flags();
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  u32 rs = arm_to_a64_reg[it.rs()];
+  u32 rd = arm_to_a64_reg[it.rd()];
+
+  switch (aluop) {
+  case OpNeg:
+    aa64_emit_subs(rd, reg_zero, rs);
+    generate_op_arith_flags();
+    break;
+  case OpMvn:
+    aa64_emit_orn(rd, reg_zero, rs);
+    generate_op_logic_flags(rd);
+    break;
+  };
+}
+
+template <TestOperation testop>
+inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+  u32 rs = arm_to_a64_reg[it.rs()];
+  u32 rd = arm_to_a64_reg[it.rd()];
+
+  switch (testop) {
+  case OpTst:
+    generate_op_ands_reg(reg_temp, rd, rs);
+    generate_op_logic_flags(reg_temp);
+    break;
+  case OpCmp:
+    aa64_emit_subs(reg_zero, rd, rs);
+    generate_op_arith_flags();
+    break;
+  case OpCmn:
+    aa64_emit_adds(reg_zero, rd, rs);
+    generate_op_arith_flags();
+    break;
+  };
+}
+
 #define arm_conditional_block_header()                                        \
   generate_cycle_update();                                                    \
   generate_condition();                                                       \

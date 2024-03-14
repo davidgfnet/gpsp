@@ -1579,6 +1579,14 @@ u32 execute_store_cpsr_body()
     generate_update_flag(s, REG_N_FLAG)                                       \
   }                                                                           \
 
+#define update_nz_flags()                                                     \
+  if (it.gen_flag_z()) {                                                      \
+    generate_update_flag(z, REG_Z_FLAG)                                       \
+  }                                                                           \
+  if (it.gen_flag_n()) {                                                      \
+    generate_update_flag(s, REG_N_FLAG)                                       \
+  }                                                                           \
+
 #define update_add_flags()                                                    \
   update_logical_flags()                                                      \
   if (check_generate_c_flag) {                                                \
@@ -1838,7 +1846,7 @@ static void function_cc execute_swi(u32 pc)
   block_exit_position++                                                       \
 
 template <AluOperation aluop>
-inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
   generate_load_reg(a0, it.rd());    // Load operands
   generate_load_reg(a1, it.rs());
 
@@ -1862,60 +1870,60 @@ inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_s
     break;
   case OpAdd:
     generate_add(a0, a1);
-    if (check_generate_c_flag) {
+    if (it.gen_flag_c()) {
       generate_update_flag(c, REG_C_FLAG)
     }
-    if (check_generate_v_flag) {
+    if (it.gen_flag_v()) {
       generate_update_flag(o, REG_V_FLAG)
     }
     break;
   case OpSub:
     generate_sub(a0, a1);
-    if (check_generate_c_flag) {
+    if (it.gen_flag_c()) {
       generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
     }
-    if (check_generate_v_flag) {
+    if (it.gen_flag_v()) {
       generate_update_flag(o, REG_V_FLAG)
     }
     break;
   case OpAdc:
     load_c_flag(a2);         // Load C flag into CFLAGS
     generate_adc(a0, a1);
-    if (check_generate_c_flag) {
+    if (it.gen_flag_c()) {
       generate_update_flag(c, REG_C_FLAG)
     }
-    if (check_generate_v_flag) {
+    if (it.gen_flag_v()) {
       generate_update_flag(o, REG_V_FLAG)
     }
     break;
   case OpSbc:
     load_inv_c_flag(a2);         // Load !C flag into CFLAGS
     generate_sbb(a0, a1);
-    if (check_generate_c_flag) {
+    if (it.gen_flag_c()) {
       generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
     }
-    if (check_generate_v_flag) {
+    if (it.gen_flag_v()) {
       generate_update_flag(o, REG_V_FLAG)
     }
     break;
   };
 
-  update_logical_flags();
+  update_nz_flags();
   generate_store_reg(a0, it.rd());
 }
 
 template <AluOperation aluop>
-inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
   generate_load_reg(a0, it.rs());   // Load operand
 
   switch (aluop) {
   case OpNeg:
     generate_xor(a1, a1);
     generate_sub(a1, a0);
-    if (check_generate_c_flag) {
+    if (it.gen_flag_c()) {
       generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
     }
-    if (check_generate_v_flag) {
+    if (it.gen_flag_v()) {
       generate_update_flag(o, REG_V_FLAG)
     }
     generate_store_reg(a1, it.rd());
@@ -1926,11 +1934,11 @@ inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_s
     break;
   };
 
-  update_logical_flags();
+  update_nz_flags();
 }
 
 template <TestOperation testop>
-inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
   generate_load_reg(a0, it.rd());    // Load operands
   generate_load_reg(a1, it.rs());
 
@@ -1940,25 +1948,25 @@ inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it, u16 flag_s
     break;
   case OpCmp:
     generate_sub(a0, a1);
-    if (check_generate_c_flag) {
+    if (it.gen_flag_c()) {
       generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
     }
-    if (check_generate_v_flag) {
+    if (it.gen_flag_v()) {
       generate_update_flag(o, REG_V_FLAG)
     }
     break;
   case OpCmn:
     generate_add(a0, a1);
-    if (check_generate_c_flag) {
+    if (it.gen_flag_c()) {
       generate_update_flag(c, REG_C_FLAG)
     }
-    if (check_generate_v_flag) {
+    if (it.gen_flag_v()) {
       generate_update_flag(o, REG_V_FLAG)
     }
     break;
   };
 
-  update_logical_flags();
+  update_nz_flags();
 }
 
 

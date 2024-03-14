@@ -1795,87 +1795,113 @@ static inline u32 load_alloc_reg(u8* & translation_ptr, u32 arm_reg, u32 tmp_reg
   return arm_to_a64_reg[arm_reg];
 }*/
 
+#define update_nz_flags(_reg)                                                 \
+  if (it.gen_flag_n()) {                                                      \
+    aa64_emit_lsr(reg_n_cache, _reg, 31);                                     \
+  }                                                                           \
+  if (it.gen_flag_z()) {                                                      \
+    aa64_emit_cmpi(_reg, 0);                                                  \
+    aa64_emit_cset(reg_z_cache, ccode_eq);                                    \
+  }                                                                           \
+
+#define update_nzcv_flags()                                                   \
+  /* Assumes that state is in the flags */                                    \
+  if (it.gen_flag_c()) {                                                      \
+    aa64_emit_cset(reg_c_cache, ccode_hs);                                    \
+  }                                                                           \
+  if (it.gen_flag_v()) {                                                      \
+    aa64_emit_cset(reg_v_cache, ccode_vs);                                    \
+  }                                                                           \
+  if (it.gen_flag_n()) {                                                      \
+    aa64_emit_cset(reg_n_cache, ccode_mi);                                    \
+  }                                                                           \
+  if (it.gen_flag_z()) {                                                      \
+    aa64_emit_cset(reg_z_cache, ccode_eq);                                    \
+  }                                                                           \
+
+
+
 template <AluOperation aluop>
-inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = arm_to_a64_reg[it.rs()];
   u32 rd = arm_to_a64_reg[it.rd()];
 
   switch (aluop) {
   case OpOrr:
     aa64_emit_orr(rd, rd, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpAnd:
     aa64_emit_and(rd, rd, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpXor:
     aa64_emit_xor(rd, rd, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpBic:
     aa64_emit_bic(rd, rd, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpMul:
     aa64_emit_mul(rd, rd, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   case OpAdd:
     aa64_emit_adds(rd, rd, rs);
-    generate_op_arith_flags();
+    update_nzcv_flags();
     break;
   case OpSub:
     aa64_emit_subs(rd, rd, rs);
-    generate_op_arith_flags();
+    update_nzcv_flags();
     break;
   case OpAdc:
     load_c_flag();
     aa64_emit_adcs(rd, rd, rs);
-    generate_op_arith_flags();
+    update_nzcv_flags();
     break;
   case OpSbc:
     load_c_flag();
     aa64_emit_sbcs(rd, rd, rs);
-    generate_op_arith_flags();
+    update_nzcv_flags();
     break;
   };
 }
 
 template <AluOperation aluop>
-inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = arm_to_a64_reg[it.rs()];
   u32 rd = arm_to_a64_reg[it.rd()];
 
   switch (aluop) {
   case OpNeg:
     aa64_emit_subs(rd, reg_zero, rs);
-    generate_op_arith_flags();
+    update_nzcv_flags();
     break;
   case OpMvn:
     aa64_emit_orn(rd, reg_zero, rs);
-    generate_op_logic_flags(rd);
+    update_nz_flags(rd);
     break;
   };
 }
 
 template <TestOperation testop>
-inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it, u16 flag_status) {
+inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
   u32 rs = arm_to_a64_reg[it.rs()];
   u32 rd = arm_to_a64_reg[it.rd()];
 
   switch (testop) {
   case OpTst:
-    generate_op_ands_reg(reg_temp, rd, rs);
-    generate_op_logic_flags(reg_temp);
+    aa64_emit_and(reg_temp, rd, rs);
+    update_nz_flags(reg_temp);
     break;
   case OpCmp:
     aa64_emit_subs(reg_zero, rd, rs);
-    generate_op_arith_flags();
+    update_nzcv_flags();
     break;
   case OpCmn:
     aa64_emit_adds(reg_zero, rd, rs);
-    generate_op_arith_flags();
+    update_nzcv_flags();
     break;
   };
 }

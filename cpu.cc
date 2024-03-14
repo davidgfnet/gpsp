@@ -81,7 +81,7 @@ inline static cpu_alert_type process_spsr_restore() {
 }
 
 // Calculate whether this instruction must be nullified (due to condition code)
-inline static bool arm_null_inst(const ARMInst &inst) {
+inline static bool arm_null_inst(const ARMInstDec &inst) {
   switch (inst.cond()) {
     case 0x0:            /* EQ */
        return !isset_flag<FLAG_Z>();
@@ -149,13 +149,13 @@ typedef enum { AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec } AddrMode;
 // Shifts by another reg require an extra cycle and affect PC value
 // TODO: account for this cycle!
 template<ArmOp2 op2m>
-inline static bool complex_shift(const ARMInst &it) {
+inline static bool complex_shift(const ARMInstDec &it) {
   return op2m == Op2Reg && !it.op2imm();
 }
 
 // Calculates operand 2 when register is shifted/rotated by an immediate.
 template<FlagMode fm>
-inline static u32 calc_op2_shimm(const ARMInst &it) {
+inline static u32 calc_op2_shimm(const ARMInstDec &it) {
   u32 imm = it.op2sa();      // Shift amount [0..31]
   u32 rmval = read_reg<8>(it.rm());  // Register to shift/rotate.
   bool cflag = isset_flag<FLAG_C>();
@@ -200,7 +200,7 @@ inline static u32 calc_op2_shimm(const ARMInst &it) {
 
 // Calculates operand 2 when register is shifted/rotated by another register.
 template<FlagMode fm>
-inline static u32 calc_op2_shreg(const ARMInst &it) {
+inline static u32 calc_op2_shreg(const ARMInstDec &it) {
   u32 rmval = read_reg<12>(it.rm());   // Register to shift/rotate.
   // Register that contains the rotation amount: it is read one cycle later (hence +12)
   u32 amount = read_reg<12>(it.rs()) & 0xff;   // Only the LSB byte is used!
@@ -252,7 +252,7 @@ inline static u32 calc_op2_shreg(const ARMInst &it) {
 // Calculates the Operand2 value for the ARM instruction. Updates C flag
 // accordingly.
 template<FlagMode fm, ArmOp2 op2m>
-inline static u32 calculate_op2(const ARMInst &it) {
+inline static u32 calculate_op2(const ARMInstDec &it) {
   if (op2m == Op2Imm) {
     // Op2 is a 4+8 immediate (8 bit with 16 possible rotations).
     u32 sa = it.rot4() * 2;
@@ -270,7 +270,7 @@ inline static u32 calculate_op2(const ARMInst &it) {
 
 // Performs all arm logic operations (result + flags)
 template<LogicMode mode, FlagMode fm, ArmOp2 op2m>
-inline static cpu_alert_type arm_logic(const ARMInst &it) {
+inline static cpu_alert_type arm_logic(const ARMInstDec &it) {
   // Calculate the 2nd operand, according to mode.
   u32 op2v = calculate_op2<fm, op2m>(it);
   u32 op1v = complex_shift<op2m>(it) ? read_reg<12>(it.rn()) :
@@ -300,7 +300,7 @@ inline static cpu_alert_type arm_logic(const ARMInst &it) {
 
 // Performs tst/teq operations (only updates flags)
 template<LogicMode mode, ArmOp2 op2m>
-inline static void arm_logic_test(const ARMInst &it) {
+inline static void arm_logic_test(const ARMInstDec &it) {
   // Calculate the 2nd operand, according to mode.
   u32 op2v = calculate_op2<FlagsSet, op2m>(it);
   u32 op1v = complex_shift<op2m>(it) ? read_reg<12>(it.rn()) :
@@ -318,7 +318,7 @@ inline static void arm_logic_test(const ARMInst &it) {
 
 // Performs add/adc/cmn operations
 template<FlagMode fm, ArmOp2 op2m, bool writeback>
-inline static cpu_alert_type arm_add(const ARMInst &it, bool cin) {
+inline static cpu_alert_type arm_add(const ARMInstDec &it, bool cin) {
   // Calculate the 2nd operand, according to mode.
   u32 op2v = calculate_op2<fm, op2m>(it);
   u32 op1v = complex_shift<op2m>(it) ? read_reg<12>(it.rn()) :
@@ -350,7 +350,7 @@ inline static cpu_alert_type arm_add(const ARMInst &it, bool cin) {
 
 // Performs sub/sbc/cmp operations
 template<FlagMode fm, ArmOp2 op2m, OperandMode opm, bool writeback>
-inline static cpu_alert_type arm_sub(const ARMInst &it, bool bin) {
+inline static cpu_alert_type arm_sub(const ARMInstDec &it, bool bin) {
   // Calculate the 2nd operand, according to mode.
   u32 op2v = calculate_op2<fm, op2m>(it);
   u32 regv = complex_shift<op2m>(it) ? read_reg<12>(it.rn()) :
@@ -379,7 +379,7 @@ inline static cpu_alert_type arm_sub(const ARMInst &it, bool bin) {
 
 // Performs 32 bit multiplications (rd and rn are swapped)
 template<FlagMode fm, MulMode mm>
-inline static void arm_mul32(const ARMInst &it) {
+inline static void arm_mul32(const ARMInstDec &it) {
   u32 res = reg[it.rm()] * reg[it.rs()];
   if (mm == MulAdd)
     res += reg[it.rd()];
@@ -392,7 +392,7 @@ inline static void arm_mul32(const ARMInst &it) {
 
 // Performs 64 bit multiplications
 template<FlagMode fm, MulMode mm, SignMode sm>
-inline static void arm_mul64(const ARMInst &it) {
+inline static void arm_mul64(const ARMInstDec &it) {
   u64 res = (sm == SiUnsigned) ? (u64)reg[it.rm()] * (u64)reg[it.rs()] :
                 (s64)((s32)reg[it.rm()]) * (s64)((s32)reg[it.rs()]);
 
@@ -410,7 +410,7 @@ inline static void arm_mul64(const ARMInst &it) {
 }
 
 // Writes CPSR and SPSR registers
-inline static cpu_alert_type cpsr_write(const ARMInst &it, u32 wval) {
+inline static cpu_alert_type cpsr_write(const ARMInstDec &it, u32 wval) {
   const u32 smask = cpsr_masks[it.psr_field()][PRIVMODE(reg[CPU_MODE])];
   reg[REG_CPSR] = (wval & smask) | (reg[REG_CPSR] & (~smask));
   reg[REG_PC] += 4;
@@ -424,7 +424,7 @@ inline static cpu_alert_type cpsr_write(const ARMInst &it, u32 wval) {
   return CPU_ALERT_NONE;
 }
 
-inline static void spsr_write(const ARMInst &it, u32 wval) {
+inline static void spsr_write(const ARMInstDec &it, u32 wval) {
   const u32 smask = spsr_masks[it.psr_field()];
   const u32 cur_spsr = REG_SPSR(reg[CPU_MODE]);
   REG_SPSR(reg[CPU_MODE]) = (wval & smask) | (cur_spsr & (~smask));
@@ -462,7 +462,7 @@ cpu_alert_type perform_memstore(u32 address, u32 data) {
 }
 
 template<typename memmode>
-inline static cpu_alert_type arm_swap(const ARMInst &it, s32 &cyccnt) {
+inline static cpu_alert_type arm_swap(const ARMInstDec &it, s32 &cyccnt) {
   u32 tmp = perform_memload<memmode>(read_reg<8>(it.rn()));
   cpu_alert_type ret = perform_memstore<memmode>(read_reg<8>(it.rn()), read_reg<8>(it.rm()));
   reg[it.rd()] = tmp;
@@ -489,7 +489,7 @@ inline static cpu_alert_type thumb_memop(u32 rd, u32 addr, s32 &cyccnt) {
 }
 
 template<AccMode mode, typename memmode, MemOp2 op2m, MemIdxMode midx>
-inline static cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
+inline static cpu_alert_type arm_memop(const ARMInstDec &it, s32 &cyccnt) {
   // Offset can be:
   // - 12 bit offset
   // - Regmode flexible operand (reg shifted/rotated by 5 bit immediate)
@@ -532,7 +532,7 @@ inline static cpu_alert_type arm_memop(const ARMInst &it, s32 &cyccnt) {
 // Excutes an LDM/STM instruction
 
 template<AccMode mode, bool writeback, bool sbit, AddrMode addr_mode>
-inline static cpu_alert_type arm_block_mem(const ARMInst &it, s32 &cyccnt) {
+inline static cpu_alert_type arm_block_mem(const ARMInstDec &it, s32 &cyccnt) {
   cpu_alert_type cpu_alert = CPU_ALERT_NONE;
   u32 rn = it.rn();
   u32 reglist = it.rlist();
@@ -704,7 +704,7 @@ inline static void thumb_cmn(u32 op1v, u32 op2v) {
 
 
 template<LogicMode mode>
-inline static void thumb_logic_reg(const ThumbInst &it) {
+inline static void thumb_logic_reg(const ThumbInstDec &it) {
   using_register(thumb, it.rd(), op_src_dest);
   using_register(thumb, it.rs(), op_src);
 
@@ -722,7 +722,7 @@ inline static void thumb_logic_reg(const ThumbInst &it) {
 }
 
 template<ShiftMode mode>
-inline static void thumb_shift_imm(const ThumbInst &it) {
+inline static void thumb_shift_imm(const ThumbInstDec &it) {
   using_register(thumb, it.rd(), op_dest);
   using_register(thumb, it.rs(), op_shift);
 
@@ -749,7 +749,7 @@ inline static void thumb_shift_imm(const ThumbInst &it) {
 }
 
 template<ShiftMode mode>
-inline static void thumb_shift_reg(const ThumbInst &it) {
+inline static void thumb_shift_reg(const ThumbInstDec &it) {
   using_register(thumb, it.rd(), op_src_dest);
   using_register(thumb, it.rs(), op_src);
 
@@ -833,7 +833,7 @@ u16 io_registers[512];
 #endif
 
 cpu_alert_type execute_thumb_instruction(u16 opcode16, s32 &cyccnt) {
-   const ThumbInst inst(opcode16);
+   const ThumbInstDec inst(opcode16);
    switch ((inst.opcode >> 8) & 0xFF)
    {
       case 0x00 ... 0x07:          /* LSL rd, rs, offset */
@@ -1099,7 +1099,7 @@ cpu_alert_type execute_thumb_instruction(u16 opcode16, s32 &cyccnt) {
 
 
 cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
-   const ARMInst inst(opcode);
+   const ARMInstDec inst(opcode);
    switch (inst.op8()) {
       case 0x00:
          if((opcode & 0x90) == 0x90) {

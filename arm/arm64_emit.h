@@ -318,6 +318,17 @@ u32 arm_to_a64_reg[] =
     generate_load_reg(ireg, reg_index);                                       \
   }                                                                           \
 
+/* Loads the lowest byte of the specified register */
+#define generate_load_reg_pc_lsb(ireg, reg_index, pc_offset)                  \
+  if(reg_index == REG_PC)                                                     \
+  {                                                                           \
+    aa64_emit_movlo(ireg, ((pc + pc_offset) & 0xFF));                         \
+  }                                                                           \
+  else                                                                        \
+  {                                                                           \
+    aa64_emit_andi(ireg, arm_to_a64_reg[reg_index], 0, 7); /* 0xFF */         \
+  }                                                                           \
+
 #define check_load_reg_pc(arm_reg, reg_index, pc_offset)                      \
   if(reg_index == REG_PC)                                                     \
   {                                                                           \
@@ -430,35 +441,38 @@ u32 arm_to_a64_reg[] =
   _rm = arm_reg                                                               \
 
 #define generate_shift_reg_lsl_no_flags(_rm, _rs)                             \
-  aa64_emit_cmpi(arm_to_a64_reg[_rs], 32);                                    \
-  aa64_emit_lslv(reg_temp, arm_to_a64_reg[_rm], arm_to_a64_reg[_rs]);         \
+  generate_load_reg_pc_lsb(reg_temp, _rs, 12);                                \
+  aa64_emit_cmpi(reg_temp, 32);                                               \
+  aa64_emit_lslv(reg_temp, arm_to_a64_reg[_rm], reg_temp);                    \
   aa64_emit_csel(reg_a0, reg_zero, reg_temp, ccode_hs);                       \
 
 #define generate_shift_reg_lsr_no_flags(_rm, _rs)                             \
-  aa64_emit_cmpi(arm_to_a64_reg[_rs], 32);                                    \
-  aa64_emit_lsrv(reg_temp, arm_to_a64_reg[_rm], arm_to_a64_reg[_rs]);         \
+  generate_load_reg_pc_lsb(reg_temp, _rs, 12);                                \
+  aa64_emit_cmpi(reg_temp, 32);                                               \
+  aa64_emit_lsrv(reg_temp, arm_to_a64_reg[_rm], reg_temp);                    \
   aa64_emit_csel(reg_a0, reg_zero, reg_temp, ccode_hs);                       \
 
 #define generate_shift_reg_asr_no_flags(_rm, _rs)                             \
-  aa64_emit_cmpi(arm_to_a64_reg[_rs], 31);                                    \
-  aa64_emit_asrv(reg_a0, arm_to_a64_reg[_rm], arm_to_a64_reg[_rs]);           \
+  generate_load_reg_pc_lsb(reg_temp, _rs, 12);                                \
+  aa64_emit_cmpi(reg_temp, 31);                                               \
+  aa64_emit_asrv(reg_a0, arm_to_a64_reg[_rm], reg_temp);                      \
   aa64_emit_asr(reg_temp, arm_to_a64_reg[_rm], 31);                           \
   aa64_emit_csel(reg_a0, reg_a0, reg_temp, ccode_lo);                         \
 
 #define generate_shift_reg_ror_no_flags(_rm, _rs)                             \
-  aa64_emit_rorv(reg_a0, arm_to_a64_reg[_rm], arm_to_a64_reg[_rs])            \
+  generate_load_reg_pc_lsb(reg_temp, _rs, 12);                                \
+  aa64_emit_rorv(reg_a0, arm_to_a64_reg[_rm], reg_temp)                       \
 
 #define generate_shift_reg_lsl_flags(_rm, _rs)                                \
 {                                                                             \
-  u32 shift_reg = _rs;                                                        \
-  check_load_reg_pc(arm_reg_a1, shift_reg, 8);                                \
+  generate_load_reg_pc_lsb(reg_a1, _rs, 12);                                  \
   generate_load_reg_pc(reg_a0, _rm, 12);                                      \
   /* Only load the result on zero, no shift */                                \
-  aa64_emit_cbz(arm_to_a64_reg[shift_reg], 8);                                \
-  aa64_emit_subi(reg_temp, arm_to_a64_reg[shift_reg], 1);                     \
+  aa64_emit_cbz(reg_a1, 8);                                                   \
+  aa64_emit_subi(reg_temp, reg_a1, 1);                                        \
   aa64_emit_lslv(reg_a0, reg_a0, reg_temp);                                   \
   aa64_emit_lsr(reg_c_cache, reg_a0, 31);                                     \
-  aa64_emit_cmpi(arm_to_a64_reg[shift_reg], 33);                              \
+  aa64_emit_cmpi(reg_a1, 33);                                                 \
   aa64_emit_lsl(reg_a0, reg_a0, 1);                                           \
   /* Result and flag to be zero if shift is > 32 */                           \
   aa64_emit_csel(reg_c_cache, reg_zero, reg_c_cache, ccode_hs);               \
@@ -467,15 +481,14 @@ u32 arm_to_a64_reg[] =
 
 #define generate_shift_reg_lsr_flags(_rm, _rs)                                \
 {                                                                             \
-  u32 shift_reg = _rs;                                                        \
-  check_load_reg_pc(arm_reg_a1, shift_reg, 8);                                \
+  generate_load_reg_pc_lsb(reg_a1, _rs, 12);                                  \
   generate_load_reg_pc(reg_a0, _rm, 12);                                      \
   /* Only load the result on zero, no shift */                                \
-  aa64_emit_cbz(arm_to_a64_reg[shift_reg], 8);                                \
-  aa64_emit_subi(reg_temp, arm_to_a64_reg[shift_reg], 1);                     \
+  aa64_emit_cbz(reg_a1, 8);                                                   \
+  aa64_emit_subi(reg_temp, reg_a1, 1);                                        \
   aa64_emit_lsrv(reg_a0, reg_a0, reg_temp);                                   \
   aa64_emit_andi(reg_c_cache, reg_a0, 0, 0);  /* imm=1 */                     \
-  aa64_emit_cmpi(arm_to_a64_reg[shift_reg], 33);                              \
+  aa64_emit_cmpi(reg_a1, 33);                                                 \
   aa64_emit_lsr(reg_a0, reg_a0, 1);                                           \
   /* Result and flag to be zero if shift is > 32 */                           \
   aa64_emit_csel(reg_c_cache, reg_zero, reg_c_cache, ccode_hs);               \
@@ -483,7 +496,7 @@ u32 arm_to_a64_reg[] =
 }                                                                             \
 
 #define generate_shift_reg_asr_flags(_rm, _rs)                                \
-  generate_load_reg_pc(reg_a1, _rs, 8);                                       \
+  generate_load_reg_pc_lsb(reg_a1, _rs, 12);                                  \
   generate_load_reg_pc(reg_a0, _rm, 12);                                      \
   /* Only load the result on zero, no shift */                                \
   aa64_emit_cbz(reg_a1, 8);                                                   \
@@ -497,11 +510,12 @@ u32 arm_to_a64_reg[] =
   aa64_emit_asr(reg_a0, reg_a0, 1);                                           \
 
 #define generate_shift_reg_ror_flags(_rm, _rs)                                \
-  aa64_emit_cbz(arm_to_a64_reg[_rs], 4);                                      \
-  aa64_emit_subi(reg_temp, arm_to_a64_reg[_rs], 1);                           \
+  generate_load_reg_pc_lsb(reg_a1, _rs, 12);                                  \
+  aa64_emit_cbz(reg_a1, 4);                                                   \
+  aa64_emit_subi(reg_temp, reg_a1, 1);                                        \
   aa64_emit_lsrv(reg_temp, arm_to_a64_reg[_rm], reg_temp);                    \
   aa64_emit_andi(reg_c_cache, reg_temp, 0, 0);  /* imm=1 */                   \
-  aa64_emit_rorv(reg_a0, arm_to_a64_reg[_rm], arm_to_a64_reg[_rs])            \
+  aa64_emit_rorv(reg_a0, arm_to_a64_reg[_rm], reg_a1)                         \
 
 #define generate_shift_imm(arm_reg, name, flags_op)                           \
   u32 shift = (opcode >> 7) & 0x1F;                                           \

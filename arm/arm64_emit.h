@@ -125,7 +125,7 @@ typedef enum
 
 // Writing to r15 goes straight to a0, to be chained with other ops
 
-u32 arm_to_a64_reg[] =
+const u32 arm_to_a64_reg[] =
 {
   reg_r0,
   reg_r1,
@@ -1514,57 +1514,11 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask)
 // Types: add_sub, add_sub_imm, alu_op, imm
 // Affects N/Z/C/V flags
 
-#define thumb_data_proc(type, name, rn_type, _rd, _rs, _rn)                   \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_generate_op_##rn_type(name, _rd, _rs, _rn);                           \
-}                                                                             \
-
-#define thumb_data_proc_test(type, name, rn_type, _rs, _rn)                   \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_generate_op_##rn_type(name, 0, _rs, _rn);                             \
-}                                                                             \
-
-#define thumb_data_proc_unary(type, name, rn_type, _rd, _rn)                  \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_generate_op_##rn_type(name, _rd, 0, _rn);                             \
-}                                                                             \
-
 #define check_store_reg_pc_thumb(_rd)                                         \
   if(_rd == REG_PC)                                                           \
   {                                                                           \
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
-
-#define thumb_data_proc_hi(name)                                              \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  u32 dest_rd = rd;                                                           \
-  check_load_reg_pc(arm_reg_a0, rs, 4);                                       \
-  check_load_reg_pc(arm_reg_a1, rd, 4);                                       \
-  generate_op_##name##_reg(arm_to_a64_reg[dest_rd], arm_to_a64_reg[rd],       \
-   arm_to_a64_reg[rs]);                                                       \
-  check_store_reg_pc_thumb(dest_rd);                                          \
-}                                                                             \
-
-#define thumb_data_proc_test_hi(name)                                         \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  check_load_reg_pc(arm_reg_a0, rs, 4);                                       \
-  check_load_reg_pc(arm_reg_a1, rd, 4);                                       \
-  generate_op_##name##_reg(reg_temp, arm_to_a64_reg[rd],                      \
-   arm_to_a64_reg[rs]);                                                       \
-}                                                                             \
-
-#define thumb_data_proc_mov_hi()                                              \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  check_load_reg_pc(arm_reg_a0, rs, 4);                                       \
-  generate_mov(rd, rs);                                                       \
-  check_store_reg_pc_thumb(rd);                                               \
-}                                                                             \
 
 #define thumb_load_pc(_rd)                                                    \
 {                                                                             \
@@ -1786,14 +1740,21 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask)
   block_exit_position++;                                                      \
 }                                                                             \
 
-/*template <unsigned pc_offset>
-static inline u32 load_alloc_reg(u8* & translation_ptr, u32 arm_reg, u32 tmp_reg) {
+static inline u32 load_alloc_reg(CodeEmitter &ce, u32 regn, u32 tmp_reg, u32 pcvalue) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  const u32 stored_pc = ce.block_pc;     // TODO: Remove this
   if (regn == REG_PC) {
-    generate_load_pc(arm_to_a64_reg[tmp_reg], pc + pc_offset);
+    generate_load_pc(tmp_reg, pcvalue);
     return tmp_reg;
   }
-  return arm_to_a64_reg[arm_reg];
-}*/
+  return arm_to_a64_reg[regn];
+}
+
+static inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
+  if (regn == REG_PC)
+    return tmp_reg;
+  return arm_to_a64_reg[regn];
+}
 
 #define update_nz_flags(_reg)                                                 \
   if (it.gen_flag_n()) {                                                      \
@@ -1820,9 +1781,28 @@ static inline u32 load_alloc_reg(u8* & translation_ptr, u32 arm_reg, u32 tmp_reg
   }                                                                           \
 
 
+template <AluOperation aluop>
+inline void thumb_aluop3(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = arm_to_a64_reg[it.rs()];
+  u32 rn = arm_to_a64_reg[it.rn()];
+  u32 rd = arm_to_a64_reg[it.rd()];
+
+  switch (aluop) {
+  case OpAdd:
+    aa64_emit_adds(rd, rs, rn);
+    break;
+  case OpSub:
+    aa64_emit_subs(rd, rs, rn);
+    break;
+  };
+
+  update_nzcv_flags();
+}
 
 template <AluOperation aluop>
-inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
+inline void thumb_aluop2(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
   u32 rs = arm_to_a64_reg[it.rs()];
   u32 rd = arm_to_a64_reg[it.rd()];
 
@@ -1869,7 +1849,8 @@ inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
 }
 
 template <AluOperation aluop>
-inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
+inline void thumb_aluop1(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
   u32 rs = arm_to_a64_reg[it.rs()];
   u32 rd = arm_to_a64_reg[it.rd()];
 
@@ -1885,8 +1866,9 @@ inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
   };
 }
 
-template <TestOperation testop>
-inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
+template <AluOperation testop>
+inline void thumb_testop(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
   u32 rs = arm_to_a64_reg[it.rs()];
   u32 rd = arm_to_a64_reg[it.rd()];
 
@@ -1905,6 +1887,92 @@ inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
     break;
   };
 }
+
+template <AluOperation aluop>
+inline void thumb_aluimm2(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  const u32 rd = arm_to_a64_reg[it.rd8()];
+
+  switch (aluop) {
+  case OpMov:
+    aa64_emit_movlo(rd, it.imm8());
+    aa64_emit_movlo(reg_n_cache, 0);
+    aa64_emit_movlo(reg_z_cache, it.imm8() ? 0 : 1);
+    break;
+  case OpAdd:
+    aa64_emit_addis(rd, rd, it.imm8());
+    update_nzcv_flags();
+    break;
+  case OpSub:
+    aa64_emit_subis(rd, rd, it.imm8());
+    update_nzcv_flags();
+    break;
+  case OpCmp:
+    aa64_emit_subis(reg_temp, rd, it.imm8());
+    update_nzcv_flags();
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluimm3(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = arm_to_a64_reg[it.rs()];
+  u32 rd = arm_to_a64_reg[it.rd()];
+
+  switch (aluop) {
+  case OpAdd:
+    aa64_emit_addis(rd, rs, it.imm3());
+    break;
+  case OpSub:
+    aa64_emit_subis(rd, rs, it.imm3());
+    break;
+  };
+
+  update_nzcv_flags();
+}
+
+template <AluOperation aluop>
+inline void thumb_aluhi(CodeEmitter &ce, const ThumbInst & it, u32 & cycle_count) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = load_alloc_reg(ce, it.rs_hi(), reg_a1, it.pc + 4);
+
+  // TODO: Improve PC writes (reg_a0 *must* contain the new PC, which is not clear).
+  if (aluop == OpAdd) {
+    u32 rd = load_alloc_reg(ce, it.rd_hi(), reg_a0, it.pc + 4);
+    aa64_emit_add(rd, rd, rs);
+    check_store_reg_pc_thumb(it.rd_hi());
+  } else if (aluop == OpCmp) {
+    u32 rd = load_alloc_reg(ce, it.rd_hi(), reg_a0, it.pc + 4);
+    aa64_emit_subs(reg_temp, rd, rs);
+    update_nzcv_flags();
+  } else if (aluop == OpMov) {
+    u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
+    aa64_emit_mov(rd, rs);
+    check_store_reg_pc_thumb(it.rd_hi());
+  }
+}
+
+template <u32 ref_reg>
+inline void thumb_regoff(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  const u32 stored_pc = ce.block_pc;     // TODO: Remove this
+  if (ref_reg == REG_PC) {
+    generate_load_pc(arm_to_a64_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
+  } else {
+    aa64_emit_addi(arm_to_a64_reg[it.rd8()], arm_to_a64_reg[ref_reg], 4 * it.imm8());
+  }
+}
+
+inline void thumb_spadj(CodeEmitter &ce, s8 offset) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  if (offset >= 0) {
+    aa64_emit_addi(reg_r13, reg_r13,  offset * 4);
+  } else {
+    aa64_emit_subi(reg_r13, reg_r13, -offset * 4);
+  }
+}
+
 
 #define arm_conditional_block_header()                                        \
   generate_cycle_update();                                                    \

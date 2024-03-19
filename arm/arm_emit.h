@@ -565,8 +565,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
     thumb_generate_load_reg(ireg, reg_index);                                 \
   }                                                                           \
 
-inline u32 arm_prepare_store_reg(u32 scratch_reg, u32 reg_index)
-{
+inline u32 arm_prepare_store_reg(u32 scratch_reg, u32 reg_index) {
   u32 reg_use = arm_register_allocation[reg_index];
   if(reg_use == mem_reg)
     return scratch_reg;
@@ -574,8 +573,7 @@ inline u32 arm_prepare_store_reg(u32 scratch_reg, u32 reg_index)
   return reg_use;
 }
 
-inline u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index)
-{
+inline u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index) {
   u32 reg_use = thumb_register_allocation[reg_index];
   if(reg_use == mem_reg)
     return scratch_reg;
@@ -583,52 +581,40 @@ inline u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index)
   return reg_use;
 }
 
-inline u32 arm_prepare_load_reg(u8 **tptr, u32 scratch_reg, u32 reg_index)
-{
+inline u32 arm_prepare_load_reg(u8 * &translation_ptr, u32 scratch_reg, u32 reg_index) {
   u32 reg_use = arm_register_allocation[reg_index];
   if(reg_use != mem_reg)
     return reg_use;
 
-  u8 *translation_ptr = *tptr;
   ARM_LDR_IMM(0, scratch_reg, reg_base, (reg_index * 4));
-  *tptr = translation_ptr;
   return scratch_reg;
 }
 
-inline u32 arm_prepare_load_reg_pc(u8 **tptr, u32 scratch_reg, u32 reg_index, u32 pc_value)
-{
+inline u32 arm_prepare_load_reg_pc(u8 * &translation_ptr, u32 scratch_reg, u32 reg_index, u32 pc_value) {
   if(reg_index == REG_PC)
   {
-    u8 *translation_ptr = *tptr;
     generate_load_pc(scratch_reg, pc_value);
-    *tptr = translation_ptr;
     return scratch_reg;
   }
-  return arm_prepare_load_reg(tptr, scratch_reg, reg_index);
+  return arm_prepare_load_reg(translation_ptr, scratch_reg, reg_index);
 }
 
-inline u32 thumb_prepare_load_reg(u8 **tptr, u32 scratch_reg, u32 reg_index)
-{
+inline u32 thumb_prepare_load_reg(u8 * &translation_ptr, u32 scratch_reg, u32 reg_index) {
   u32 reg_use = thumb_register_allocation[reg_index];
   if(reg_use != mem_reg)
     return reg_use;
 
-  u8 *translation_ptr = *tptr;
   ARM_LDR_IMM(0, scratch_reg, reg_base, (reg_index * 4));
-  *tptr = translation_ptr;
   return scratch_reg;
 }
 
-inline u32 thumb_prepare_load_reg_pc(u8 **tptr, u32 scratch_reg, u32 reg_index, u32 pc_value)
-{
+inline u32 thumb_prepare_load_reg_pc(u8 * &translation_ptr, u32 scratch_reg, u32 reg_index, u32 pc_value) {
   if(reg_index == REG_PC)
   {
-    u8 *translation_ptr = *tptr;
     generate_load_pc(scratch_reg, pc_value);
-    *tptr = translation_ptr;
     return scratch_reg;
   }
-  return thumb_prepare_load_reg(tptr, scratch_reg, reg_index);
+  return thumb_prepare_load_reg(translation_ptr, scratch_reg, reg_index);
 }
 
 #define arm_complete_store_reg(scratch_reg, reg_index)                        \
@@ -1066,7 +1052,7 @@ u32 execute_spsr_restore_body(u32 pc)
 
 
 #define arm_prepare_load_rn_yes()                                             \
-  u32 _rn = arm_prepare_load_reg_pc(&translation_ptr, reg_rn, rn, pc + 8)     \
+  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_rn, rn, pc + 8)      \
 
 #define arm_prepare_load_rn_no()                                              \
 
@@ -1089,14 +1075,14 @@ u32 execute_spsr_restore_body(u32 pc)
   if((opcode >> 4) & 0x01)                                                    \
   {                                                                           \
     u32 rs = ((opcode >> 8) & 0x0F);                                          \
-    u32 _rs = arm_prepare_load_reg(&translation_ptr, reg_rs, rs);             \
-    u32 _rm = arm_prepare_load_reg_pc(&translation_ptr, reg_rm, rm, pc + 12); \
+    u32 _rs = arm_prepare_load_reg(translation_ptr, reg_rs, rs);              \
+    u32 _rm = arm_prepare_load_reg_pc(translation_ptr, reg_rm, rm, pc + 12);  \
     generate_op_##name##_reg_regshift(_rd, _rn, _rm, shift_type, _rs);        \
   }                                                                           \
   else                                                                        \
   {                                                                           \
     u32 shift_imm = ((opcode >> 7) & 0x1F);                                   \
-    u32 _rm = arm_prepare_load_reg_pc(&translation_ptr, reg_rm, rm, pc + 8);  \
+    u32 _rm = arm_prepare_load_reg_pc(translation_ptr, reg_rm, rm, pc + 8);   \
     generate_op_##name##_reg_immshift(_rd, _rn, _rm, shift_type, shift_imm);  \
   }                                                                           \
   arm_complete_store_rd_##store_op(flags_op)                                  \
@@ -1136,22 +1122,22 @@ u32 execute_spsr_restore_body(u32 pc)
   ARM_MUL(0, _rd, _rm, _rs)                                                   \
 
 #define arm_multiply_add_yes_flags_no()                                       \
-  u32 _rn = arm_prepare_load_reg(&translation_ptr, reg_a2, rn);               \
+  u32 _rn = arm_prepare_load_reg(translation_ptr, reg_a2, rn);                \
   ARM_MLA(0, _rd, _rm, _rs, _rn)                                              \
 
 #define arm_multiply_add_no_flags_yes()                                       \
   ARM_MULS(0, _rd, _rm, _rs)                                                  \
 
 #define arm_multiply_add_yes_flags_yes()                                      \
-  u32 _rn = arm_prepare_load_reg(&translation_ptr, reg_a2, rn);               \
+  u32 _rn = arm_prepare_load_reg(translation_ptr, reg_a2, rn);                \
   ARM_MLAS(0, _rd, _rm, _rs, _rn);                                            \
 
 
 #define arm_multiply(add_op, flags)                                           \
 {                                                                             \
   arm_decode_multiply();                                                      \
-  u32 _rm = arm_prepare_load_reg(&translation_ptr, reg_a0, rm);               \
-  u32 _rs = arm_prepare_load_reg(&translation_ptr, reg_a1, rs);               \
+  u32 _rm = arm_prepare_load_reg(translation_ptr, reg_a0, rm);                \
+  u32 _rs = arm_prepare_load_reg(translation_ptr, reg_a1, rs);                \
   u32 _rd = arm_prepare_store_reg(reg_a0, rd);                                \
   arm_multiply_add_##add_op##_flags_##flags();                                \
   arm_complete_store_reg(_rd, rd);                                            \
@@ -1174,8 +1160,8 @@ u32 execute_spsr_restore_body(u32 pc)
 #define arm_multiply_long_add_no(name)                                        \
 
 #define arm_multiply_long_add_yes(name)                                       \
-  arm_prepare_load_reg(&translation_ptr, reg_a0, rdlo);                       \
-  arm_prepare_load_reg(&translation_ptr, reg_a1, rdhi)                        \
+  arm_prepare_load_reg(translation_ptr, reg_a0, rdlo);                        \
+  arm_prepare_load_reg(translation_ptr, reg_a1, rdhi)                         \
 
 
 #define arm_multiply_long_op(flags, name)                                     \
@@ -1184,8 +1170,8 @@ u32 execute_spsr_restore_body(u32 pc)
 #define arm_multiply_long(name, add_op, flags)                                \
 {                                                                             \
   arm_decode_multiply_long();                                                 \
-  u32 _rm = arm_prepare_load_reg(&translation_ptr, reg_a2, rm);               \
-  u32 _rs = arm_prepare_load_reg(&translation_ptr, reg_rs, rs);               \
+  u32 _rm = arm_prepare_load_reg(translation_ptr, reg_a2, rm);                \
+  u32 _rs = arm_prepare_load_reg(translation_ptr, reg_rs, rs);                \
   u32 _rdlo = (rdlo == rdhi) ? reg_a0 : arm_prepare_store_reg(reg_a0, rdlo);  \
   u32 _rdhi = arm_prepare_store_reg(reg_a1, rdhi);                            \
   arm_multiply_long_add_##add_op(name);                                       \
@@ -1440,25 +1426,25 @@ static void trace_instruction(u32 pc, u32 mode)
 
 #define arm_data_trans_reg(adjust_op, direction)                              \
   arm_decode_data_trans_reg();                                                \
-  u32 _rn = arm_prepare_load_reg_pc(&translation_ptr, reg_a0, rn, pc + 8);    \
-  u32 _rm = arm_prepare_load_reg(&translation_ptr, reg_a1, rm);               \
+  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_a0, rn, pc + 8);     \
+  u32 _rm = arm_prepare_load_reg(translation_ptr, reg_a1, rm);                \
   arm_access_memory_##adjust_op(reg_sh, direction)                            \
 
 #define arm_data_trans_imm(adjust_op, direction)                              \
   arm_decode_data_trans_imm();                                                \
-  u32 _rn = arm_prepare_load_reg_pc(&translation_ptr, reg_a0, rn, pc + 8);    \
+  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_a0, rn, pc + 8);     \
   arm_access_memory_##adjust_op(imm, direction)                               \
 
 
 #define arm_data_trans_half_reg(adjust_op, direction)                         \
   arm_decode_half_trans_r();                                                  \
-  u32 _rn = arm_prepare_load_reg_pc(&translation_ptr, reg_a0, rn, pc + 8);    \
-  u32 _rm = arm_prepare_load_reg(&translation_ptr, reg_a1, rm);               \
+  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_a0, rn, pc + 8);     \
+  u32 _rm = arm_prepare_load_reg(translation_ptr, reg_a1, rm);                \
   arm_access_memory_##adjust_op(reg, direction)                               \
 
 #define arm_data_trans_half_imm(adjust_op, direction)                         \
   arm_decode_half_trans_of();                                                 \
-  u32 _rn = arm_prepare_load_reg_pc(&translation_ptr, reg_a0, rn, pc + 8);    \
+  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_a0, rn, pc + 8);     \
   arm_access_memory_##adjust_op(imm, direction)                               \
 
 
@@ -1589,7 +1575,7 @@ static void trace_instruction(u32 pc, u32 mode)
 
 
 #define thumb_generate_op_reg(name, _rd, _rs, _rn)                            \
-  u32 __rm = thumb_prepare_load_reg(&translation_ptr, reg_rm, _rn);           \
+  u32 __rm = thumb_prepare_load_reg(translation_ptr, reg_rm, _rn);            \
   generate_op_##name##_reg_immshift(__rd, __rn, __rm, ARMSHIFT_LSL, 0)        \
 
 #define thumb_generate_op_imm(name, _rd, _rs, imm_)                           \
@@ -1599,99 +1585,15 @@ static void trace_instruction(u32 pc, u32 mode)
 }                                                                             \
 
 
-#define thumb_data_proc(type, name, op_type, _rd, _rs, _rn)                   \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  u32 __rn = thumb_prepare_load_reg(&translation_ptr, reg_rn, _rs);           \
-  u32 __rd = thumb_prepare_store_reg(reg_rd, _rd);                            \
-  thumb_generate_op_##op_type(name, _rd, _rs, _rn);                           \
-  thumb_complete_store_reg(__rd, _rd);                                        \
-}                                                                             \
-
-#define thumb_data_proc_test(type, name, op_type, _rd, _rs)                   \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  u32 __rn = thumb_prepare_load_reg(&translation_ptr, reg_rn, _rd);           \
-  thumb_generate_op_##op_type(name, 0, _rd, _rs);                             \
-}                                                                             \
-
-#define thumb_data_proc_unary(type, name, op_type, _rd, _rs)                  \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  u32 __rd = thumb_prepare_store_reg(reg_rd, _rd);                            \
-  thumb_generate_op_##op_type(name, _rd, 0, _rs);                             \
-  thumb_complete_store_reg(__rd, _rd);                                        \
-}                                                                             \
-
-
 #define complete_store_reg_pc_thumb()                                         \
-  if(rd == 15)                                                                \
+  if (it.rd_hi() == REG_PC)                                                   \
   {                                                                           \
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
   else                                                                        \
   {                                                                           \
-    thumb_complete_store_reg(_rd, rd);                                        \
+    thumb_complete_store_reg(rd, it.rd_hi());                                 \
   }                                                                           \
-
-#define thumb_data_proc_hi(name)                                              \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  u32 _rd = thumb_prepare_load_reg_pc(&translation_ptr, reg_rd, rd, pc + 4);  \
-  u32 _rs = thumb_prepare_load_reg_pc(&translation_ptr, reg_rn, rs, pc + 4);  \
-  generate_op_##name##_reg_immshift(_rd, _rd, _rs, ARMSHIFT_LSL, 0);          \
-  complete_store_reg_pc_thumb();                                              \
-}                                                                             \
-
-#define thumb_data_proc_test_hi(name)                                         \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  u32 _rd = thumb_prepare_load_reg_pc(&translation_ptr, reg_rd, rd, pc + 4);  \
-  u32 _rs = thumb_prepare_load_reg_pc(&translation_ptr, reg_rn, rs, pc + 4);  \
-  generate_op_##name##_reg_immshift(0, _rd, _rs, ARMSHIFT_LSL, 0);            \
-}                                                                             \
-
-#define thumb_data_proc_mov_hi()                                              \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  u32 _rs = thumb_prepare_load_reg_pc(&translation_ptr, reg_rn, rs, pc + 4);  \
-  u32 _rd = thumb_prepare_store_reg(reg_rd, rd);                              \
-  ARM_MOV_REG_REG(0, _rd, _rs);                                               \
-  complete_store_reg_pc_thumb();                                              \
-}                                                                             \
-
-
-
-#define thumb_load_pc(_rd)                                                    \
-{                                                                             \
-  thumb_decode_imm();                                                         \
-  u32 __rd = thumb_prepare_store_reg(reg_rd, _rd);                            \
-  generate_load_pc(__rd, (((pc & ~2) + 4) + (imm * 4)));                      \
-  thumb_complete_store_reg(__rd, _rd);                                        \
-}                                                                             \
-
-#define thumb_load_sp(_rd)                                                    \
-{                                                                             \
-  thumb_decode_imm();                                                         \
-  u32 __sp = thumb_prepare_load_reg(&translation_ptr, reg_a0, REG_SP);        \
-  u32 __rd = thumb_prepare_store_reg(reg_a0, _rd);                            \
-  ARM_ADD_REG_IMM(0, __rd, __sp, imm, arm_imm_lsl_to_rot(2));                 \
-  thumb_complete_store_reg(__rd, _rd);                                        \
-}                                                                             \
-
-#define thumb_adjust_sp_up()                                                  \
-  ARM_ADD_REG_IMM(0, _sp, _sp, imm, arm_imm_lsl_to_rot(2))                    \
-
-#define thumb_adjust_sp_down()                                                \
-  ARM_SUB_REG_IMM(0, _sp, _sp, imm, arm_imm_lsl_to_rot(2))                    \
-
-#define thumb_adjust_sp(direction)                                            \
-{                                                                             \
-  thumb_decode_add_sp();                                                      \
-  u32 _sp = thumb_prepare_load_reg(&translation_ptr, reg_a0, REG_SP);         \
-  thumb_adjust_sp_##direction();                                              \
-  thumb_complete_store_reg(_sp, REG_SP);                                      \
-}                                                                             \
 
 #define generate_op_lsl_reg(_rd, _rm, _rs)                                    \
   generate_op_movs_reg_regshift(_rd, 0, _rm, ARMSHIFT_LSL, _rs)               \
@@ -1720,12 +1622,12 @@ static void trace_instruction(u32 pc, u32 mode)
 
 
 #define thumb_generate_shift_reg(op_type)                                     \
-  u32 __rm = thumb_prepare_load_reg(&translation_ptr, reg_rd, rd);            \
-  u32 __rs = thumb_prepare_load_reg(&translation_ptr, reg_rs, rs);            \
+  u32 __rm = thumb_prepare_load_reg(translation_ptr, reg_rd, rd);             \
+  u32 __rs = thumb_prepare_load_reg(translation_ptr, reg_rs, rs);             \
   generate_op_##op_type##_reg(__rd, __rm, __rs)                               \
 
 #define thumb_generate_shift_imm(op_type)                                     \
-  u32 __rs = thumb_prepare_load_reg(&translation_ptr, reg_rs, rs);            \
+  u32 __rs = thumb_prepare_load_reg(translation_ptr, reg_rs, rs);             \
   generate_op_##op_type##_imm(__rd, __rs)                                     \
 
 
@@ -1760,16 +1662,16 @@ static void trace_instruction(u32 pc, u32 mode)
   generate_load_pc(reg_a0, (offset))                                          \
 
 #define thumb_access_memory_generate_address_reg_imm(offset, _rb, _ro)        \
-  u32 __rb = thumb_prepare_load_reg(&translation_ptr, reg_a0, _rb);           \
+  u32 __rb = thumb_prepare_load_reg(translation_ptr, reg_a0, _rb);            \
   ARM_ADD_REG_IMM(0, reg_a0, __rb, offset, 0)                                 \
 
 #define thumb_access_memory_generate_address_reg_imm_sp(offset, _rb, _ro)     \
-  u32 __rb = thumb_prepare_load_reg(&translation_ptr, reg_a0, _rb);           \
+  u32 __rb = thumb_prepare_load_reg(translation_ptr, reg_a0, _rb);            \
   ARM_ADD_REG_IMM(0, reg_a0, __rb, offset, arm_imm_lsl_to_rot(2))             \
 
 #define thumb_access_memory_generate_address_reg_reg(offset, _rb, _ro)        \
-  u32 __rb = thumb_prepare_load_reg(&translation_ptr, reg_a0, _rb);           \
-  u32 __ro = thumb_prepare_load_reg(&translation_ptr, reg_a1, _ro);           \
+  u32 __rb = thumb_prepare_load_reg(translation_ptr, reg_a0, _rb);            \
+  u32 __ro = thumb_prepare_load_reg(translation_ptr, reg_a1, _ro);            \
   ARM_ADD_REG_REG(0, reg_a0, __rb, __ro)                                      \
 
 #define thumb_access_memory(access_type, op_type, _rd, _rb, _ro,              \
@@ -1902,11 +1804,30 @@ static void trace_instruction(u32 pc, u32 mode)
   block_exit_position++;                                                      \
 }                                                                             \
 
+template <AluOperation aluop>
+inline void thumb_aluop3(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+  u32 rn = thumb_prepare_load_reg(translation_ptr, reg_rn, it.rn());
+  u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
+
+  switch (aluop) {
+  case OpAdd:
+    generate_op_adds_reg_immshift(rd, rs, rn, ARMSHIFT_LSL, 0);
+    break;
+  case OpSub:
+    generate_op_subs_reg_immshift(rd, rs, rn, ARMSHIFT_LSL, 0);
+    break;
+  };
+
+  thumb_complete_store_reg(reg_rd, it.rd());
+}
 
 template <AluOperation aluop>
-inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
-  u32 rs = thumb_prepare_load_reg(&translation_ptr, reg_rs, it.rs());
-  u32 rd = thumb_prepare_load_reg(&translation_ptr, reg_rd, it.rd());
+inline void thumb_aluop2(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+  u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
 
   switch (aluop) {
   case OpOrr:
@@ -1942,9 +1863,10 @@ inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
 }
 
 template <AluOperation aluop>
-inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
-  u32 rs = thumb_prepare_load_reg(&translation_ptr, reg_rs, it.rs());
-  u32 rd = thumb_prepare_load_reg(&translation_ptr, reg_rd, it.rd());
+inline void thumb_aluop1(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+  u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
 
   switch (aluop) {
   case OpNeg:
@@ -1959,10 +1881,64 @@ inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
   thumb_complete_store_reg(reg_rd, it.rd());
 }
 
-template <TestOperation testop>
-inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
-  u32 rs = thumb_prepare_load_reg(&translation_ptr, reg_rs, it.rs());
-  u32 rd = thumb_prepare_load_reg(&translation_ptr, reg_rd, it.rd());
+template <AluOperation aluop>
+inline void thumb_aluimm2(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+
+  switch (aluop) {
+  case OpMov:
+    {
+      u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
+      ARM_MOVS_REG_IMM(0, rd, it.imm8(), 0);
+      thumb_complete_store_reg(reg_rd, it.rd8());
+    }
+    break;
+  case OpAdd:
+    {
+      u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+      ARM_ADDS_REG_IMM(0, rd, rd, it.imm8(), 0);
+      thumb_complete_store_reg(reg_rd, it.rd8());
+    }
+    break;
+  case OpSub:
+    {
+      u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+      ARM_SUBS_REG_IMM(0, rd, rd, it.imm8(), 0);
+      thumb_complete_store_reg(reg_rd, it.rd8());
+    }
+    break;
+  case OpCmp:
+    {
+      u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+      ARM_CMP_REG_IMM(0, rd, it.imm8(), 0);
+    }
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluimm3(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+  u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
+
+  switch (aluop) {
+  case OpAdd:
+    ARM_ADDS_REG_IMM(0, rd, rs, it.imm3(), 0);
+    break;
+  case OpSub:
+    ARM_SUBS_REG_IMM(0, rd, rs, it.imm3(), 0);
+    break;
+  };
+
+  thumb_complete_store_reg(reg_rd, it.rd());
+}
+
+template <AluOperation testop>
+inline void thumb_testop(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+  u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
 
   switch (testop) {
   case OpTst:
@@ -1977,6 +1953,50 @@ inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
   };
 }
 
+template <AluOperation aluop>
+inline void thumb_aluhi(CodeEmitter &ce, const ThumbInst & it, u32 & cycle_count) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = thumb_prepare_load_reg_pc(translation_ptr, reg_rn, it.rs_hi(), it.pc + 4);
+
+  if (aluop == OpAdd) {
+    u32 rd = thumb_prepare_load_reg_pc(translation_ptr, reg_rd, it.rd_hi(), it.pc + 4);
+    generate_op_add_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+    complete_store_reg_pc_thumb();
+  } else if (aluop == OpCmp) {
+    u32 rd = thumb_prepare_load_reg_pc(translation_ptr, reg_rd, it.rd_hi(), it.pc + 4);
+    generate_op_cmp_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
+  } else if (aluop == OpMov) {
+    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd_hi());
+    ARM_MOV_REG_REG(0, rd, rs);
+    complete_store_reg_pc_thumb();
+  }
+}
+
+template <u32 ref_reg>
+inline void thumb_regoff(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  if (ref_reg == REG_PC) {
+    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
+    generate_load_pc(rd, (it.pc & ~2) + 4 + 4 * it.imm8());
+    thumb_complete_store_reg(reg_rd, it.rd8());
+  } else {
+    u32 sreg = thumb_prepare_load_reg(translation_ptr, reg_a0, ref_reg);
+    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
+    ARM_ADD_REG_IMM(0, rd, sreg, it.imm8(), arm_imm_lsl_to_rot(2));  /* Scaled by 4 */
+    thumb_complete_store_reg(reg_rd, it.rd8());
+  }
+}
+
+inline void thumb_spadj(CodeEmitter &ce, s8 offset) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 sp = thumb_prepare_load_reg(translation_ptr, reg_a0, REG_SP);
+  if (offset >= 0) {
+    ARM_ADD_REG_IMM(0, sp, sp,  offset, arm_imm_lsl_to_rot(2));
+  } else {
+    ARM_SUB_REG_IMM(0, sp, sp, -offset, arm_imm_lsl_to_rot(2));
+  }
+  thumb_complete_store_reg(reg_a0, REG_SP);
+}
 
 #define arm_conditional_block_header()                                        \
   generate_cycle_update();                                                    \

@@ -163,10 +163,14 @@ extern "C" {
   x86_emit_xor_reg_mem(reg_##ireg_dest, reg_base, arm_reg_src * 4)            \
 
 #define generate_add_imm(ireg, imm)                                           \
-  x86_emit_add_reg_imm(reg_##ireg, imm)                                       \
+  if ((imm) != 0) {                                                           \
+    x86_emit_add_reg_imm(reg_##ireg, imm)                                     \
+  }                                                                           \
 
 #define generate_sub_imm(ireg, imm)                                           \
-  x86_emit_sub_reg_imm(reg_##ireg, imm)                                       \
+  if ((imm) != 0) {                                                           \
+    x86_emit_sub_reg_imm(reg_##ireg, imm)                                     \
+  }                                                                           \
 
 #define generate_xor_imm(ireg, imm)                                           \
   x86_emit_xor_reg_imm(reg_##ireg, imm)                                       \
@@ -211,7 +215,7 @@ extern "C" {
   x86_emit_ret();                                                             \
 
 #define generate_cycle_update()                                               \
-  x86_emit_sub_reg_imm(reg_cycles, cycle_count);                              \
+  generate_sub_imm(cycles, cycle_count);                                      \
   cycle_count = 0                                                             \
 
 #define generate_branch_patch_conditional(dest, offset)                       \
@@ -1245,36 +1249,6 @@ u32 execute_store_cpsr_body()
 // Types: add_sub, add_sub_imm, alu_op, imm
 // Affects N/Z/C/V flags
 
-#define thumb_data_proc(type, name, rn_type, _rd, _rs, _rn)                   \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_rn_op_##rn_type(_rn);                                                 \
-  generate_load_reg(a1, _rs);                                                 \
-  arm_data_proc_##name(_rd, generate_store_reg);                              \
-}                                                                             \
-
-#define thumb_data_proc_test(type, name, rn_type, _rs, _rn)                   \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_rn_op_##rn_type(_rn);                                                 \
-  generate_load_reg(a1, _rs);                                                 \
-  arm_data_proc_test_##name();                                                \
-}                                                                             \
-
-#define thumb_data_proc_unary(type, name, rn_type, _rd, _rn)                  \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_rn_op_##rn_type(_rn);                                                 \
-  arm_data_proc_unary_##name(_rd, generate_store_reg);                        \
-}                                                                             \
-
-#define thumb_data_proc_mov(type, rn_type, _rd, _rn)                          \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_rn_op_##rn_type(_rn);                                                 \
-  generate_store_reg(a0, _rd);                                                \
-}                                                                             \
-
 #define generate_store_reg_pc_thumb(ireg, rd)                                 \
   generate_store_reg(ireg, rd);                                               \
   if(rd == 15)                                                                \
@@ -1282,65 +1256,6 @@ u32 execute_store_cpsr_body()
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
 
-#define thumb_data_proc_hi(name)                                              \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  generate_load_reg_pc(a0, rs, 4);                                            \
-  generate_load_reg_pc(a1, rd, 4);                                            \
-  arm_data_proc_##name(rd, generate_store_reg_pc_thumb);                      \
-}                                                                             \
-
-#define thumb_data_proc_test_hi(name)                                         \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  generate_load_reg_pc(a0, rs, 4);                                            \
-  generate_load_reg_pc(a1, rd, 4);                                            \
-  arm_data_proc_test_##name();                                                \
-}                                                                             \
-
-#define thumb_data_proc_unary_hi(name)                                        \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  generate_load_reg_pc(a0, rn, 4);                                            \
-  arm_data_proc_unary_##name(rd, generate_store_reg_pc_thumb);                \
-}                                                                             \
-
-#define thumb_data_proc_mov_hi()                                              \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  generate_load_reg_pc(a0, rs, 4);                                            \
-  generate_store_reg_pc_thumb(a0, rd);                                        \
-}                                                                             \
-
-#define thumb_load_pc(_rd)                                                    \
-{                                                                             \
-  thumb_decode_imm();                                                         \
-  generate_load_pc(a0, (((pc & ~2) + 4) + (imm * 4)));                        \
-  generate_store_reg(a0, _rd);                                                \
-}                                                                             \
-
-#define thumb_load_sp(_rd)                                                    \
-{                                                                             \
-  thumb_decode_imm();                                                         \
-  generate_load_reg(a0, 13);                                                  \
-  generate_add_imm(a0, (imm * 4));                                            \
-  generate_store_reg(a0, _rd);                                                \
-}                                                                             \
-
-#define thumb_adjust_sp_up()                                                  \
-  generate_add_imm(a0, imm * 4)                                               \
-
-#define thumb_adjust_sp_down()                                                \
-  generate_sub_imm(a0, imm * 4)                                               \
-
-
-#define thumb_adjust_sp(direction)                                            \
-{                                                                             \
-  thumb_decode_add_sp();                                                      \
-  generate_load_reg(a0, REG_SP);                                              \
-  thumb_adjust_sp_##direction();                                              \
-  generate_store_reg(a0, REG_SP);                                             \
-}                                                                             \
 
 // Decode types: shift, alu_op
 // Operation types: lsl, lsr, asr, ror
@@ -1576,14 +1491,6 @@ u32 execute_store_cpsr_body()
     generate_update_flag(z, REG_Z_FLAG)                                       \
   }                                                                           \
   if (check_generate_n_flag) {                                                \
-    generate_update_flag(s, REG_N_FLAG)                                       \
-  }                                                                           \
-
-#define update_nz_flags()                                                     \
-  if (it.gen_flag_z()) {                                                      \
-    generate_update_flag(z, REG_Z_FLAG)                                       \
-  }                                                                           \
-  if (it.gen_flag_n()) {                                                      \
     generate_update_flag(s, REG_N_FLAG)                                       \
   }                                                                           \
 
@@ -1845,8 +1752,51 @@ static void function_cc execute_swi(u32 pc)
    block_exits[block_exit_position].branch_target);                           \
   block_exit_position++                                                       \
 
+
+#define emit_load_reg_pc(ireg, regnum, pc_offset)                             \
+  if(regnum == REG_PC) {                                                      \
+    generate_load_pc(ireg, it.pc + pc_offset);                                \
+  } else {                                                                    \
+    generate_load_reg(ireg, regnum);                                          \
+  }                                                                           \
+
+
+#define update_nz_flags()                                                     \
+  if (it.gen_flag_z()) {                                                      \
+    generate_update_flag(z, REG_Z_FLAG)                                       \
+  }                                                                           \
+  if (it.gen_flag_n()) {                                                      \
+    generate_update_flag(s, REG_N_FLAG)                                       \
+  }                                                                           \
+
+#define update_cv_add_flags()                                                 \
+  if (it.gen_flag_c()) {                                                      \
+    generate_update_flag(c, REG_C_FLAG);                                      \
+  }                                                                           \
+  if (it.gen_flag_v()) {                                                      \
+    generate_update_flag(o, REG_V_FLAG)                                       \
+  }                                                                           \
+
+#define update_cv_sub_flags()                                                 \
+  if (it.gen_flag_c()) {                                                      \
+    generate_update_flag(nc, REG_C_FLAG);  /* CF is inverted in ARM/x86 */    \
+  }                                                                           \
+  if (it.gen_flag_v()) {                                                      \
+    generate_update_flag(o, REG_V_FLAG)                                       \
+  }                                                                           \
+
+#define update_nzcv_add_flags()                                               \
+  update_nz_flags();                                                          \
+  update_cv_add_flags();                                                      \
+
+#define update_nzcv_sub_flags()                                               \
+  update_nz_flags();                                                          \
+  update_cv_sub_flags();                                                      \
+
+
 template <AluOperation aluop>
-inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
+inline void thumb_aluop2(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
   generate_load_reg(a0, it.rd());    // Load operands
   generate_load_reg(a1, it.rs());
 
@@ -1870,41 +1820,21 @@ inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
     break;
   case OpAdd:
     generate_add(a0, a1);
-    if (it.gen_flag_c()) {
-      generate_update_flag(c, REG_C_FLAG)
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG)
-    }
+    update_cv_add_flags();
     break;
   case OpSub:
     generate_sub(a0, a1);
-    if (it.gen_flag_c()) {
-      generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG)
-    }
+    update_cv_sub_flags();
     break;
   case OpAdc:
     load_c_flag(a2);         // Load C flag into CFLAGS
     generate_adc(a0, a1);
-    if (it.gen_flag_c()) {
-      generate_update_flag(c, REG_C_FLAG)
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG)
-    }
+    update_cv_add_flags();
     break;
   case OpSbc:
     load_inv_c_flag(a2);         // Load !C flag into CFLAGS
     generate_sbb(a0, a1);
-    if (it.gen_flag_c()) {
-      generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG)
-    }
+    update_cv_sub_flags();
     break;
   };
 
@@ -1913,19 +1843,15 @@ inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
 }
 
 template <AluOperation aluop>
-inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
+inline void thumb_aluop1(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
   generate_load_reg(a0, it.rs());   // Load operand
 
   switch (aluop) {
   case OpNeg:
     generate_xor(a1, a1);
     generate_sub(a1, a0);
-    if (it.gen_flag_c()) {
-      generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG)
-    }
+    update_cv_sub_flags();
     generate_store_reg(a1, it.rd());
     break;
   case OpMvn:
@@ -1937,36 +1863,138 @@ inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
   update_nz_flags();
 }
 
-template <TestOperation testop>
-inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
+template <AluOperation testop>
+inline void thumb_testop(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
   generate_load_reg(a0, it.rd());    // Load operands
   generate_load_reg(a1, it.rs());
 
   switch (testop) {
   case OpTst:
     generate_and(a0, a1);
+    update_nz_flags();
     break;
   case OpCmp:
     generate_sub(a0, a1);
-    if (it.gen_flag_c()) {
-      generate_update_flag(nc, REG_C_FLAG)   // ARM's CF represents borrow.
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG)
-    }
+    update_nzcv_sub_flags();
     break;
   case OpCmn:
     generate_add(a0, a1);
-    if (it.gen_flag_c()) {
-      generate_update_flag(c, REG_C_FLAG)
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG)
-    }
+    update_nzcv_add_flags();
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluimm2(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+
+  switch (aluop) {
+  case OpMov:
+    generate_store_reg_i32(it.imm8(), it.rd8());
+    generate_store_reg_i32(it.imm8() ? 0 : 1, REG_Z_FLAG);
+    generate_store_reg_i32(0, REG_N_FLAG);
+    break;
+  case OpAdd:
+    generate_load_reg(a0, it.rd8());
+    x86_emit_add_reg_imm(reg_a0, it.imm8());
+    update_nzcv_add_flags();
+    generate_store_reg(a0, it.rd8());
+    break;
+  case OpSub:
+    generate_load_reg(a0, it.rd8());
+    x86_emit_sub_reg_imm(reg_a0, it.imm8());
+    update_nzcv_sub_flags();
+    generate_store_reg(a0, it.rd8());
+    break;
+  case OpCmp:
+    generate_load_reg(a1, it.rd8());
+    generate_load_imm(a0, it.imm8());
+    generate_sub(a1, a0);
+    update_nzcv_sub_flags();
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluimm3(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  generate_load_reg(a0, it.rs());
+
+  switch (aluop) {
+  case OpAdd:
+    x86_emit_add_reg_imm(reg_a0, it.imm3());
+    update_nzcv_add_flags();
+    break;
+  case OpSub:
+    x86_emit_sub_reg_imm(reg_a0, it.imm3());
+    update_nzcv_sub_flags();
     break;
   };
 
-  update_nz_flags();
+  generate_store_reg(a0, it.rd());
+}
+
+template <AluOperation aluop>
+inline void thumb_aluop3(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  generate_load_reg(a0, it.rs());
+  generate_load_reg(a1, it.rn());
+
+  switch (aluop) {
+  case OpAdd:
+    generate_add(a0, a1);
+    update_nzcv_add_flags();
+    break;
+  case OpSub:
+    generate_sub(a0, a1);
+    update_nzcv_sub_flags();
+    break;
+  };
+
+  generate_store_reg(a0, it.rd());
+}
+
+template <AluOperation aluop>
+inline void thumb_aluhi(CodeEmitter &ce, const ThumbInst & it, u32 & cycle_count) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  emit_load_reg_pc(a0, it.rs_hi(), 4);
+
+  switch (aluop) {
+  case OpAdd:
+    emit_load_reg_pc(a1, it.rd_hi(), 4);
+    generate_add(a0, a1);
+    generate_store_reg_pc_thumb(a0, it.rd_hi());
+    break;
+  case OpCmp:
+    emit_load_reg_pc(a1, it.rd_hi(), 4);
+    generate_sub(a1, a0);
+    update_nz_flags();
+    update_nzcv_sub_flags();
+    break;
+  case OpMov:
+    generate_store_reg_pc_thumb(a0, it.rd_hi());
+    break;
+  };
+}
+
+template <u32 ref_reg>
+inline void thumb_regoff(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  if (ref_reg == REG_PC) {
+    generate_store_reg_i32((it.pc & ~2) + 4 + 4 * it.imm8(), it.rd8());
+  } else {
+    generate_load_reg(a0, ref_reg);
+    generate_add_imm(a0, 4 * it.imm8());
+    generate_store_reg(a0, it.rd8());
+  }
+}
+
+inline void thumb_spadj(CodeEmitter &ce, s8 offset) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  generate_load_reg(a0, REG_SP);
+  generate_add_imm(a0, offset * 4);
+  generate_store_reg(a0, REG_SP);
 }
 
 

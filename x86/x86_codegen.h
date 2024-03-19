@@ -311,18 +311,12 @@ typedef enum
   x86_emit_opcode_1b_reg(xor_reg_rm, dest, source)                            \
 
 #define x86_emit_add_reg_imm(dest, imm)                                       \
-  if(imm != 0)                                                                \
-  {                                                                           \
-    x86_emit_opcode_1b_ext_reg(add_rm_imm, dest);                             \
-    x86_emit_dword(imm);                                                      \
-  }                                                                           \
+  x86_emit_opcode_1b_ext_reg(add_rm_imm, dest);                               \
+  x86_emit_dword(imm);                                                        \
 
 #define x86_emit_sub_reg_imm(dest, imm)                                       \
-  if(imm != 0)                                                                \
-  {                                                                           \
-    x86_emit_opcode_1b_ext_reg(sub_rm_imm, dest);                             \
-    x86_emit_dword(imm);                                                      \
-  }                                                                           \
+  x86_emit_opcode_1b_ext_reg(sub_rm_imm, dest);                               \
+  x86_emit_dword(imm);                                                        \
 
 #define x86_emit_and_reg_imm(dest, imm)                                       \
   x86_emit_opcode_1b_ext_reg(and_rm_imm, dest);                               \

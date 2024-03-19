@@ -25,8 +25,8 @@
 
 class ThumbInst : public ThumbInstDec {
 public:
-  ThumbInst(u16 opcode, u16 flag_status)
-   : ThumbInstDec(opcode), flag_status(flag_status) {}
+  ThumbInst(u32 pc, u16 opcode, u16 flag_status)
+   : ThumbInstDec(opcode), flag_status(flag_status), pc(pc) {}
 
   bool gen_flag_n() const { return flag_status & 0x8; }
   bool gen_flag_z() const { return flag_status & 0x4; }
@@ -34,6 +34,17 @@ public:
   bool gen_flag_v() const { return flag_status & 0x1; }
 
   u16 flag_status;
+  u32 pc;
+};
+
+class CodeEmitter {
+public:
+  CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
+   : emit_ptr(emit_ptr), emit_end(emit_end), block_pc(pc) {}
+
+  u8 *emit_ptr;              // Points to the JIT buffer, so we can emit code.
+  u8 *emit_end;              // Points to the "end" of the JIT buffer
+  u32 block_pc;              // PC address for the block base
 };
 
 #endif

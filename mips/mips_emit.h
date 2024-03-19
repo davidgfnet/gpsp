@@ -1470,60 +1470,11 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
 #define thumb_generate_op_imm(name, _rd, _rs, _rn)                            \
   generate_op_##name##_imm(arm_to_mips_reg[_rd], arm_to_mips_reg[_rs])        \
 
-// Types: add_sub, add_sub_imm, alu_op, imm
-// Affects N/Z/C/V flags
-
-#define thumb_data_proc(type, name, rn_type, _rd, _rs, _rn)                   \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_generate_op_##rn_type(name, _rd, _rs, _rn);                           \
-}                                                                             \
-
-#define thumb_data_proc_test(type, name, rn_type, _rs, _rn)                   \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_generate_op_##rn_type(name, 0, _rs, _rn);                             \
-}                                                                             \
-
-#define thumb_data_proc_unary(type, name, rn_type, _rd, _rn)                  \
-{                                                                             \
-  thumb_decode_##type();                                                      \
-  thumb_generate_op_##rn_type(name, _rd, 0, _rn);                             \
-}                                                                             \
-
 #define check_store_reg_pc_thumb(_rd)                                         \
   if(_rd == REG_PC)                                                           \
   {                                                                           \
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
-
-#define thumb_data_proc_hi(name)                                              \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  u32 dest_rd = rd;                                                           \
-  check_load_reg_pc(arm_reg_a0, rs, 4);                                       \
-  check_load_reg_pc(arm_reg_a1, rd, 4);                                       \
-  generate_op_##name##_reg(arm_to_mips_reg[dest_rd], arm_to_mips_reg[rd],     \
-   arm_to_mips_reg[rs]);                                                      \
-  check_store_reg_pc_thumb(dest_rd);                                          \
-}                                                                             \
-
-#define thumb_data_proc_test_hi(name)                                         \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  check_load_reg_pc(arm_reg_a0, rs, 4);                                       \
-  check_load_reg_pc(arm_reg_a1, rd, 4);                                       \
-  generate_op_##name##_reg(reg_temp, arm_to_mips_reg[rd],                     \
-   arm_to_mips_reg[rs]);                                                      \
-}                                                                             \
-
-#define thumb_data_proc_mov_hi()                                              \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  check_load_reg_pc(arm_reg_a0, rs, 4);                                       \
-  mips_emit_addu(arm_to_mips_reg[rd], arm_to_mips_reg[rs], reg_zero);         \
-  check_store_reg_pc_thumb(rd);                                               \
-}                                                                             \
 
 #define thumb_load_pc(_rd)                                                    \
 {                                                                             \
@@ -1796,11 +1747,79 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
     mips_emit_sltiu(reg_z_cache, _rd, 1);                                     \
   }                                                                           \
 
+#define update_addi_flags(_rd, _rs, imm)                                      \
+  if (it.gen_flag_v()) {                                                      \
+    mips_emit_nor(reg_v_cache, _rs, _rs);                                     \
+  }                                                                           \
+  mips_emit_addiu(_rd, _rs, imm);                                             \
+  if (it.gen_flag_c()) {                                                      \
+    /* If result is smaller than imm, there was unsigned overflow! */         \
+    mips_emit_sltiu(reg_c_cache, _rd, imm);                                   \
+  }                                                                           \
+  update_nz_flags(_rd);                                                       \
+  if (it.gen_flag_v()) {                                                      \
+    mips_emit_and(reg_v_cache, reg_v_cache, _rd);                             \
+    mips_emit_srl(reg_v_cache, reg_v_cache, 31);                              \
+  }                                                                           \
+
+// V_flag = SignRs & !SignRd = !(!SignRs | SignRd)
+#define update_subi_flags(_rd, _rs, imm)                                      \
+  if (it.gen_flag_c()) {                                                      \
+    /* If rs is smaller than imm, will cause carry! (!borrow) */              \
+    mips_emit_sltiu(reg_c_cache, _rs, imm);                                   \
+    mips_emit_xori(reg_c_cache, reg_c_cache, 1);                              \
+  }                                                                           \
+  if (it.gen_flag_v()) {                                                      \
+    mips_emit_nor(reg_v_cache, _rs, _rs);                                     \
+  }                                                                           \
+  mips_emit_addiu(_rd, _rs, -imm);                                            \
+  update_nz_flags(_rd);                                                       \
+  if (it.gen_flag_v()) {                                                      \
+    mips_emit_nor(reg_v_cache, reg_v_cache, _rd);                             \
+    mips_emit_srl(reg_v_cache, reg_v_cache, 31);                              \
+  }
+
+
+static inline u32 load_alloc_reg(CodeEmitter &ce, u32 regn, u32 tmp_reg, u32 pcvalue) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  const u32 stored_pc = ce.block_pc;     // TODO: Remove this
+  if (regn == REG_PC) {
+    generate_load_pc(tmp_reg, pcvalue);
+    return tmp_reg;
+  }
+  return arm_to_mips_reg[regn];
+}
+
+static inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
+  if (regn == REG_PC)
+    return tmp_reg;
+  return arm_to_mips_reg[regn];
+}
+
 template <AluOperation aluop>
-inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
+inline void thumb_aluop3(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+  u32 rs = arm_to_mips_reg[it.rs()];
+  u32 rn = arm_to_mips_reg[it.rn()];
+  u32 rd = arm_to_mips_reg[it.rd()];
+
+  switch (aluop) {
+  case OpAdd:
+    generate_op_adds_reg(rd, rs, rn);
+    break;
+  case OpSub:
+    generate_op_subs_reg(rd, rs, rn);
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluop2(CodeEmitter &ce, const ThumbInst & it) {
   u32 rs = arm_to_mips_reg[it.rs()];
   u32 rd = arm_to_mips_reg[it.rd()];
   const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
 
   switch (aluop) {
   case OpOrr:
@@ -1841,10 +1860,11 @@ inline void thumb_aluop3(u8* & translation_ptr, const ThumbInst & it) {
 }
 
 template <AluOperation aluop>
-inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
+inline void thumb_aluop1(CodeEmitter &ce, const ThumbInst & it) {
   u32 rs = arm_to_mips_reg[it.rs()];
   u32 rd = arm_to_mips_reg[it.rd()];
   const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
 
   switch (aluop) {
   case OpNeg:
@@ -1857,11 +1877,12 @@ inline void thumb_aluop2(u8* & translation_ptr, const ThumbInst & it) {
   };
 }
 
-template <TestOperation testop>
-inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
+template <AluOperation testop>
+inline void thumb_testop(CodeEmitter &ce, const ThumbInst & it) {
   u32 rs = arm_to_mips_reg[it.rs()];
   u32 rd = arm_to_mips_reg[it.rd()];
   const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
 
   switch (testop) {
   case OpTst:
@@ -1877,6 +1898,82 @@ inline void thumb_testop(u8* & translation_ptr, const ThumbInst & it) {
   };
 }
 
+
+template <AluOperation aluop>
+inline void thumb_aluimm2(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  const u32 rd = arm_to_mips_reg[it.rd8()];
+
+  switch (aluop) {
+  case OpMov:
+    mips_emit_addiu(rd, reg_zero, it.imm8());
+    mips_emit_addiu(reg_n_cache, reg_zero, 0);
+    mips_emit_addiu(reg_z_cache, reg_zero, it.imm8() ? 0 : 1);
+    break;
+  case OpAdd:
+    update_addi_flags(rd, rd, it.imm8());
+    break;
+  case OpSub:
+    update_subi_flags(rd, rd, it.imm8());
+    break;
+  case OpCmp:
+    update_subi_flags(reg_temp, rd, it.imm8());
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluimm3(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  u32 rs = arm_to_mips_reg[it.rs()];
+  u32 rd = arm_to_mips_reg[it.rd()];
+
+  switch (aluop) {
+  case OpAdd:
+    update_addi_flags(rd, rs, it.imm3());
+    break;
+  case OpSub:
+    update_subi_flags(rd, rs, it.imm3());
+    break;
+  };
+}
+
+template <AluOperation aluop>
+inline void thumb_aluhi(CodeEmitter &ce, const ThumbInst & it, u32 & cycle_count) {
+  u32 rs = load_alloc_reg(ce, it.rs_hi(), reg_a1, it.pc + 4);
+  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+
+  // TODO Improve and make PC writes clearer!
+  if (aluop == OpAdd) {
+    u32 rd = load_alloc_reg(ce, it.rd_hi(), reg_a0, it.pc + 4);
+    mips_emit_addu(rd, rd, rs);
+    check_store_reg_pc_thumb(it.rd_hi());
+  } else if (aluop == OpCmp) {
+    u32 rd = load_alloc_reg(ce, it.rd_hi(), reg_a0, it.pc + 4);
+    generate_op_subs_reg(reg_temp, rd, rs);
+  } else if (aluop == OpMov) {
+    u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
+    mips_emit_addu(rd, rs, reg_zero);
+    check_store_reg_pc_thumb(it.rd_hi());
+  }
+}
+
+template <u32 ref_reg>
+inline void thumb_regoff(CodeEmitter &ce, const ThumbInst & it) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  const u32 stored_pc = ce.block_pc;     // TODO: Remove this
+  if (ref_reg == REG_PC) {
+    generate_load_pc(arm_to_mips_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
+  } else {
+    mips_emit_addiu(arm_to_mips_reg[it.rd8()], arm_to_mips_reg[ref_reg], 4 * it.imm8());
+  }
+}
+
+inline void thumb_spadj(CodeEmitter &ce, s8 offset) {
+  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+  mips_emit_addiu(reg_r13, reg_r13, (offset * 4));
+}
 
 #define arm_conditional_block_header()                                        \
   generate_condition();                                                       \

@@ -1779,201 +1779,208 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
     mips_emit_srl(reg_v_cache, reg_v_cache, 31);                              \
   }
 
+class CodeEmitter : public CodeEmitterBase {
+public:
+  CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
+   : CodeEmitterBase(emit_ptr, emit_end), block_pc(pc) {}
 
-static inline u32 load_alloc_reg(CodeEmitter &ce, u32 regn, u32 tmp_reg, u32 pcvalue) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  const u32 stored_pc = ce.block_pc;     // TODO: Remove this
-  if (regn == REG_PC) {
-    generate_load_pc(tmp_reg, pcvalue);
-    return tmp_reg;
+  u32 block_pc;              // PC address for the block base
+
+  inline u32 load_alloc_reg(u32 regn, u32 tmp_reg, u32 pcvalue) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    if (regn == REG_PC) {
+      generate_load_pc(tmp_reg, pcvalue);
+      return tmp_reg;
+    }
+    return arm_to_mips_reg[regn];
   }
-  return arm_to_mips_reg[regn];
-}
 
-static inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
-  if (regn == REG_PC)
-    return tmp_reg;
-  return arm_to_mips_reg[regn];
-}
-
-template <AluOperation aluop>
-inline void thumb_aluop3(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-  u32 rs = arm_to_mips_reg[it.rs()];
-  u32 rn = arm_to_mips_reg[it.rn()];
-  u32 rd = arm_to_mips_reg[it.rd()];
-
-  switch (aluop) {
-  case OpAdd:
-    generate_op_adds_reg(rd, rs, rn);
-    break;
-  case OpSub:
-    generate_op_subs_reg(rd, rs, rn);
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluop2(CodeEmitter &ce, const ThumbInst & it) {
-  u32 rs = arm_to_mips_reg[it.rs()];
-  u32 rd = arm_to_mips_reg[it.rd()];
-  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-
-  switch (aluop) {
-  case OpOrr:
-    mips_emit_or(rd, rd, rs);
-    update_nz_flags(rd);
-    break;
-  case OpAnd:
-    mips_emit_and(rd, rd, rs);
-    update_nz_flags(rd);
-    break;
-  case OpXor:
-    mips_emit_xor(rd, rd, rs);
-    update_nz_flags(rd);
-    break;
-  case OpBic:
-    mips_emit_nor(reg_temp, rs, reg_zero);
-    mips_emit_and(rd, rd, reg_temp);
-    update_nz_flags(rd);
-    break;
-  case OpMul:
-    mips_emit_multu(rd, rs);
-    mips_emit_mflo(rd);
-    update_nz_flags(rd);
-    break;
-  case OpAdd:
-    generate_op_adds_reg(rd, rs, rd);
-    break;
-  case OpSub:
-    generate_op_subs_reg(rd, rs, rd);
-    break;
-  case OpAdc:
-    generate_op_adcs_reg(rd, rs, rd);
-    break;
-  case OpSbc:
-    generate_op_sbcs_reg(rd, rd, rs);
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluop1(CodeEmitter &ce, const ThumbInst & it) {
-  u32 rs = arm_to_mips_reg[it.rs()];
-  u32 rd = arm_to_mips_reg[it.rd()];
-  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-
-  switch (aluop) {
-  case OpNeg:
-    generate_op_subs_reg(rd, reg_zero, rs);
-    break;
-  case OpMvn:
-    mips_emit_nor(rd, rs, reg_zero);
-    update_nz_flags(rd);
-    break;
-  };
-}
-
-template <AluOperation testop>
-inline void thumb_testop(CodeEmitter &ce, const ThumbInst & it) {
-  u32 rs = arm_to_mips_reg[it.rs()];
-  u32 rd = arm_to_mips_reg[it.rd()];
-  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-
-  switch (testop) {
-  case OpTst:
-    mips_emit_and(reg_temp, rs, rd);
-    update_nz_flags(reg_temp);
-    break;
-  case OpCmp:
-    generate_op_subs_reg(reg_temp, rd, rs);
-    break;
-  case OpCmn:
-    generate_op_adds_reg(reg_temp, rs, rd);
-    break;
-  };
-}
-
-
-template <AluOperation aluop>
-inline void thumb_aluimm2(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  const u32 rd = arm_to_mips_reg[it.rd8()];
-
-  switch (aluop) {
-  case OpMov:
-    mips_emit_addiu(rd, reg_zero, it.imm8());
-    mips_emit_addiu(reg_n_cache, reg_zero, 0);
-    mips_emit_addiu(reg_z_cache, reg_zero, it.imm8() ? 0 : 1);
-    break;
-  case OpAdd:
-    update_addi_flags(rd, rd, it.imm8());
-    break;
-  case OpSub:
-    update_subi_flags(rd, rd, it.imm8());
-    break;
-  case OpCmp:
-    update_subi_flags(reg_temp, rd, it.imm8());
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluimm3(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = arm_to_mips_reg[it.rs()];
-  u32 rd = arm_to_mips_reg[it.rd()];
-
-  switch (aluop) {
-  case OpAdd:
-    update_addi_flags(rd, rs, it.imm3());
-    break;
-  case OpSub:
-    update_subi_flags(rd, rs, it.imm3());
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluhi(CodeEmitter &ce, const ThumbInst & it, u32 & cycle_count) {
-  u32 rs = load_alloc_reg(ce, it.rs_hi(), reg_a1, it.pc + 4);
-  const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-
-  // TODO Improve and make PC writes clearer!
-  if (aluop == OpAdd) {
-    u32 rd = load_alloc_reg(ce, it.rd_hi(), reg_a0, it.pc + 4);
-    mips_emit_addu(rd, rd, rs);
-    check_store_reg_pc_thumb(it.rd_hi());
-  } else if (aluop == OpCmp) {
-    u32 rd = load_alloc_reg(ce, it.rd_hi(), reg_a0, it.pc + 4);
-    generate_op_subs_reg(reg_temp, rd, rs);
-  } else if (aluop == OpMov) {
-    u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
-    mips_emit_addu(rd, rs, reg_zero);
-    check_store_reg_pc_thumb(it.rd_hi());
+  inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
+    if (regn == REG_PC)
+      return tmp_reg;
+    return arm_to_mips_reg[regn];
   }
-}
 
-template <u32 ref_reg>
-inline void thumb_regoff(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  const u32 stored_pc = ce.block_pc;     // TODO: Remove this
-  if (ref_reg == REG_PC) {
-    generate_load_pc(arm_to_mips_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
-  } else {
-    mips_emit_addiu(arm_to_mips_reg[it.rd8()], arm_to_mips_reg[ref_reg], 4 * it.imm8());
+  template <AluOperation aluop>
+  inline void thumb_aluop3(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    u32 rs = arm_to_mips_reg[it.rs()];
+    u32 rn = arm_to_mips_reg[it.rn()];
+    u32 rd = arm_to_mips_reg[it.rd()];
+
+    switch (aluop) {
+    case OpAdd:
+      generate_op_adds_reg(rd, rs, rn);
+      break;
+    case OpSub:
+      generate_op_subs_reg(rd, rs, rn);
+      break;
+    };
   }
-}
 
-inline void thumb_spadj(CodeEmitter &ce, s8 offset) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  mips_emit_addiu(reg_r13, reg_r13, (offset * 4));
-}
+  template <AluOperation aluop>
+  inline void thumb_aluop2(const ThumbInst & it) {
+    u32 rs = arm_to_mips_reg[it.rs()];
+    u32 rd = arm_to_mips_reg[it.rd()];
+    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    switch (aluop) {
+    case OpOrr:
+      mips_emit_or(rd, rd, rs);
+      update_nz_flags(rd);
+      break;
+    case OpAnd:
+      mips_emit_and(rd, rd, rs);
+      update_nz_flags(rd);
+      break;
+    case OpXor:
+      mips_emit_xor(rd, rd, rs);
+      update_nz_flags(rd);
+      break;
+    case OpBic:
+      mips_emit_nor(reg_temp, rs, reg_zero);
+      mips_emit_and(rd, rd, reg_temp);
+      update_nz_flags(rd);
+      break;
+    case OpMul:
+      mips_emit_multu(rd, rs);
+      mips_emit_mflo(rd);
+      update_nz_flags(rd);
+      break;
+    case OpAdd:
+      generate_op_adds_reg(rd, rs, rd);
+      break;
+    case OpSub:
+      generate_op_subs_reg(rd, rs, rd);
+      break;
+    case OpAdc:
+      generate_op_adcs_reg(rd, rs, rd);
+      break;
+    case OpSbc:
+      generate_op_sbcs_reg(rd, rd, rs);
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluop1(const ThumbInst & it) {
+    u32 rs = arm_to_mips_reg[it.rs()];
+    u32 rd = arm_to_mips_reg[it.rd()];
+    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    switch (aluop) {
+    case OpNeg:
+      generate_op_subs_reg(rd, reg_zero, rs);
+      break;
+    case OpMvn:
+      mips_emit_nor(rd, rs, reg_zero);
+      update_nz_flags(rd);
+      break;
+    };
+  }
+
+  template <AluOperation testop>
+  inline void thumb_testop(const ThumbInst & it) {
+    u32 rs = arm_to_mips_reg[it.rs()];
+    u32 rd = arm_to_mips_reg[it.rd()];
+    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    switch (testop) {
+    case OpTst:
+      mips_emit_and(reg_temp, rs, rd);
+      update_nz_flags(reg_temp);
+      break;
+    case OpCmp:
+      generate_op_subs_reg(reg_temp, rd, rs);
+      break;
+    case OpCmn:
+      generate_op_adds_reg(reg_temp, rs, rd);
+      break;
+    };
+  }
+
+
+  template <AluOperation aluop>
+  inline void thumb_aluimm2(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 rd = arm_to_mips_reg[it.rd8()];
+
+    switch (aluop) {
+    case OpMov:
+      mips_emit_addiu(rd, reg_zero, it.imm8());
+      mips_emit_addiu(reg_n_cache, reg_zero, 0);
+      mips_emit_addiu(reg_z_cache, reg_zero, it.imm8() ? 0 : 1);
+      break;
+    case OpAdd:
+      update_addi_flags(rd, rd, it.imm8());
+      break;
+    case OpSub:
+      update_subi_flags(rd, rd, it.imm8());
+      break;
+    case OpCmp:
+      update_subi_flags(reg_temp, rd, it.imm8());
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluimm3(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = arm_to_mips_reg[it.rs()];
+    u32 rd = arm_to_mips_reg[it.rd()];
+
+    switch (aluop) {
+    case OpAdd:
+      update_addi_flags(rd, rs, it.imm3());
+      break;
+    case OpSub:
+      update_subi_flags(rd, rs, it.imm3());
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
+    u32 rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
+    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    // TODO Improve and make PC writes clearer!
+    if (aluop == OpAdd) {
+      u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
+      mips_emit_addu(rd, rd, rs);
+      check_store_reg_pc_thumb(it.rd_hi());
+    } else if (aluop == OpCmp) {
+      u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
+      generate_op_subs_reg(reg_temp, rd, rs);
+    } else if (aluop == OpMov) {
+      u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
+      mips_emit_addu(rd, rs, reg_zero);
+      check_store_reg_pc_thumb(it.rd_hi());
+    }
+  }
+
+  template <u32 ref_reg>
+  inline void thumb_regoff(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    if (ref_reg == REG_PC) {
+      generate_load_pc(arm_to_mips_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
+    } else {
+      mips_emit_addiu(arm_to_mips_reg[it.rd8()], arm_to_mips_reg[ref_reg], 4 * it.imm8());
+    }
+  }
+
+  inline void thumb_spadj(s8 offset) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    mips_emit_addiu(reg_r13, reg_r13, (offset * 4));
+  }
+};
 
 #define arm_conditional_block_header()                                        \
   generate_condition();                                                       \

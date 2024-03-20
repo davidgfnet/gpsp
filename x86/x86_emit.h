@@ -1793,209 +1793,215 @@ static void function_cc execute_swi(u32 pc)
   update_nz_flags();                                                          \
   update_cv_sub_flags();                                                      \
 
+class CodeEmitter : public CodeEmitterBase {
+public:
+  CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
+   : CodeEmitterBase(emit_ptr, emit_end) {}
 
-template <AluOperation aluop>
-inline void thumb_aluop2(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  generate_load_reg(a0, it.rd());    // Load operands
-  generate_load_reg(a1, it.rs());
+  // Thumb instructions
+  template <AluOperation aluop>
+  inline void thumb_aluop2(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    generate_load_reg(a0, it.rd());    // Load operands
+    generate_load_reg(a1, it.rs());
 
-  switch (aluop) {
-  case OpOrr:
-    generate_or(a0, a1);
-    break;
-  case OpAnd:
-    generate_and(a0, a1);
-    break;
-  case OpXor:
-    generate_xor(a0, a1);
-    break;
-  case OpBic:
-    generate_not(a1);
-    generate_and(a0, a1);
-    break;
-  case OpMul:
-    generate_multiply(a1);     // Multiplied by a0 (EAX) implicitely
-    generate_and(a0, a0);      // Force flag generation (ZF/SF)
-    break;
-  case OpAdd:
-    generate_add(a0, a1);
-    update_cv_add_flags();
-    break;
-  case OpSub:
-    generate_sub(a0, a1);
-    update_cv_sub_flags();
-    break;
-  case OpAdc:
-    load_c_flag(a2);         // Load C flag into CFLAGS
-    generate_adc(a0, a1);
-    update_cv_add_flags();
-    break;
-  case OpSbc:
-    load_inv_c_flag(a2);         // Load !C flag into CFLAGS
-    generate_sbb(a0, a1);
-    update_cv_sub_flags();
-    break;
-  };
+    switch (aluop) {
+    case OpOrr:
+      generate_or(a0, a1);
+      break;
+    case OpAnd:
+      generate_and(a0, a1);
+      break;
+    case OpXor:
+      generate_xor(a0, a1);
+      break;
+    case OpBic:
+      generate_not(a1);
+      generate_and(a0, a1);
+      break;
+    case OpMul:
+      generate_multiply(a1);     // Multiplied by a0 (EAX) implicitely
+      generate_and(a0, a0);      // Force flag generation (ZF/SF)
+      break;
+    case OpAdd:
+      generate_add(a0, a1);
+      update_cv_add_flags();
+      break;
+    case OpSub:
+      generate_sub(a0, a1);
+      update_cv_sub_flags();
+      break;
+    case OpAdc:
+      load_c_flag(a2);         // Load C flag into CFLAGS
+      generate_adc(a0, a1);
+      update_cv_add_flags();
+      break;
+    case OpSbc:
+      load_inv_c_flag(a2);         // Load !C flag into CFLAGS
+      generate_sbb(a0, a1);
+      update_cv_sub_flags();
+      break;
+    };
 
-  update_nz_flags();
-  generate_store_reg(a0, it.rd());
-}
-
-template <AluOperation aluop>
-inline void thumb_aluop1(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  generate_load_reg(a0, it.rs());   // Load operand
-
-  switch (aluop) {
-  case OpNeg:
-    generate_xor(a1, a1);
-    generate_sub(a1, a0);
-    update_cv_sub_flags();
-    generate_store_reg(a1, it.rd());
-    break;
-  case OpMvn:
-    generate_xor_imm(a0, ~0U);
+    update_nz_flags();
     generate_store_reg(a0, it.rd());
-    break;
-  };
-
-  update_nz_flags();
-}
-
-template <AluOperation testop>
-inline void thumb_testop(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  generate_load_reg(a0, it.rd());    // Load operands
-  generate_load_reg(a1, it.rs());
-
-  switch (testop) {
-  case OpTst:
-    generate_and(a0, a1);
-    update_nz_flags();
-    break;
-  case OpCmp:
-    generate_sub(a0, a1);
-    update_nzcv_sub_flags();
-    break;
-  case OpCmn:
-    generate_add(a0, a1);
-    update_nzcv_add_flags();
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluimm2(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-
-  switch (aluop) {
-  case OpMov:
-    generate_store_reg_i32(it.imm8(), it.rd8());
-    generate_store_reg_i32(it.imm8() ? 0 : 1, REG_Z_FLAG);
-    generate_store_reg_i32(0, REG_N_FLAG);
-    break;
-  case OpAdd:
-    generate_load_reg(a0, it.rd8());
-    x86_emit_add_reg_imm(reg_a0, it.imm8());
-    update_nzcv_add_flags();
-    generate_store_reg(a0, it.rd8());
-    break;
-  case OpSub:
-    generate_load_reg(a0, it.rd8());
-    x86_emit_sub_reg_imm(reg_a0, it.imm8());
-    update_nzcv_sub_flags();
-    generate_store_reg(a0, it.rd8());
-    break;
-  case OpCmp:
-    generate_load_reg(a1, it.rd8());
-    generate_load_imm(a0, it.imm8());
-    generate_sub(a1, a0);
-    update_nzcv_sub_flags();
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluimm3(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  generate_load_reg(a0, it.rs());
-
-  switch (aluop) {
-  case OpAdd:
-    x86_emit_add_reg_imm(reg_a0, it.imm3());
-    update_nzcv_add_flags();
-    break;
-  case OpSub:
-    x86_emit_sub_reg_imm(reg_a0, it.imm3());
-    update_nzcv_sub_flags();
-    break;
-  };
-
-  generate_store_reg(a0, it.rd());
-}
-
-template <AluOperation aluop>
-inline void thumb_aluop3(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  generate_load_reg(a0, it.rs());
-  generate_load_reg(a1, it.rn());
-
-  switch (aluop) {
-  case OpAdd:
-    generate_add(a0, a1);
-    update_nzcv_add_flags();
-    break;
-  case OpSub:
-    generate_sub(a0, a1);
-    update_nzcv_sub_flags();
-    break;
-  };
-
-  generate_store_reg(a0, it.rd());
-}
-
-template <AluOperation aluop>
-inline void thumb_aluhi(CodeEmitter &ce, const ThumbInst & it, u32 & cycle_count) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  emit_load_reg_pc(a0, it.rs_hi(), 4);
-
-  switch (aluop) {
-  case OpAdd:
-    emit_load_reg_pc(a1, it.rd_hi(), 4);
-    generate_add(a0, a1);
-    generate_store_reg_pc_thumb(a0, it.rd_hi());
-    break;
-  case OpCmp:
-    emit_load_reg_pc(a1, it.rd_hi(), 4);
-    generate_sub(a1, a0);
-    update_nz_flags();
-    update_nzcv_sub_flags();
-    break;
-  case OpMov:
-    generate_store_reg_pc_thumb(a0, it.rd_hi());
-    break;
-  };
-}
-
-template <u32 ref_reg>
-inline void thumb_regoff(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  if (ref_reg == REG_PC) {
-    generate_store_reg_i32((it.pc & ~2) + 4 + 4 * it.imm8(), it.rd8());
-  } else {
-    generate_load_reg(a0, ref_reg);
-    generate_add_imm(a0, 4 * it.imm8());
-    generate_store_reg(a0, it.rd8());
   }
-}
 
-inline void thumb_spadj(CodeEmitter &ce, s8 offset) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  generate_load_reg(a0, REG_SP);
-  generate_add_imm(a0, offset * 4);
-  generate_store_reg(a0, REG_SP);
-}
+  template <AluOperation aluop>
+  inline void thumb_aluop1(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    generate_load_reg(a0, it.rs());   // Load operand
+
+    switch (aluop) {
+    case OpNeg:
+      generate_xor(a1, a1);
+      generate_sub(a1, a0);
+      update_cv_sub_flags();
+      generate_store_reg(a1, it.rd());
+      break;
+    case OpMvn:
+      generate_xor_imm(a0, ~0U);
+      generate_store_reg(a0, it.rd());
+      break;
+    };
+
+    update_nz_flags();
+  }
+
+  template <AluOperation testop>
+  inline void thumb_testop(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    generate_load_reg(a0, it.rd());    // Load operands
+    generate_load_reg(a1, it.rs());
+
+    switch (testop) {
+    case OpTst:
+      generate_and(a0, a1);
+      update_nz_flags();
+      break;
+    case OpCmp:
+      generate_sub(a0, a1);
+      update_nzcv_sub_flags();
+      break;
+    case OpCmn:
+      generate_add(a0, a1);
+      update_nzcv_add_flags();
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluimm2(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    switch (aluop) {
+    case OpMov:
+      generate_store_reg_i32(it.imm8(), it.rd8());
+      generate_store_reg_i32(it.imm8() ? 0 : 1, REG_Z_FLAG);
+      generate_store_reg_i32(0, REG_N_FLAG);
+      break;
+    case OpAdd:
+      generate_load_reg(a0, it.rd8());
+      x86_emit_add_reg_imm(reg_a0, it.imm8());
+      update_nzcv_add_flags();
+      generate_store_reg(a0, it.rd8());
+      break;
+    case OpSub:
+      generate_load_reg(a0, it.rd8());
+      x86_emit_sub_reg_imm(reg_a0, it.imm8());
+      update_nzcv_sub_flags();
+      generate_store_reg(a0, it.rd8());
+      break;
+    case OpCmp:
+      generate_load_reg(a1, it.rd8());
+      generate_load_imm(a0, it.imm8());
+      generate_sub(a1, a0);
+      update_nzcv_sub_flags();
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluimm3(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    generate_load_reg(a0, it.rs());
+
+    switch (aluop) {
+    case OpAdd:
+      x86_emit_add_reg_imm(reg_a0, it.imm3());
+      update_nzcv_add_flags();
+      break;
+    case OpSub:
+      x86_emit_sub_reg_imm(reg_a0, it.imm3());
+      update_nzcv_sub_flags();
+      break;
+    };
+
+    generate_store_reg(a0, it.rd());
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluop3(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    generate_load_reg(a0, it.rs());
+    generate_load_reg(a1, it.rn());
+
+    switch (aluop) {
+    case OpAdd:
+      generate_add(a0, a1);
+      update_nzcv_add_flags();
+      break;
+    case OpSub:
+      generate_sub(a0, a1);
+      update_nzcv_sub_flags();
+      break;
+    };
+
+    generate_store_reg(a0, it.rd());
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    emit_load_reg_pc(a0, it.rs_hi(), 4);
+
+    switch (aluop) {
+    case OpAdd:
+      emit_load_reg_pc(a1, it.rd_hi(), 4);
+      generate_add(a0, a1);
+      generate_store_reg_pc_thumb(a0, it.rd_hi());
+      break;
+    case OpCmp:
+      emit_load_reg_pc(a1, it.rd_hi(), 4);
+      generate_sub(a1, a0);
+      update_nz_flags();
+      update_nzcv_sub_flags();
+      break;
+    case OpMov:
+      generate_store_reg_pc_thumb(a0, it.rd_hi());
+      break;
+    };
+  }
+
+  template <u32 ref_reg>
+  inline void thumb_regoff(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (ref_reg == REG_PC) {
+      generate_store_reg_i32((it.pc & ~2) + 4 + 4 * it.imm8(), it.rd8());
+    } else {
+      generate_load_reg(a0, ref_reg);
+      generate_add_imm(a0, 4 * it.imm8());
+      generate_store_reg(a0, it.rd8());
+    }
+  }
+
+  inline void thumb_spadj(s8 offset) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    generate_load_reg(a0, REG_SP);
+    generate_add_imm(a0, offset * 4);
+    generate_store_reg(a0, REG_SP);
+  }
+};
 
 
 #define arm_hle_div(cpu_mode)                                                 \

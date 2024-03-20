@@ -1740,22 +1740,6 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask)
   block_exit_position++;                                                      \
 }                                                                             \
 
-static inline u32 load_alloc_reg(CodeEmitter &ce, u32 regn, u32 tmp_reg, u32 pcvalue) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  const u32 stored_pc = ce.block_pc;     // TODO: Remove this
-  if (regn == REG_PC) {
-    generate_load_pc(tmp_reg, pcvalue);
-    return tmp_reg;
-  }
-  return arm_to_a64_reg[regn];
-}
-
-static inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
-  if (regn == REG_PC)
-    return tmp_reg;
-  return arm_to_a64_reg[regn];
-}
-
 #define update_nz_flags(_reg)                                                 \
   if (it.gen_flag_n()) {                                                      \
     aa64_emit_lsr(reg_n_cache, _reg, 31);                                     \
@@ -1780,198 +1764,222 @@ static inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
     aa64_emit_cset(reg_z_cache, ccode_eq);                                    \
   }                                                                           \
 
+class CodeEmitter : public CodeEmitterBase {
+public:
+  CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
+   : CodeEmitterBase(emit_ptr, emit_end), block_pc(pc) {}
 
-template <AluOperation aluop>
-inline void thumb_aluop3(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = arm_to_a64_reg[it.rs()];
-  u32 rn = arm_to_a64_reg[it.rn()];
-  u32 rd = arm_to_a64_reg[it.rd()];
+  u32 block_pc;              // PC address for the block base
 
-  switch (aluop) {
-  case OpAdd:
-    aa64_emit_adds(rd, rs, rn);
-    break;
-  case OpSub:
-    aa64_emit_subs(rd, rs, rn);
-    break;
-  };
-
-  update_nzcv_flags();
-}
-
-template <AluOperation aluop>
-inline void thumb_aluop2(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = arm_to_a64_reg[it.rs()];
-  u32 rd = arm_to_a64_reg[it.rd()];
-
-  switch (aluop) {
-  case OpOrr:
-    aa64_emit_orr(rd, rd, rs);
-    update_nz_flags(rd);
-    break;
-  case OpAnd:
-    aa64_emit_and(rd, rd, rs);
-    update_nz_flags(rd);
-    break;
-  case OpXor:
-    aa64_emit_xor(rd, rd, rs);
-    update_nz_flags(rd);
-    break;
-  case OpBic:
-    aa64_emit_bic(rd, rd, rs);
-    update_nz_flags(rd);
-    break;
-  case OpMul:
-    aa64_emit_mul(rd, rd, rs);
-    update_nz_flags(rd);
-    break;
-  case OpAdd:
-    aa64_emit_adds(rd, rd, rs);
-    update_nzcv_flags();
-    break;
-  case OpSub:
-    aa64_emit_subs(rd, rd, rs);
-    update_nzcv_flags();
-    break;
-  case OpAdc:
-    load_c_flag();
-    aa64_emit_adcs(rd, rd, rs);
-    update_nzcv_flags();
-    break;
-  case OpSbc:
-    load_c_flag();
-    aa64_emit_sbcs(rd, rd, rs);
-    update_nzcv_flags();
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluop1(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = arm_to_a64_reg[it.rs()];
-  u32 rd = arm_to_a64_reg[it.rd()];
-
-  switch (aluop) {
-  case OpNeg:
-    aa64_emit_subs(rd, reg_zero, rs);
-    update_nzcv_flags();
-    break;
-  case OpMvn:
-    aa64_emit_orn(rd, reg_zero, rs);
-    update_nz_flags(rd);
-    break;
-  };
-}
-
-template <AluOperation testop>
-inline void thumb_testop(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = arm_to_a64_reg[it.rs()];
-  u32 rd = arm_to_a64_reg[it.rd()];
-
-  switch (testop) {
-  case OpTst:
-    aa64_emit_and(reg_temp, rd, rs);
-    update_nz_flags(reg_temp);
-    break;
-  case OpCmp:
-    aa64_emit_subs(reg_zero, rd, rs);
-    update_nzcv_flags();
-    break;
-  case OpCmn:
-    aa64_emit_adds(reg_zero, rd, rs);
-    update_nzcv_flags();
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluimm2(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  const u32 rd = arm_to_a64_reg[it.rd8()];
-
-  switch (aluop) {
-  case OpMov:
-    aa64_emit_movlo(rd, it.imm8());
-    aa64_emit_movlo(reg_n_cache, 0);
-    aa64_emit_movlo(reg_z_cache, it.imm8() ? 0 : 1);
-    break;
-  case OpAdd:
-    aa64_emit_addis(rd, rd, it.imm8());
-    update_nzcv_flags();
-    break;
-  case OpSub:
-    aa64_emit_subis(rd, rd, it.imm8());
-    update_nzcv_flags();
-    break;
-  case OpCmp:
-    aa64_emit_subis(reg_temp, rd, it.imm8());
-    update_nzcv_flags();
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluimm3(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = arm_to_a64_reg[it.rs()];
-  u32 rd = arm_to_a64_reg[it.rd()];
-
-  switch (aluop) {
-  case OpAdd:
-    aa64_emit_addis(rd, rs, it.imm3());
-    break;
-  case OpSub:
-    aa64_emit_subis(rd, rs, it.imm3());
-    break;
-  };
-
-  update_nzcv_flags();
-}
-
-template <AluOperation aluop>
-inline void thumb_aluhi(CodeEmitter &ce, const ThumbInst & it, u32 & cycle_count) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = load_alloc_reg(ce, it.rs_hi(), reg_a1, it.pc + 4);
-
-  // TODO: Improve PC writes (reg_a0 *must* contain the new PC, which is not clear).
-  if (aluop == OpAdd) {
-    u32 rd = load_alloc_reg(ce, it.rd_hi(), reg_a0, it.pc + 4);
-    aa64_emit_add(rd, rd, rs);
-    check_store_reg_pc_thumb(it.rd_hi());
-  } else if (aluop == OpCmp) {
-    u32 rd = load_alloc_reg(ce, it.rd_hi(), reg_a0, it.pc + 4);
-    aa64_emit_subs(reg_temp, rd, rs);
-    update_nzcv_flags();
-  } else if (aluop == OpMov) {
-    u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
-    aa64_emit_mov(rd, rs);
-    check_store_reg_pc_thumb(it.rd_hi());
+  // Register allocation (for registers that could contain PC)
+  inline u32 load_alloc_reg(u32 regn, u32 tmp_reg, u32 pcvalue) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    if (regn == REG_PC) {
+      generate_load_pc(tmp_reg, pcvalue);
+      return tmp_reg;
+    }
+    return arm_to_a64_reg[regn];
   }
-}
 
-template <u32 ref_reg>
-inline void thumb_regoff(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  const u32 stored_pc = ce.block_pc;     // TODO: Remove this
-  if (ref_reg == REG_PC) {
-    generate_load_pc(arm_to_a64_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
-  } else {
-    aa64_emit_addi(arm_to_a64_reg[it.rd8()], arm_to_a64_reg[ref_reg], 4 * it.imm8());
+  inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
+    if (regn == REG_PC)
+      return tmp_reg;
+    return arm_to_a64_reg[regn];
   }
-}
 
-inline void thumb_spadj(CodeEmitter &ce, s8 offset) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  if (offset >= 0) {
-    aa64_emit_addi(reg_r13, reg_r13,  offset * 4);
-  } else {
-    aa64_emit_subi(reg_r13, reg_r13, -offset * 4);
+  template <AluOperation aluop>
+  inline void thumb_aluop3(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = arm_to_a64_reg[it.rs()];
+    u32 rn = arm_to_a64_reg[it.rn()];
+    u32 rd = arm_to_a64_reg[it.rd()];
+
+    switch (aluop) {
+    case OpAdd:
+      aa64_emit_adds(rd, rs, rn);
+      break;
+    case OpSub:
+      aa64_emit_subs(rd, rs, rn);
+      break;
+    };
+
+    update_nzcv_flags();
   }
-}
+
+  template <AluOperation aluop>
+  inline void thumb_aluop2(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = arm_to_a64_reg[it.rs()];
+    u32 rd = arm_to_a64_reg[it.rd()];
+
+    switch (aluop) {
+    case OpOrr:
+      aa64_emit_orr(rd, rd, rs);
+      update_nz_flags(rd);
+      break;
+    case OpAnd:
+      aa64_emit_and(rd, rd, rs);
+      update_nz_flags(rd);
+      break;
+    case OpXor:
+      aa64_emit_xor(rd, rd, rs);
+      update_nz_flags(rd);
+      break;
+    case OpBic:
+      aa64_emit_bic(rd, rd, rs);
+      update_nz_flags(rd);
+      break;
+    case OpMul:
+      aa64_emit_mul(rd, rd, rs);
+      update_nz_flags(rd);
+      break;
+    case OpAdd:
+      aa64_emit_adds(rd, rd, rs);
+      update_nzcv_flags();
+      break;
+    case OpSub:
+      aa64_emit_subs(rd, rd, rs);
+      update_nzcv_flags();
+      break;
+    case OpAdc:
+      load_c_flag();
+      aa64_emit_adcs(rd, rd, rs);
+      update_nzcv_flags();
+      break;
+    case OpSbc:
+      load_c_flag();
+      aa64_emit_sbcs(rd, rd, rs);
+      update_nzcv_flags();
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluop1(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = arm_to_a64_reg[it.rs()];
+    u32 rd = arm_to_a64_reg[it.rd()];
+
+    switch (aluop) {
+    case OpNeg:
+      aa64_emit_subs(rd, reg_zero, rs);
+      update_nzcv_flags();
+      break;
+    case OpMvn:
+      aa64_emit_orn(rd, reg_zero, rs);
+      update_nz_flags(rd);
+      break;
+    };
+  }
+
+  template <AluOperation testop>
+  inline void thumb_testop(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = arm_to_a64_reg[it.rs()];
+    u32 rd = arm_to_a64_reg[it.rd()];
+
+    switch (testop) {
+    case OpTst:
+      aa64_emit_and(reg_temp, rd, rs);
+      update_nz_flags(reg_temp);
+      break;
+    case OpCmp:
+      aa64_emit_subs(reg_zero, rd, rs);
+      update_nzcv_flags();
+      break;
+    case OpCmn:
+      aa64_emit_adds(reg_zero, rd, rs);
+      update_nzcv_flags();
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluimm2(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 rd = arm_to_a64_reg[it.rd8()];
+
+    switch (aluop) {
+    case OpMov:
+      aa64_emit_movlo(rd, it.imm8());
+      aa64_emit_movlo(reg_n_cache, 0);
+      aa64_emit_movlo(reg_z_cache, it.imm8() ? 0 : 1);
+      break;
+    case OpAdd:
+      aa64_emit_addis(rd, rd, it.imm8());
+      update_nzcv_flags();
+      break;
+    case OpSub:
+      aa64_emit_subis(rd, rd, it.imm8());
+      update_nzcv_flags();
+      break;
+    case OpCmp:
+      aa64_emit_subis(reg_temp, rd, it.imm8());
+      update_nzcv_flags();
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluimm3(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = arm_to_a64_reg[it.rs()];
+    u32 rd = arm_to_a64_reg[it.rd()];
+
+    switch (aluop) {
+    case OpAdd:
+      aa64_emit_addis(rd, rs, it.imm3());
+      break;
+    case OpSub:
+      aa64_emit_subis(rd, rs, it.imm3());
+      break;
+    };
+
+    update_nzcv_flags();
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
+
+    // TODO: Improve PC writes (reg_a0 *must* contain the new PC, which is not clear).
+    if (aluop == OpAdd) {
+      u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
+      aa64_emit_add(rd, rd, rs);
+      check_store_reg_pc_thumb(it.rd_hi());
+    } else if (aluop == OpCmp) {
+      u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
+      aa64_emit_subs(reg_temp, rd, rs);
+      update_nzcv_flags();
+    } else if (aluop == OpMov) {
+      u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
+      aa64_emit_mov(rd, rs);
+      check_store_reg_pc_thumb(it.rd_hi());
+    }
+  }
+
+  template <u32 ref_reg>
+  inline void thumb_regoff(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    if (ref_reg == REG_PC) {
+      generate_load_pc(arm_to_a64_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
+    } else {
+      aa64_emit_addi(arm_to_a64_reg[it.rd8()], arm_to_a64_reg[ref_reg], 4 * it.imm8());
+    }
+  }
+
+  inline void thumb_spadj(s8 offset) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (offset >= 0) {
+      aa64_emit_addi(reg_r13, reg_r13,  offset * 4);
+    } else {
+      aa64_emit_subi(reg_r13, reg_r13, -offset * 4);
+    }
+  }
+};
 
 
 #define arm_conditional_block_header()                                        \

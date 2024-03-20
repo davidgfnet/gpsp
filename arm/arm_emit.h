@@ -608,14 +608,6 @@ inline u32 thumb_prepare_load_reg(u8 * &translation_ptr, u32 scratch_reg, u32 re
   return scratch_reg;
 }
 
-inline u32 thumb_prepare_load_reg_pc(u8 * &translation_ptr, u32 scratch_reg, u32 reg_index, u32 pc_value) {
-  if(reg_index == REG_PC)
-  {
-    generate_load_pc(scratch_reg, pc_value);
-    return scratch_reg;
-  }
-  return thumb_prepare_load_reg(translation_ptr, scratch_reg, reg_index);
-}
 
 #define arm_complete_store_reg(scratch_reg, reg_index)                        \
 {                                                                             \
@@ -1804,199 +1796,218 @@ static void trace_instruction(u32 pc, u32 mode)
   block_exit_position++;                                                      \
 }                                                                             \
 
-template <AluOperation aluop>
-inline void thumb_aluop3(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
-  u32 rn = thumb_prepare_load_reg(translation_ptr, reg_rn, it.rn());
-  u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
 
-  switch (aluop) {
-  case OpAdd:
-    generate_op_adds_reg_immshift(rd, rs, rn, ARMSHIFT_LSL, 0);
-    break;
-  case OpSub:
-    generate_op_subs_reg_immshift(rd, rs, rn, ARMSHIFT_LSL, 0);
-    break;
-  };
+class CodeEmitter : public CodeEmitterBase {
+public:
+  CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
+   : CodeEmitterBase(emit_ptr, emit_end) {}
 
-  thumb_complete_store_reg(reg_rd, it.rd());
-}
+  // Register loading/allocation
+  inline u32 thumb_prepare_load_reg_pc(u32 scratch_reg, u32 reg_index, u32 pc_value) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
-template <AluOperation aluop>
-inline void thumb_aluop2(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
-  u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
+    if (reg_index != REG_PC)
+      return thumb_prepare_load_reg(translation_ptr, scratch_reg, reg_index);
 
-  switch (aluop) {
-  case OpOrr:
-    generate_op_orrs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpAnd:
-    generate_op_ands_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpXor:
-    generate_op_eors_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpBic:
-    generate_op_bics_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpMul:
-    generate_op_muls_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpAdd:
-    generate_op_adds_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpSub:
-    generate_op_subs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpAdc:
-    generate_op_adcs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpSbc:
-    generate_op_sbcs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  };
+    generate_load_pc(scratch_reg, pc_value);
+    return scratch_reg;
+  }
 
-  thumb_complete_store_reg(reg_rd, it.rd());
-}
+  // Thumb instruction set
+  template <AluOperation aluop>
+  inline void thumb_aluop3(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+    u32 rn = thumb_prepare_load_reg(translation_ptr, reg_rn, it.rn());
+    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
 
-template <AluOperation aluop>
-inline void thumb_aluop1(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
-  u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
+    switch (aluop) {
+    case OpAdd:
+      generate_op_adds_reg_immshift(rd, rs, rn, ARMSHIFT_LSL, 0);
+      break;
+    case OpSub:
+      generate_op_subs_reg_immshift(rd, rs, rn, ARMSHIFT_LSL, 0);
+      break;
+    };
 
-  switch (aluop) {
-  case OpNeg:
-    generate_load_imm(reg_rn, 0, 0);
-    generate_op_subs_reg_immshift(rd, reg_rn, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpMvn:
-    generate_op_mvns_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  };
+    thumb_complete_store_reg(reg_rd, it.rd());
+  }
 
-  thumb_complete_store_reg(reg_rd, it.rd());
-}
+  template <AluOperation aluop>
+  inline void thumb_aluop2(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+    u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
 
-template <AluOperation aluop>
-inline void thumb_aluimm2(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
+    switch (aluop) {
+    case OpOrr:
+      generate_op_orrs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpAnd:
+      generate_op_ands_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpXor:
+      generate_op_eors_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpBic:
+      generate_op_bics_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpMul:
+      generate_op_muls_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpAdd:
+      generate_op_adds_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpSub:
+      generate_op_subs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpAdc:
+      generate_op_adcs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpSbc:
+      generate_op_sbcs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    };
 
-  switch (aluop) {
-  case OpMov:
-    {
+    thumb_complete_store_reg(reg_rd, it.rd());
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluop1(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
+
+    switch (aluop) {
+    case OpNeg:
+      generate_load_imm(reg_rn, 0, 0);
+      generate_op_subs_reg_immshift(rd, reg_rn, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpMvn:
+      generate_op_mvns_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    };
+
+    thumb_complete_store_reg(reg_rd, it.rd());
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluimm2(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    switch (aluop) {
+    case OpMov:
+      {
+        u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
+        ARM_MOVS_REG_IMM(0, rd, it.imm8(), 0);
+        thumb_complete_store_reg(reg_rd, it.rd8());
+      }
+      break;
+    case OpAdd:
+      {
+        u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+        ARM_ADDS_REG_IMM(0, rd, rd, it.imm8(), 0);
+        thumb_complete_store_reg(reg_rd, it.rd8());
+      }
+      break;
+    case OpSub:
+      {
+        u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+        ARM_SUBS_REG_IMM(0, rd, rd, it.imm8(), 0);
+        thumb_complete_store_reg(reg_rd, it.rd8());
+      }
+      break;
+    case OpCmp:
+      {
+        u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+        ARM_CMP_REG_IMM(0, rd, it.imm8(), 0);
+      }
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluimm3(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
+
+    switch (aluop) {
+    case OpAdd:
+      ARM_ADDS_REG_IMM(0, rd, rs, it.imm3(), 0);
+      break;
+    case OpSub:
+      ARM_SUBS_REG_IMM(0, rd, rs, it.imm3(), 0);
+      break;
+    };
+
+    thumb_complete_store_reg(reg_rd, it.rd());
+  }
+
+  template <AluOperation testop>
+  inline void thumb_testop(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+    u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
+
+    switch (testop) {
+    case OpTst:
+      generate_op_tst_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpCmp:
+      generate_op_cmp_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    case OpCmn:
+      generate_op_cmn_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
+      break;
+    };
+  }
+
+  template <AluOperation aluop>
+  inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rs = thumb_prepare_load_reg_pc(reg_rn, it.rs_hi(), it.pc + 4);
+
+    if (aluop == OpAdd) {
+      u32 rd = thumb_prepare_load_reg_pc(reg_rd, it.rd_hi(), it.pc + 4);
+      generate_op_add_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      complete_store_reg_pc_thumb();
+    } else if (aluop == OpCmp) {
+      u32 rd = thumb_prepare_load_reg_pc(reg_rd, it.rd_hi(), it.pc + 4);
+      generate_op_cmp_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
+    } else if (aluop == OpMov) {
+      u32 rd = thumb_prepare_store_reg(reg_rd, it.rd_hi());
+      ARM_MOV_REG_REG(0, rd, rs);
+      complete_store_reg_pc_thumb();
+    }
+  }
+
+  template <u32 ref_reg>
+  inline void thumb_regoff(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (ref_reg == REG_PC) {
       u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
-      ARM_MOVS_REG_IMM(0, rd, it.imm8(), 0);
+      generate_load_pc(rd, (it.pc & ~2) + 4 + 4 * it.imm8());
+      thumb_complete_store_reg(reg_rd, it.rd8());
+    } else {
+      u32 sreg = thumb_prepare_load_reg(translation_ptr, reg_a0, ref_reg);
+      u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
+      ARM_ADD_REG_IMM(0, rd, sreg, it.imm8(), arm_imm_lsl_to_rot(2));  /* Scaled by 4 */
       thumb_complete_store_reg(reg_rd, it.rd8());
     }
-    break;
-  case OpAdd:
-    {
-      u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
-      ARM_ADDS_REG_IMM(0, rd, rd, it.imm8(), 0);
-      thumb_complete_store_reg(reg_rd, it.rd8());
-    }
-    break;
-  case OpSub:
-    {
-      u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
-      ARM_SUBS_REG_IMM(0, rd, rd, it.imm8(), 0);
-      thumb_complete_store_reg(reg_rd, it.rd8());
-    }
-    break;
-  case OpCmp:
-    {
-      u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
-      ARM_CMP_REG_IMM(0, rd, it.imm8(), 0);
-    }
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluimm3(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
-  u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
-
-  switch (aluop) {
-  case OpAdd:
-    ARM_ADDS_REG_IMM(0, rd, rs, it.imm3(), 0);
-    break;
-  case OpSub:
-    ARM_SUBS_REG_IMM(0, rd, rs, it.imm3(), 0);
-    break;
-  };
-
-  thumb_complete_store_reg(reg_rd, it.rd());
-}
-
-template <AluOperation testop>
-inline void thumb_testop(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
-  u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
-
-  switch (testop) {
-  case OpTst:
-    generate_op_tst_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpCmp:
-    generate_op_cmp_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  case OpCmn:
-    generate_op_cmn_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
-    break;
-  };
-}
-
-template <AluOperation aluop>
-inline void thumb_aluhi(CodeEmitter &ce, const ThumbInst & it, u32 & cycle_count) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 rs = thumb_prepare_load_reg_pc(translation_ptr, reg_rn, it.rs_hi(), it.pc + 4);
-
-  if (aluop == OpAdd) {
-    u32 rd = thumb_prepare_load_reg_pc(translation_ptr, reg_rd, it.rd_hi(), it.pc + 4);
-    generate_op_add_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    complete_store_reg_pc_thumb();
-  } else if (aluop == OpCmp) {
-    u32 rd = thumb_prepare_load_reg_pc(translation_ptr, reg_rd, it.rd_hi(), it.pc + 4);
-    generate_op_cmp_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
-  } else if (aluop == OpMov) {
-    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd_hi());
-    ARM_MOV_REG_REG(0, rd, rs);
-    complete_store_reg_pc_thumb();
   }
-}
 
-template <u32 ref_reg>
-inline void thumb_regoff(CodeEmitter &ce, const ThumbInst & it) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  if (ref_reg == REG_PC) {
-    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
-    generate_load_pc(rd, (it.pc & ~2) + 4 + 4 * it.imm8());
-    thumb_complete_store_reg(reg_rd, it.rd8());
-  } else {
-    u32 sreg = thumb_prepare_load_reg(translation_ptr, reg_a0, ref_reg);
-    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
-    ARM_ADD_REG_IMM(0, rd, sreg, it.imm8(), arm_imm_lsl_to_rot(2));  /* Scaled by 4 */
-    thumb_complete_store_reg(reg_rd, it.rd8());
+  inline void thumb_spadj(s8 offset) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 sp = thumb_prepare_load_reg(translation_ptr, reg_a0, REG_SP);
+    if (offset >= 0) {
+      ARM_ADD_REG_IMM(0, sp, sp,  offset, arm_imm_lsl_to_rot(2));
+    } else {
+      ARM_SUB_REG_IMM(0, sp, sp, -offset, arm_imm_lsl_to_rot(2));
+    }
+    thumb_complete_store_reg(reg_a0, REG_SP);
   }
-}
-
-inline void thumb_spadj(CodeEmitter &ce, s8 offset) {
-  u8 * &translation_ptr = ce.emit_ptr;   // TODO: Remove this
-  u32 sp = thumb_prepare_load_reg(translation_ptr, reg_a0, REG_SP);
-  if (offset >= 0) {
-    ARM_ADD_REG_IMM(0, sp, sp,  offset, arm_imm_lsl_to_rot(2));
-  } else {
-    ARM_SUB_REG_IMM(0, sp, sp, -offset, arm_imm_lsl_to_rot(2));
-  }
-  thumb_complete_store_reg(reg_a0, REG_SP);
-}
+};
 
 #define arm_conditional_block_header()                                        \
   generate_cycle_update();                                                    \

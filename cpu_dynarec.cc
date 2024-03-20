@@ -1786,39 +1786,39 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x18 ... 0x19:      /* ADD rd, rs, rn */                             \
-      thumb_aluop3<OpAdd>(ce, inst);                                          \
+      ce.thumb_aluop3<OpAdd>(inst);                                           \
       break;                                                                  \
     case 0x1A ... 0x1B:      /* SUB rd, rs, rn */                             \
-      thumb_aluop3<OpSub>(ce, inst);                                          \
+      ce.thumb_aluop3<OpSub>(inst);                                           \
       break;                                                                  \
     case 0x1C ... 0x1D:      /* ADD rd, rs, imm */                            \
-      thumb_aluimm3<OpAdd>(ce, inst);                                         \
+      ce.thumb_aluimm3<OpAdd>(inst);                                          \
       break;                                                                  \
     case 0x1E ... 0x1F:      /* SUB rd, rs, imm */                            \
-      thumb_aluimm3<OpSub>(ce, inst);                                         \
+      ce.thumb_aluimm3<OpSub>(inst);                                          \
       break;                                                                  \
                                                                               \
     case 0x20 ... 0x27:      /* MOV r0..7, imm8 */                            \
-      thumb_aluimm2<OpMov>(ce, inst);                                         \
+      ce.thumb_aluimm2<OpMov>(inst);                                          \
       break;                                                                  \
     case 0x28 ... 0x2F:      /* CMP r0..7, imm8 */                            \
-      thumb_aluimm2<OpCmp>(ce, inst);                                         \
+      ce.thumb_aluimm2<OpCmp>(inst);                                          \
       break;                                                                  \
     case 0x30 ... 0x37:      /* ADD r0..7, imm8 */                            \
-      thumb_aluimm2<OpAdd>(ce, inst);                                         \
+      ce.thumb_aluimm2<OpAdd>(inst);                                          \
       break;                                                                  \
     case 0x38 ... 0x3F:      /* SUB r0..7, imm8 */                            \
-      thumb_aluimm2<OpSub>(ce, inst);                                         \
+      ce.thumb_aluimm2<OpSub>(inst);                                          \
       break;                                                                  \
                                                                               \
     case 0x40 ... 0x43:                                                       \
        /* Arith/Logic reg-reg instructions */                                 \
       switch((inst.opcode >> 6) & 0xF) {                                      \
         case 0x00:           /* AND rd, rs */                                 \
-          thumb_aluop2<OpAnd>(ce, inst);                                      \
+          ce.thumb_aluop2<OpAnd>(inst);                                       \
           break;                                                              \
         case 0x01:           /* EOR rd, rs */                                 \
-          thumb_aluop2<OpXor>(ce, inst);                                      \
+          ce.thumb_aluop2<OpXor>(inst);                                       \
           break;                                                              \
                                                                               \
         case 0x02:                                                            \
@@ -1837,10 +1837,10 @@ void translate_icache_sync() {
           break;                                                              \
                                                                               \
         case 0x05:           /* ADC rd, rs */                                 \
-          thumb_aluop2<OpAdc>(ce, inst);                                      \
+          ce.thumb_aluop2<OpAdc>(inst);                                       \
           break;                                                              \
         case 0x06:           /* SBC rd, rs */                                 \
-          thumb_aluop2<OpSbc>(ce, inst);                                      \
+          ce.thumb_aluop2<OpSbc>(inst);                                       \
           break;                                                              \
                                                                               \
         case 0x07:                                                            \
@@ -1849,42 +1849,42 @@ void translate_icache_sync() {
           break;                                                              \
                                                                               \
         case 0x08:           /* TST rd, rs */                                 \
-          thumb_testop<OpTst>(ce, inst);                                      \
+          ce.thumb_testop<OpTst>(inst);                                       \
           break;                                                              \
         case 0x09:           /* NEG rd, rs */                                 \
-          thumb_aluop1<OpNeg>(ce, inst);                                      \
+          ce.thumb_aluop1<OpNeg>(inst);                                       \
           break;                                                              \
         case 0x0A:           /* CMP rd, rs */                                 \
-          thumb_testop<OpCmp>(ce, inst);                                      \
+          ce.thumb_testop<OpCmp>(inst);                                       \
           break;                                                              \
         case 0x0B:           /* CMN rd, rs */                                 \
-          thumb_testop<OpCmn>(ce, inst);                                      \
+          ce.thumb_testop<OpCmn>(inst);                                       \
           break;                                                              \
                                                                               \
         case 0x0C:           /* ORR rd, rs */                                 \
-          thumb_aluop2<OpOrr>(ce, inst);                                      \
+          ce.thumb_aluop2<OpOrr>(inst);                                       \
           break;                                                              \
         case 0x0D:           /* MUL rd, rs */                                 \
-          thumb_aluop2<OpMul>(ce, inst);                                      \
+          ce.thumb_aluop2<OpMul>(inst);                                       \
           cycle_count += 2;  /* Between 1 and 4 extra cycles */               \
           break;                                                              \
         case 0x0E:           /* BIC rd, rs */                                 \
-          thumb_aluop2<OpBic>(ce, inst);                                      \
+          ce.thumb_aluop2<OpBic>(inst);                                       \
           break;                                                              \
         case 0x0F:           /* MVN rd, rs */                                 \
-          thumb_aluop1<OpMvn>(ce, inst);                                      \
+          ce.thumb_aluop1<OpMvn>(inst);                                       \
           break;                                                              \
       }                                                                       \
       break;                                                                  \
                                                                               \
     case 0x44:     /* ADD rd, rs */                                           \
-      thumb_aluhi<OpAdd>(ce, inst, cycle_count);                              \
+      ce.thumb_aluhi<OpAdd>(inst, cycle_count);                               \
       break;                                                                  \
     case 0x45:     /* CMP rd, rs */                                           \
-      thumb_aluhi<OpCmp>(ce, inst, cycle_count);                              \
+      ce.thumb_aluhi<OpCmp>(inst, cycle_count);                               \
       break;                                                                  \
     case 0x46:     /* MOV rd, rs */                                           \
-      thumb_aluhi<OpMov>(ce, inst, cycle_count);                              \
+      ce.thumb_aluhi<OpMov>(inst, cycle_count);                               \
       break;                                                                  \
                                                                               \
     case 0x47:                                                                \
@@ -1908,75 +1908,48 @@ void translate_icache_sync() {
       }                                                                       \
       break;                                                                  \
                                                                               \
-    case 0x50 ... 0x51:                                                       \
-      /* STR rd, [rb + ro] */                                                 \
+    case 0x50 ... 0x51:      /* STR rd, [rb + ro] */                          \
       thumb_access_memory(store, mem_reg, rd, rb, ro, reg_reg, 0, u32);       \
       break;                                                                  \
-                                                                              \
-    case 0x52 ... 0x53:                                                       \
-      /* STRH rd, [rb + ro] */                                                \
+    case 0x52 ... 0x53:      /* STRH rd, [rb + ro] */                         \
       thumb_access_memory(store, mem_reg, rd, rb, ro, reg_reg, 0, u16);       \
       break;                                                                  \
-                                                                              \
-    case 0x54 ... 0x55:                                                       \
-      /* STRB rd, [rb + ro] */                                                \
+    case 0x54 ... 0x55:      /* STRB rd, [rb + ro] */                         \
       thumb_access_memory(store, mem_reg, rd, rb, ro, reg_reg, 0, u8);        \
       break;                                                                  \
                                                                               \
-    case 0x56 ... 0x57:                                                       \
-      /* LDSB rd, [rb + ro] */                                                \
+    case 0x56 ... 0x57:      /* LDSB rd, [rb + ro] */                         \
       thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, s8);         \
       break;                                                                  \
-                                                                              \
-    case 0x58 ... 0x59:                                                       \
-      /* LDR rd, [rb + ro] */                                                 \
+    case 0x58 ... 0x59:      /* LDR rd, [rb + ro] */                          \
       thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, u32);        \
       break;                                                                  \
-                                                                              \
-    case 0x5A ... 0x5B:                                                       \
-      /* LDRH rd, [rb + ro] */                                                \
+    case 0x5A ... 0x5B:      /* LDRH rd, [rb + ro] */                         \
       thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, u16);        \
       break;                                                                  \
-                                                                              \
-    case 0x5C ... 0x5D:                                                       \
-      /* LDRB rd, [rb + ro] */                                                \
+    case 0x5C ... 0x5D:      /* LDRB rd, [rb + ro] */                         \
       thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, u8);         \
       break;                                                                  \
-                                                                              \
-    case 0x5E ... 0x5F:                                                       \
-      /* LDSH rd, [rb + ro] */                                                \
+    case 0x5E ... 0x5F:      /* LDSH rd, [rb + ro] */                         \
       thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, s16);        \
       break;                                                                  \
                                                                               \
-    case 0x60 ... 0x67:                                                       \
-      /* STR rd, [rb + imm] */                                                \
-      thumb_access_memory(store, mem_imm, rd, rb, 0, reg_imm, (imm * 4),      \
-       u32);                                                                  \
+    case 0x60 ... 0x67:      /* STR rd, [rb + imm] */                         \
+      thumb_access_memory(store, mem_imm, rd, rb, 0, reg_imm, (imm * 4), u32);\
       break;                                                                  \
-                                                                              \
-    case 0x68 ... 0x6F:                                                       \
-      /* LDR rd, [rb + imm] */                                                \
+    case 0x68 ... 0x6F:      /* LDR rd, [rb + imm] */                         \
       thumb_access_memory(load, mem_imm, rd, rb, 0, reg_imm, (imm * 4), u32); \
       break;                                                                  \
-                                                                              \
-    case 0x70 ... 0x77:                                                       \
-      /* STRB rd, [rb + imm] */                                               \
+    case 0x70 ... 0x77:      /* STRB rd, [rb + imm] */                        \
       thumb_access_memory(store, mem_imm, rd, rb, 0, reg_imm, imm, u8);       \
       break;                                                                  \
-                                                                              \
-    case 0x78 ... 0x7F:                                                       \
-      /* LDRB rd, [rb + imm] */                                               \
+    case 0x78 ... 0x7F:      /* LDRB rd, [rb + imm] */                        \
       thumb_access_memory(load, mem_imm, rd, rb, 0, reg_imm, imm, u8);        \
       break;                                                                  \
-                                                                              \
-    case 0x80 ... 0x87:                                                       \
-      /* STRH rd, [rb + imm] */                                               \
-      thumb_access_memory(store, mem_imm, rd, rb, 0, reg_imm,                 \
-       (imm * 2), u16);                                                       \
+    case 0x80 ... 0x87:      /* STRH rd, [rb + imm] */                        \
+      thumb_access_memory(store, mem_imm, rd, rb, 0, reg_imm, (imm * 2), u16);\
       break;                                                                  \
-                                                                              \
-    case 0x88 ... 0x8F:                                                       \
-      /* LDRH rd, [rb + imm] */                                               \
+    case 0x88 ... 0x8F:      /* LDRH rd, [rb + imm] */                        \
       thumb_access_memory(load, mem_imm, rd, rb, 0, reg_imm, (imm * 2), u16); \
       break;                                                                  \
                                                                               \
@@ -1984,7 +1957,6 @@ void translate_icache_sync() {
     case 0x90 ... 0x97:                                                       \
       thumb_access_memory(store, imm, inst.rd8(), 13, 0,reg_imm_sp, imm, u32);\
       break;                                                                  \
-                                                                              \
     /* LDR r0..7, [sp + imm] */                                               \
     case 0x98 ... 0x9F:                                                       \
       thumb_access_memory(load, imm, inst.rd8(), 13, 0, reg_imm_sp, imm, u32);\
@@ -1992,15 +1964,15 @@ void translate_icache_sync() {
                                                                               \
     /* ADD r0..7, pc, +imm */                                                 \
     case 0xA0 ... 0xA7:                                                       \
-      thumb_regoff<REG_PC>(ce, inst);                                         \
+      ce.thumb_regoff<REG_PC>(inst);                                          \
       break;                                                                  \
     /* ADD r0..7, sp, +imm */                                                 \
     case 0xA8 ... 0xAF:                                                       \
-      thumb_regoff<REG_SP>(ce, inst);                                         \
+      ce.thumb_regoff<REG_SP>(inst);                                          \
       break;                                                                  \
     /* ADD sp, sp, +/-imm */                                                  \
     case 0xB0 ... 0xB3:                                                       \
-      thumb_spadj(ce, inst.imm71());                                          \
+      ce.thumb_spadj(inst.imm71());                                           \
       break;                                                                  \
                                                                               \
     case 0xB4:                                                                \

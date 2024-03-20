@@ -37,14 +37,13 @@ public:
   u32 pc;
 };
 
-class CodeEmitter {
+class CodeEmitterBase {
 public:
-  CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
-   : emit_ptr(emit_ptr), emit_end(emit_end), block_pc(pc) {}
+  CodeEmitterBase(u8 *emit_ptr, u8 *emit_end)
+   : emit_ptr(emit_ptr), emit_end(emit_end) {}
 
   u8 *emit_ptr;              // Points to the JIT buffer, so we can emit code.
   u8 *emit_end;              // Points to the "end" of the JIT buffer
-  u32 block_pc;              // PC address for the block base
 };
 
 #endif

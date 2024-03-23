@@ -1813,6 +1813,16 @@ public:
     return scratch_reg;
   }
 
+  inline u32 arm_prepare_load_reg_pc(u32 scratch_reg, u32 reg_index, u32 pc_value) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    if (reg_index != REG_PC)
+      return arm_prepare_load_reg(translation_ptr, scratch_reg, reg_index);
+
+    generate_load_pc(scratch_reg, pc_value);
+    return scratch_reg;
+  }
+
   // Thumb instruction set
   template <AluOperation aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
@@ -2006,6 +2016,99 @@ public:
       ARM_SUB_REG_IMM(0, sp, sp, -offset, arm_imm_lsl_to_rot(2));
     }
     thumb_complete_store_reg(reg_a0, REG_SP);
+  }
+
+
+  // ======== ARM instructions ======================================
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_aluimm(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
+    u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
+
+    // Immediate is a 8 bit rotated immediate
+    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
+    const u32 imm8 = it.imm8();
+
+    switch (aluop) {
+    case OpAnd:
+      if (flg == SetFlags) {
+        ARM_ANDS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_AND_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpOrr:
+      if (flg == SetFlags) {
+        ARM_ORRS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_ORR_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpXor:
+      if (flg == SetFlags) {
+        ARM_EORS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_EOR_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpBic:
+      if (flg == SetFlags) {
+        ARM_BICS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_BIC_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpAdd:
+      if (flg == SetFlags) {
+        ARM_ADDS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_ADD_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpAdc:
+      if (flg == SetFlags) {
+        ARM_ADCS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_ADC_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpSub:
+      if (flg == SetFlags) {
+        ARM_SUBS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_SUB_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpRsb:
+      if (flg == SetFlags) {
+        ARM_RSBS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_RSB_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpSbc:
+      if (flg == SetFlags) {
+        ARM_SBCS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_SBC_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    case OpRsc:
+      if (flg == SetFlags) {
+        ARM_RSCS_REG_IMM(0, rd, rn, imm8, sa);
+      } else {
+        ARM_RSC_REG_IMM(0, rd, rn, imm8, sa);
+      }
+      break;
+    };
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == SetFlags) {
+      arm_complete_store_reg_pc_flags(reg_rd, it.rd());
+    } else {
+      arm_complete_store_reg_pc_no_flags(reg_rd, it.rd());
+    }
   }
 };
 

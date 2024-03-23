@@ -91,6 +91,9 @@ typedef enum
 #define aa64_emit_addis(rd, rs, imm)                                          \
   aa64_emit_inst(addsubi, 1, rd, rs, (imm) << 10)                             \
 
+#define aa64_emit_addis12(rd, rs, imm)                                        \
+  aa64_emit_inst(addsubi, 1, rd, rs, ((imm) << 10) | (1 << 22))               \
+
 #define aa64_emit_subi(rd, rs, imm)                                           \
   aa64_emit_inst(addsubi, 2, rd, rs, (imm) << 10)                             \
 
@@ -99,6 +102,9 @@ typedef enum
 
 #define aa64_emit_subis(rd, rs, imm)                                          \
   aa64_emit_inst(addsubi, 3, rd, rs, (imm) << 10)                             \
+
+#define aa64_emit_subis12(rd, rs, imm)                                        \
+  aa64_emit_inst(addsubi, 3, rd, rs, ((imm) << 10) | (1 << 22))               \
 
 /* rd = ra + rn * rm */
 #define aa64_emit_madd(rd, ra, rn, rm)                                        \

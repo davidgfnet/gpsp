@@ -65,6 +65,11 @@ int main() {
   aa64_emit_subis(29, 30, 0x123);
   aa64_emit_subis(29, 30, 0xFFF);
 
+  aa64_emit_addis12(29, 30, 0x123);
+  aa64_emit_addis12(29, 30, 0xFFF);
+  aa64_emit_subis12(29, 30, 0x123);
+  aa64_emit_subis12(29, 30, 0xFFF);
+
   aa64_emit_madd(2, 5, 3, 4);
   aa64_emit_madd(25, 28, 26, 27);
   aa64_emit_msub(2, 5, 3, 4);

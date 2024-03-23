@@ -54,6 +54,11 @@ adds w29, w30, #0xFFF
 subs w29, w30, #0x123
 subs w29, w30, #0xFFF
 
+adds w29, w30, #0x123000
+adds w29, w30, #0xFFF000
+subs w29, w30, #0x123000
+subs w29, w30, #0xFFF000
+
 madd w2, w3, w4, w5
 madd w25, w26, w27, w28
 msub w2, w3, w4, w5

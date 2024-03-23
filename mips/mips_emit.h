@@ -1779,6 +1779,15 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
     mips_emit_srl(reg_v_cache, reg_v_cache, 31);                              \
   }
 
+inline bool isimm16(u32 imm) {
+  return (imm & 0xFFFF0000) == 0;
+}
+
+inline bool isimm16s(u32 imm) {
+  s32 si = (s32)imm;
+  return si >= -32768 && si  <= 32767;
+}
+
 class CodeEmitter : public CodeEmitterBase {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
@@ -1979,6 +1988,144 @@ public:
   inline void thumb_spadj(s8 offset) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     mips_emit_addiu(reg_r13, reg_r13, (offset * 4));
+  }
+
+
+  // ======== ARM instructions ======================================
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_aluimm(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
+    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+
+    // Immediate is a 8 bit rotated immediate
+    u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
+    u32 imm = rotr32(it.imm8(), sa);
+
+    // Set/Clear carry flag if appropriate (rotation result)
+    if (aluop == OpAnd || aluop == OpOrr || aluop == OpXor || aluop == OpBic) {
+      if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
+        mips_emit_addiu(reg_c_cache, reg_zero, ((imm) >> 31));
+      }
+    }
+
+    // TODO: Implement arm64 immediates for logic operations.
+    // Should be easy for 8 bit rotated immediates.
+    switch (aluop) {
+    case OpBic:
+      imm = ~imm;
+      /* fallthrough */
+    case OpAnd:
+      if (isimm16(imm)) {
+        mips_emit_andi(rd, rn, imm);
+      } else {
+        generate_load_imm(reg_temp, imm);
+        mips_emit_and(rd, rn, reg_temp);
+      }
+      if (flg == SetFlags) {
+        update_nz_flags(rd);
+      }
+      break;
+    case OpOrr:
+      if (isimm16(imm)) {
+        mips_emit_ori(rd, rn, imm);
+      } else {
+        generate_load_imm(reg_temp, imm);
+        mips_emit_or(rd, rn, reg_temp);
+      }
+      if (flg == SetFlags) {
+        update_nz_flags(rd);
+      }
+      break;
+    case OpXor:
+      if (isimm16(imm)) {
+        mips_emit_xori(rd, rn, imm);
+      } else {
+        generate_load_imm(reg_temp, imm);
+        mips_emit_xor(rd, rn, reg_temp);
+      }
+      if (flg == SetFlags) {
+        update_nz_flags(rd);
+      }
+      break;
+    case OpAdd:
+      if (flg == NoFlags) {
+        if (isimm16s(imm)) {
+          mips_emit_addiu(rd, rn, imm);
+        } else {
+          generate_load_imm(reg_temp, imm);
+          mips_emit_addu(rd, rn, reg_temp);
+        }
+      } else {
+        generate_load_imm(reg_temp, imm);
+        generate_op_adds_reg(rd, rn, reg_temp);
+      }
+      break;
+    case OpAdc:
+      if (flg == NoFlags) {
+        if (isimm16s(imm)) {
+          mips_emit_addiu(rd, rn, imm);
+          mips_emit_addu(rd, rd, reg_c_cache);
+        } else {
+          generate_load_imm(reg_temp, imm);
+          mips_emit_addu(rd, rn, reg_temp);
+          mips_emit_addu(rd, rd, reg_c_cache);
+        }
+      } else {
+        generate_load_imm(reg_temp, imm);
+        generate_op_adcs_reg(rd, rn, reg_temp);
+      }
+      break;
+    case OpSub:
+      if (flg == NoFlags) {
+        if (isimm16s(-imm)) {
+          mips_emit_addiu(rd, rn, -imm);
+        } else {
+          generate_load_imm(reg_temp, imm);
+          mips_emit_subu(rd, rn, reg_temp);
+        }
+      } else {
+        generate_load_imm(reg_temp, imm);
+        generate_op_subs_reg(rd, rn, reg_temp);
+      }
+      break;
+    case OpRsb:
+      generate_load_imm(reg_temp, imm);
+      if (flg == NoFlags) {
+        mips_emit_subu(rd, reg_temp, rn);
+      } else {
+        generate_op_subs_reg(rd, reg_temp, rn);
+      }
+      break;
+    case OpSbc:
+      generate_load_imm(reg_a2, imm);
+      if (flg == NoFlags) {
+        mips_emit_xori(reg_temp, reg_c_cache, 1);
+        mips_emit_subu(rd, rn, reg_a2);
+        mips_emit_subu(rd, rd, reg_temp);
+      } else {
+        generate_op_sbcs_reg(rd, rn, reg_a2);
+      }
+      break;
+    case OpRsc:
+      generate_load_imm(reg_a2, imm);
+      if (flg == NoFlags) {
+        mips_emit_xori(reg_temp, reg_c_cache, 1);
+        mips_emit_subu(rd, reg_a2, rn);
+        mips_emit_subu(rd, rd, reg_temp);
+      } else {
+        generate_op_sbcs_reg(rd, reg_a2, rn);
+      }
+      break;
+    };
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == NoFlags) {
+      check_store_reg_pc_no_flags(it.rd());
+    } else {
+      check_store_reg_pc_flags(it.rd());
+    }
   }
 };
 

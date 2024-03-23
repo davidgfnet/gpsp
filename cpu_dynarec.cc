@@ -96,10 +96,15 @@ typedef struct
 typedef enum {
   OpAnd, OpOrr, OpXor, OpBic,
   OpAdd, OpAdc, OpSub, OpSbc,
+  OpRsb, OpRsc,
   OpMul,
   OpNeg, OpMov, OpMvn,
   OpTst, OpCmp, OpCmn
 } AluOperation;
+
+typedef enum {
+  NoFlags, SetFlags
+} FlagOperation;
 
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
@@ -302,6 +307,7 @@ void translate_icache_sync() {
   check_pc_region(pc);                                                        \
   opcode = address32(pc_address_block, (pc & 0x7FFF));                        \
   condition = block_data[block_data_position].condition;                      \
+  ARMInst inst(pc, opcode, flag_status);                                      \
                                                                               \
   if((condition != last_condition) || (condition >= 0x20))                    \
   {                                                                           \
@@ -1093,84 +1099,53 @@ void translate_icache_sync() {
       }                                                                       \
       break;                                                                  \
                                                                               \
-    case 0x20:                                                                \
-      /* AND rd, rn, imm */                                                   \
-      arm_data_proc(and, imm, no_flags);                                      \
+    case 0x20:     /* AND rd, rn, imm */                                      \
+      ce.arm_aluimm<OpAnd, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x21:                                                                \
-      /* ANDS rd, rn, imm */                                                  \
-      arm_data_proc(ands, imm_flags, flags);                                  \
+    case 0x21:     /* ANDS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpAnd, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x22:                                                                \
-      /* EOR rd, rn, imm */                                                   \
-      arm_data_proc(eor, imm, no_flags);                                      \
+    case 0x22:     /* EOR rd, rn, imm */                                      \
+      ce.arm_aluimm<OpXor, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x23:                                                                \
-      /* EORS rd, rn, imm */                                                  \
-      arm_data_proc(eors, imm_flags, flags);                                  \
+    case 0x23:     /* EORS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpXor, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x24:                                                                \
-      /* SUB rd, rn, imm */                                                   \
-      arm_data_proc(sub, imm, no_flags);                                      \
+    case 0x24:     /* SUB rd, rn, imm */                                      \
+      ce.arm_aluimm<OpSub, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x25:                                                                \
-      /* SUBS rd, rn, imm */                                                  \
-      arm_data_proc(subs, imm, flags);                                        \
+    case 0x25:     /* SUBS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpSub, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x26:                                                                \
-      /* RSB rd, rn, imm */                                                   \
-      arm_data_proc(rsb, imm, no_flags);                                      \
+    case 0x26:     /* RSB rd, rn, imm */                                      \
+      ce.arm_aluimm<OpRsb, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x27:                                                                \
-      /* RSBS rd, rn, imm */                                                  \
-      arm_data_proc(rsbs, imm, flags);                                        \
+    case 0x27:     /* RSBS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpRsb, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x28:                                                                \
-      /* ADD rd, rn, imm */                                                   \
-      arm_data_proc(add, imm, no_flags);                                      \
+    case 0x28:     /* ADD rd, rn, imm */                                      \
+      ce.arm_aluimm<OpAdd, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x29:                                                                \
-      /* ADDS rd, rn, imm */                                                  \
-      arm_data_proc(adds, imm, flags);                                        \
+    case 0x29:     /* ADDS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpAdd, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x2A:                                                                \
-      /* ADC rd, rn, imm */                                                   \
-      arm_data_proc(adc, imm, no_flags);                                      \
+    case 0x2A:     /* ADC rd, rn, imm */                                      \
+      ce.arm_aluimm<OpAdc, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x2B:                                                                \
-      /* ADCS rd, rn, imm */                                                  \
-      arm_data_proc(adcs, imm, flags);                                        \
+    case 0x2B:     /* ADCS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpAdc, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x2C:                                                                \
-      /* SBC rd, rn, imm */                                                   \
-      arm_data_proc(sbc, imm, no_flags);                                      \
+    case 0x2C:     /* SBC rd, rn, imm */                                      \
+      ce.arm_aluimm<OpSbc, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x2D:                                                                \
-      /* SBCS rd, rn, imm */                                                  \
-      arm_data_proc(sbcs, imm, flags);                                        \
+    case 0x2D:     /* SBCS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpSbc, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x2E:                                                                \
-      /* RSC rd, rn, imm */                                                   \
-      arm_data_proc(rsc, imm, no_flags);                                      \
+    case 0x2E:     /* RSC rd, rn, imm */                                      \
+      ce.arm_aluimm<OpRsc, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x2F:                                                                \
-      /* RSCS rd, rn, imm */                                                  \
-      arm_data_proc(rscs, imm, flags);                                        \
+    case 0x2F:     /* RSCS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpRsc, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
                                                                               \
     case 0x30 ... 0x31:                                                       \
@@ -1203,14 +1178,11 @@ void translate_icache_sync() {
       arm_data_proc_test(cmn, imm);                                           \
       break;                                                                  \
                                                                               \
-    case 0x38:                                                                \
-      /* ORR rd, rn, imm */                                                   \
-      arm_data_proc(orr, imm, no_flags);                                      \
+    case 0x38:     /* ORR rd, rn, imm */                                      \
+      ce.arm_aluimm<OpOrr, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x39:                                                                \
-      /* ORRS rd, rn, imm */                                                  \
-      arm_data_proc(orrs, imm_flags, flags);                                  \
+    case 0x39:     /* ORRS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpOrr, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
                                                                               \
     case 0x3A:                                                                \
@@ -1223,14 +1195,11 @@ void translate_icache_sync() {
       arm_data_proc_unary(movs, imm_flags, flags);                            \
       break;                                                                  \
                                                                               \
-    case 0x3C:                                                                \
-      /* BIC rd, rn, imm */                                                   \
-      arm_data_proc(bic, imm, no_flags);                                      \
+    case 0x3C:     /* BIC rd, rn, imm */                                      \
+      ce.arm_aluimm<OpBic, NoFlags>(inst, cycle_count);                       \
       break;                                                                  \
-                                                                              \
-    case 0x3D:                                                                \
-      /* BICS rd, rn, imm */                                                  \
-      arm_data_proc(bics, imm_flags, flags);                                  \
+    case 0x3D:     /* BICS rd, rn, imm */                                     \
+      ce.arm_aluimm<OpBic, SetFlags>(inst, cycle_count);                      \
       break;                                                                  \
                                                                               \
     case 0x3E:                                                                \
@@ -2807,8 +2776,6 @@ bool translate_block_arm(u32 pc, bool ram_region)
   u32 cycle_count = 0;
   u8 *translation_target;
   u8 *backpatch_address = NULL;
-  u8 *translation_ptr = NULL;
-  u8 *translation_cache_limit = NULL;
   u32 flag_status;
   block_exit_type external_block_exits[MAX_EXITS];
   generate_block_extra_vars_arm();
@@ -2816,24 +2783,6 @@ bool translate_block_arm(u32 pc, bool ram_region)
 
   if(!pc_address_block)
     pc_address_block = load_gamepak_page(pc_region & 0x3FF);
-
-  if (ram_region) {
-    translation_ptr = ram_translation_ptr;
-    translation_cache_limit = &ram_translation_cache[
-       RAM_TRANSLATION_CACHE_SIZE - TRANSLATION_CACHE_LIMIT_THRESHOLD
-       - (0x10000 - ram_block_tag) / 2 * sizeof(ramtag_type)];
-  } else {
-    translation_ptr = rom_translation_ptr;
-    translation_cache_limit =
-     rom_translation_cache + ROM_TRANSLATION_CACHE_SIZE -
-     TRANSLATION_CACHE_LIMIT_THRESHOLD;
-  }
-
-  generate_block_prologue();
-
-  /* This is a function because it's used a lot more than it might seem (all
-     of the data processing functions can access it), and its expansion was
-     massacreing the compiler. */
 
   if(ram_region)
   {
@@ -2843,6 +2792,19 @@ bool translate_block_arm(u32 pc, bool ram_region)
   {
     scan_block(arm, no);
   }
+
+  u8 *jitbuf = ram_region ? ram_translation_ptr : rom_translation_ptr;
+  u8 *jitend = ram_region ?
+    &ram_translation_cache[
+       RAM_TRANSLATION_CACHE_SIZE - TRANSLATION_CACHE_LIMIT_THRESHOLD
+       - (0x10000 - ram_block_tag) / 2 * sizeof(ramtag_type)] :
+    &rom_translation_cache[
+       ROM_TRANSLATION_CACHE_SIZE - TRANSLATION_CACHE_LIMIT_THRESHOLD];
+
+  CodeEmitter ce(jitbuf, jitend, block_start_pc);
+  u8 * &translation_ptr = ce.emit_ptr;    // TODO: get rid of this!
+
+  generate_block_prologue();
 
   for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
@@ -2881,7 +2843,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
        a simple recursive call here won't work, it has to pedal out to
        the beginning. */
 
-    if(translation_ptr > translation_cache_limit) {
+    if (ce.emit_ptr > ce.emit_end) {
       if (ram_region)
         flush_translation_cache_ram();
       else
@@ -3031,8 +2993,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
        a simple recursive call here won't work, it has to pedal out to
        the beginning. */
 
-    if (ce.emit_ptr > ce.emit_end)
-    {
+    if (ce.emit_ptr > ce.emit_end) {
       if (ram_region)
         flush_translation_cache_ram();
       else

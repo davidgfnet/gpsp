@@ -120,9 +120,13 @@ typedef enum
   x86_opcode_imul_eax_rm                = 0x05F7,
   x86_opcode_idiv_eax_rm                = 0x07F7,
   x86_opcode_add_rm_imm                 = 0x0081,
+  x86_opcode_or_rm_imm                  = 0x0181,
+  x86_opcode_adc_rm_imm                 = 0x0281,
+  x86_opcode_sbb_rm_imm                 = 0x0381,
   x86_opcode_and_rm_imm                 = 0x0481,
   x86_opcode_sub_rm_imm                 = 0x0581,
   x86_opcode_xor_rm_imm                 = 0x0681,
+  x86_opcode_cmp_rm_imm                 = 0x0781,
   x86_opcode_add_reg_rm                 = 0x03,
   x86_opcode_adc_reg_rm                 = 0x13,
   x86_opcode_and_reg_rm                 = 0x23,
@@ -131,7 +135,6 @@ typedef enum
   x86_opcode_sbb_reg_rm                 = 0x1B,
   x86_opcode_xor_reg_rm                 = 0x33,
   x86_opcode_cmp_reg_rm                 = 0x39,
-  x86_opcode_cmp_rm_imm                 = 0x0781,
   x86_opcode_lea_reg_rm                 = 0x8D,
   x86_opcode_j                          = 0x80,
   x86_opcode_cdq                        = 0x99,
@@ -314,12 +317,24 @@ typedef enum
   x86_emit_opcode_1b_ext_reg(add_rm_imm, dest);                               \
   x86_emit_dword(imm);                                                        \
 
+#define x86_emit_adc_reg_imm(dest, imm)                                       \
+  x86_emit_opcode_1b_ext_reg(adc_rm_imm, dest);                               \
+  x86_emit_dword(imm);                                                        \
+
 #define x86_emit_sub_reg_imm(dest, imm)                                       \
   x86_emit_opcode_1b_ext_reg(sub_rm_imm, dest);                               \
   x86_emit_dword(imm);                                                        \
 
+#define x86_emit_sbb_reg_imm(dest, imm)                                       \
+  x86_emit_opcode_1b_ext_reg(sbb_rm_imm, dest);                               \
+  x86_emit_dword(imm);                                                        \
+
 #define x86_emit_and_reg_imm(dest, imm)                                       \
   x86_emit_opcode_1b_ext_reg(and_rm_imm, dest);                               \
+  x86_emit_dword(imm)                                                         \
+
+#define x86_emit_or_reg_imm(dest, imm)                                        \
+  x86_emit_opcode_1b_ext_reg(or_rm_imm, dest);                                \
   x86_emit_dword(imm)                                                         \
 
 #define x86_emit_xor_reg_imm(dest, imm)                                       \

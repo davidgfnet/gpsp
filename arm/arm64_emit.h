@@ -1764,6 +1764,18 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask)
     aa64_emit_cset(reg_z_cache, ccode_eq);                                    \
   }                                                                           \
 
+inline bool isimm12(u32 imm) {
+  return (imm & 0xFFFFF000) == 0;
+}
+
+inline bool isimm24(u32 imm) {
+  return (imm & 0xFF000000) == 0;
+}
+
+inline bool isimmhi12(u32 imm) {
+  return (imm & 0xFF000FFF) == 0;
+}
+
 class CodeEmitter : public CodeEmitterBase {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
@@ -1787,6 +1799,7 @@ public:
       return tmp_reg;
     return arm_to_a64_reg[regn];
   }
+
 
   template <AluOperation aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
@@ -1977,6 +1990,155 @@ public:
       aa64_emit_addi(reg_r13, reg_r13,  offset * 4);
     } else {
       aa64_emit_subi(reg_r13, reg_r13, -offset * 4);
+    }
+  }
+
+
+  // ======== ARM instructions ======================================
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_aluimm(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
+    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+
+    // Immediate is a 8 bit rotated immediate
+    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
+    const u32 imm = rotr32(it.imm8(), sa);
+
+    // Set/Clear carry flag if appropriate (rotation result)
+    if (aluop == OpAnd || aluop == OpOrr || aluop == OpXor || aluop == OpBic) {
+      if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
+        aa64_emit_movlo(reg_c_cache, ((imm) >> 31));
+      }
+    }
+
+    // TODO: Implement arm64 immediates for logic operations.
+    // Should be easy for 8 bit rotated immediates.
+    switch (aluop) {
+    case OpAnd:
+      generate_load_imm(reg_temp, imm);
+      aa64_emit_and(rd, rn, reg_temp);
+      if (flg == SetFlags) {
+        update_nz_flags(rd);
+      }
+      break;
+    case OpOrr:
+      generate_load_imm(reg_temp, imm);
+      aa64_emit_orr(rd, rn, reg_temp);
+      if (flg == SetFlags) {
+        update_nz_flags(rd);
+      }
+      break;
+    case OpXor:
+      generate_load_imm(reg_temp, imm);
+      aa64_emit_xor(rd, rn, reg_temp);
+      if (flg == SetFlags) {
+        update_nz_flags(rd);
+      }
+      break;
+    case OpBic:
+      generate_load_imm(reg_temp, imm);
+      aa64_emit_bic(rd, rn, reg_temp);
+      if (flg == SetFlags) {
+        update_nz_flags(rd);
+      }
+      break;
+    case OpAdd:
+      if (flg == NoFlags) {
+        if (isimm12(imm)) {
+          aa64_emit_addi(rd, rn, imm);
+        } else if (isimmhi12(imm)) {
+          aa64_emit_addi12(rd, rn, (imm >> 12));
+        } else if (isimm24(imm)) {
+          aa64_emit_addi(rd, rn, (imm & 0xFFF));
+          aa64_emit_addi12(rd, rd, ((imm >> 12) & 0xFFF));
+        } else {
+          generate_load_imm(reg_temp, imm);
+          aa64_emit_add(rd, rn, reg_temp);
+        }
+      } else {
+        if (isimm12(imm)) {
+          aa64_emit_addis(rd, rn, imm);
+        } else if (isimmhi12(imm)) {
+          aa64_emit_addis12(rd, rn, (imm >> 12));
+        } else {
+          generate_load_imm(reg_temp, imm);
+          aa64_emit_adds(rd, rn, reg_temp);
+        }
+        update_nzcv_flags();
+      }
+      break;
+    case OpAdc:
+      load_c_flag();
+      generate_load_imm(reg_temp, imm);
+      if (flg == NoFlags) {
+        aa64_emit_adc(rd, rn, reg_temp);
+      } else {
+        aa64_emit_adcs(rd, rn, reg_temp);
+        update_nzcv_flags();
+      }
+      break;
+    case OpSub:
+      if (flg == NoFlags) {
+        if (isimm12(imm)) {
+          aa64_emit_subi(rd, rn, imm);
+        } else if (isimmhi12(imm)) {
+          aa64_emit_subi12(rd, rn, (imm >> 12));
+        } else if (isimm24(imm)) {
+          aa64_emit_subi(rd, rn, (imm & 0xFFF));
+          aa64_emit_subi12(rd, rd, ((imm >> 12) & 0xFFF));
+        } else {
+          generate_load_imm(reg_temp, imm);
+          aa64_emit_sub(rd, rn, reg_temp);
+        }
+      } else {
+        if (isimm12(imm)) {
+          aa64_emit_subis(rd, rn, imm);
+        } else if (isimmhi12(imm)) {
+          aa64_emit_subis12(rd, rn, (imm >> 12));
+        } else {
+          generate_load_imm(reg_temp, imm);
+          aa64_emit_subs(rd, rn, reg_temp);
+        }
+        update_nzcv_flags();
+      }
+      break;
+    case OpRsb:
+      generate_load_imm(reg_temp, imm);
+      if (flg == NoFlags) {
+        aa64_emit_sub(rd, reg_temp, rn);
+      } else {
+        aa64_emit_subs(rd, reg_temp, rn);
+        update_nzcv_flags();
+      }
+      break;
+    case OpSbc:
+      load_c_flag();
+      generate_load_imm(reg_temp, imm);
+      if (flg == NoFlags) {
+        aa64_emit_sbc(rd, rn, reg_temp);
+      } else {
+        aa64_emit_sbcs(rd, rn, reg_temp);
+        update_nzcv_flags();
+      }
+      break;
+    case OpRsc:
+      load_c_flag();
+      generate_load_imm(reg_temp, imm);
+      if (flg == NoFlags) {
+        aa64_emit_sbc(rd, reg_temp, rn);
+      } else {
+        aa64_emit_sbcs(rd, reg_temp, rn);
+        update_nzcv_flags();
+      }
+      break;
+    };
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == NoFlags) {
+      check_store_reg_pc_no_flags(it.rd());
+    } else {
+      check_store_reg_pc_flags(it.rd());
     }
   }
 };

@@ -37,6 +37,20 @@ public:
   u32 pc;
 };
 
+class ARMInst : public ARMInstDec {
+public:
+  ARMInst(u32 pc, u32 opcode, u16 flag_status)
+   : ARMInstDec(opcode), flag_status(flag_status), pc(pc) {}
+
+  bool gen_flag_n() const { return flag_status & 0x8; }
+  bool gen_flag_z() const { return flag_status & 0x4; }
+  bool gen_flag_c() const { return flag_status & 0x2; }
+  bool gen_flag_v() const { return flag_status & 0x1; }
+
+  u16 flag_status;
+  u32 pc;
+};
+
 class CodeEmitterBase {
 public:
   CodeEmitterBase(u8 *emit_ptr, u8 *emit_end)

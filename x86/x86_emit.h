@@ -181,6 +181,9 @@ extern "C" {
 #define generate_and_imm(ireg, imm)                                           \
   x86_emit_and_reg_imm(reg_##ireg, imm)                                       \
 
+#define generate_or_imm(ireg, imm)                                            \
+  x86_emit_or_reg_imm(reg_##ireg, imm)                                        \
+
 #define generate_mov(ireg_dest, ireg_src)                                     \
   x86_emit_mov_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
 
@@ -1798,7 +1801,39 @@ public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
    : CodeEmitterBase(emit_ptr, emit_end) {}
 
-  // Thumb instructions
+  inline void upd_nz_flags(const ARMInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (it.gen_flag_z()) {
+      generate_update_flag(z, REG_Z_FLAG);
+    }
+    if (it.gen_flag_n()) {
+      generate_update_flag(s, REG_N_FLAG);
+    }
+  }
+
+  inline void upd_nzcv_add_flags(const ARMInst & it) {
+    upd_nz_flags(it);
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (it.gen_flag_c()) {
+      generate_update_flag(c, REG_C_FLAG);
+    }
+    if (it.gen_flag_v()) {
+      generate_update_flag(o, REG_V_FLAG);
+    }
+  }
+
+  inline void upd_nzcv_sub_flags(const ARMInst & it) {
+    upd_nz_flags(it);
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (it.gen_flag_c()) {
+      generate_update_flag(nc, REG_C_FLAG);
+    }
+    if (it.gen_flag_v()) {
+      generate_update_flag(o, REG_V_FLAG);
+    }
+  }
+
+  // ======== Thumb instructions ====================================
   template <AluOperation aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
@@ -2000,6 +2035,97 @@ public:
     generate_load_reg(a0, REG_SP);
     generate_add_imm(a0, offset * 4);
     generate_store_reg(a0, REG_SP);
+  }
+
+  // ======== ARM instructions ======================================
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_aluimm(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    emit_load_reg_pc(a0, it.rn(), 8);
+
+    // Immediate is a 8 bit rotated immediate
+    u32 sa = it.rot4() * 2;
+    u32 imm = rotr32(it.imm8(), sa);
+
+    // Set/Clear carry flag if appropriate (rotation result)
+    if (aluop == OpAnd || aluop == OpOrr || aluop == OpXor || aluop == OpBic) {
+      if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
+        generate_store_reg_i32((imm >> 31), REG_C_FLAG);
+      }
+    }
+
+    switch (aluop) {
+    case OpAnd:
+      x86_emit_and_reg_imm(reg_a0, imm);
+      if (flg == SetFlags)
+        upd_nz_flags(it);
+      break;
+    case OpOrr:
+      x86_emit_or_reg_imm(reg_a0, imm);
+      if (flg == SetFlags)
+        upd_nz_flags(it);
+      break;
+    case OpXor:
+      x86_emit_xor_reg_imm(reg_a0, imm);
+      if (flg == SetFlags)
+        upd_nz_flags(it);
+      break;
+    case OpBic:
+      x86_emit_and_reg_imm(reg_a0, ~imm);
+      if (flg == SetFlags)
+        upd_nz_flags(it);
+      break;
+    case OpAdd:
+      x86_emit_add_reg_imm(reg_a0, imm);
+      if (flg == SetFlags)
+        upd_nzcv_add_flags(it);
+      break;
+    case OpAdc:
+      load_c_flag(a2);         // Load C flag into CFLAGS
+      x86_emit_adc_reg_imm(reg_a0, imm);
+      if (flg == SetFlags)
+        upd_nzcv_add_flags(it);
+      break;
+    case OpSub:
+      x86_emit_sub_reg_imm(reg_a0, imm);
+      if (flg == SetFlags)
+        upd_nzcv_sub_flags(it);
+      break;
+    case OpRsb:
+      generate_load_imm(a1, imm);
+      x86_emit_sub_reg_reg(reg_a1, reg_a0);
+      if (flg == SetFlags)
+        upd_nzcv_sub_flags(it);
+      break;
+    case OpSbc:
+      load_inv_c_flag(a2);     // Load C flag into CFLAGS
+      x86_emit_sbb_reg_imm(reg_a0, imm);
+      if (flg == SetFlags)
+        upd_nzcv_sub_flags(it);
+      break;
+    case OpRsc:
+      load_inv_c_flag(a2);     // Load C flag into CFLAGS
+      generate_load_imm(a1, imm);
+      x86_emit_sbb_reg_reg(reg_a1, reg_a0);
+      if (flg == SetFlags)
+        upd_nzcv_sub_flags(it);
+      break;
+    };
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == SetFlags) {
+      if (aluop == OpRsb || aluop == OpRsc) {
+        generate_store_reg_pc_flags(a1, it.rd());
+      } else {
+        generate_store_reg_pc_flags(a0, it.rd());
+      }
+    } else {
+      if (aluop == OpRsb || aluop == OpRsc) {
+        generate_store_reg_pc_no_flags(a1, it.rd());
+      } else {
+        generate_store_reg_pc_no_flags(a0, it.rd());
+      }
+    }
   }
 };
 

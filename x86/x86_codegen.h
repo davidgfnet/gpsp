@@ -146,6 +146,9 @@ typedef enum
 
 typedef enum
 {
+  x86_opcode_cmovc                      = 0x42,
+  x86_opcode_cmovnc                     = 0x43,
+  x86_opcode_cmovnl                     = 0x4D,
   x86_opcode_seto                       = 0x90,
   x86_opcode_setc                       = 0x92,
   x86_opcode_setnc                      = 0x93,
@@ -234,10 +237,18 @@ typedef enum
   x86_emit_byte(x86_opcode_ext);                                              \
   x86_emit_opcode_1b_mem(set##ccode, x86_reg_eax, base, offset);              \
 
+#define x86_emit_cmov(ccode, dest, source)                                    \
+  x86_emit_byte(x86_opcode_ext);                                              \
+  x86_emit_opcode_1b_reg(cmov##ccode, dest, source);                          \
+
 // Note: Only AL, BL, CL and DL can be used as source!
 #define x86_emit_movzxb(dest, src)                                            \
   x86_emit_byte(x86_opcode_ext);                                              \
   x86_emit_opcode_1b_reg(movzxb, dest, src);                                  \
+
+#define x86_emit_mem_movzxb(dest, base, offset)                               \
+  x86_emit_byte(x86_opcode_ext);                                              \
+  x86_emit_opcode_1b_mem(movzxb, dest, base, offset);                         \
 
 #define x86_emit_bittest(src, bitnum)                                         \
   x86_emit_byte(x86_opcode_ext);                                              \
@@ -523,12 +534,6 @@ typedef enum
 #define generate_xor_mem(ireg_dest, arm_reg_src)                              \
   x86_emit_xor_reg_mem(reg_##ireg_dest, reg_base, arm_reg_src * 4)            \
 
-#define generate_add_imm(ireg, imm)                                           \
-  x86_emit_add_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_sub_imm(ireg, imm)                                           \
-  x86_emit_sub_reg_imm(reg_##ireg, imm)                                       \
-
 #define generate_xor_imm(ireg, imm)                                           \
   x86_emit_xor_reg_imm(reg_##ireg, imm)                                       \
 
@@ -570,10 +575,6 @@ typedef enum
 
 #define generate_exit_block()                                                 \
   x86_emit_ret();                                                             \
-
-#define generate_cycle_update()                                               \
-  x86_emit_sub_reg_imm(reg_cycles, cycle_count);                              \
-  cycle_count = 0                                                             \
 
 #define generate_branch_patch_jecxz(dest, offset)                             \
   *((u8 *)(dest)) = x86_relative_offset(dest, offset, 1)                      \

@@ -217,11 +217,6 @@ const u32 arm_to_a64_reg[] =
 #define generate_store_reg(ireg, reg_index)                                   \
   aa64_emit_mov(arm_to_a64_reg[reg_index], ireg)                              \
 
-/* Logical immediates are weird in aarch64, load imm to register */
-#define generate_logical_imm(optype, ireg_dest, ireg_src, imm)                \
-  generate_load_imm(reg_temp, imm);                                           \
-  aa64_emit_##optype(ireg_dest, ireg_src, reg_temp);                          \
-
 /* TODO Use addi12 if the immediate is <24 bits ? */
 #define generate_alu_imm(imm_type, reg_type, ireg_dest, ireg_src, imm)        \
   if((u32)(imm) < 4096)                                                       \
@@ -868,34 +863,6 @@ u32 execute_spsr_restore_body(u32 address)
   aa64_emit_mul(_rd, _rn, _rm);                                               \
   generate_op_logic_flags(_rd)                                                \
 
-// Immediate logical operations. Use native Z and N flag and CSET instruction.
-#define generate_op_and_imm(_rd, _rn)                                         \
-  generate_logical_imm(and, _rd, _rn, imm)                                    \
-
-#define generate_op_orr_imm(_rd, _rn)                                         \
-  generate_logical_imm(orr, _rd, _rn, imm)                                    \
-
-#define generate_op_eor_imm(_rd, _rn)                                         \
-  generate_logical_imm(xor, _rd, _rn, imm)                                    \
-
-#define generate_op_bic_imm(_rd, _rn)                                         \
-  generate_logical_imm(bic, _rd, _rn, imm)                                    \
-  
-#define generate_op_ands_imm(_rd, _rn)                                        \
-  generate_op_and_imm(_rd, _rn);                                              \
-  generate_op_logic_flags(_rd)                                                \
-
-#define generate_op_orrs_imm(_rd, _rn)                                        \
-  generate_op_orr_imm(_rd, _rn);                                              \
-  generate_op_logic_flags(_rd)                                                \
-
-#define generate_op_eors_imm(_rd, _rn)                                        \
-  generate_op_eor_imm(_rd, _rn);                                              \
-  generate_op_logic_flags(_rd)                                                \
-
-#define generate_op_bics_imm(_rd, _rn)                                        \
-  generate_op_bic_imm(_rd, _rn);                                              \
-  generate_op_logic_flags(_rd)                                                \
 
 // Register logical operations. Uses also native flags.
 #define generate_op_and_reg(_rd, _rn, _rm)                                    \
@@ -981,156 +948,6 @@ u32 execute_spsr_restore_body(u32 address)
   generate_op_arith_flags()                                                   \
 
 
-#define generate_op_neg_reg(_rd, _rn, _rm)                                    \
-  generate_op_subs_reg(_rd, reg_zero, _rm)                                    \
-
-// Arithmetic immediate operations. Use native flags when needed (input).
-
-#define generate_op_add_imm(_rd, _rn)                                         \
-  generate_alu_imm(addi, add, _rd, _rn, imm)                                  \
-
-#define generate_op_adds_imm(_rd, _rn)                                        \
-  generate_alu_imm(addis, adds, _rd, _rn, imm)                                \
-  generate_op_arith_flags();                                                  \
-
-#define generate_op_sub_imm(_rd, _rn)                                         \
-  generate_alu_imm(subi, sub, _rd, _rn, imm)                                  \
-
-#define generate_op_subs_imm(_rd, _rn)                                        \
-  generate_alu_imm(subis, subs, _rd, _rn, imm)                                \
-  generate_op_arith_flags();                                                  \
-
-#define generate_op_rsb_imm(_rd, _rn)                                         \
-  if (imm) {                                                                  \
-    generate_load_imm(reg_temp, imm);                                         \
-    aa64_emit_sub(_rd, reg_temp, _rn)                                         \
-  } else {                                                                    \
-    aa64_emit_sub(_rd, reg_zero, _rn)                                         \
-  }                                                                           \
-
-#define generate_op_rsbs_imm(_rd, _rn)                                        \
-  if (imm) {                                                                  \
-    generate_load_imm(reg_temp, imm);                                         \
-    aa64_emit_subs(_rd, reg_temp, _rn)                                        \
-  } else {                                                                    \
-    aa64_emit_subs(_rd, reg_zero, _rn)                                        \
-  }                                                                           \
-  generate_op_arith_flags();                                                  \
-
-
-#define generate_op_adc_imm(_rd, _rn)                                         \
-  if (imm) {                                                                  \
-    generate_alu_imm(addi, add, _rd, _rn, imm);                               \
-    aa64_emit_add(_rd, _rd, reg_c_cache);                                     \
-  } else {                                                                    \
-    aa64_emit_add(_rd, _rn, reg_c_cache);                                     \
-  }                                                                           \
-
-#define generate_op_sbc_imm(_rd, _rn)                                         \
-  /* Rd = Rn - Imm - 1 + C = Rn - (Imm + 1) + C */                            \
-  generate_alu_imm(subi, sub, _rd, _rn, ((imm) + 1));                         \
-  aa64_emit_add(_rd, _rd, reg_c_cache);                                       \
-
-#define generate_op_rsc_imm(_rd, _rn)                                         \
-  /* Rd = Imm - Rn - 1 + C = (Imm - 1) - Rn + C */                            \
-  generate_load_imm(reg_temp, ((imm)-1));                                     \
-  aa64_emit_sub(_rd, reg_temp, _rn)                                           \
-  aa64_emit_add(_rd, _rd, reg_c_cache);                                       \
-
-/* Uses native instructions when needed, for C/V accuracy */
-#define generate_op_adcs_imm(_rd, _rn)                                        \
-  if (imm) {                                                                  \
-    load_c_flag();                                                            \
-    generate_load_imm(reg_temp, (imm));                                       \
-    aa64_emit_adcs(_rd, _rn, reg_temp);                                       \
-  } else {                                                                    \
-    aa64_emit_adds(_rd, _rn, reg_c_cache);                                    \
-  }                                                                           \
-  generate_op_arith_flags();                                                  \
-
-#define generate_op_sbcs_imm(_rd, _rn)                                        \
-  load_c_flag();                                                              \
-  if (imm) {                                                                  \
-    generate_load_imm(reg_temp, (imm));                                       \
-    aa64_emit_sbcs(_rd, _rn, reg_temp);                                       \
-  } else {                                                                    \
-    aa64_emit_sbcs(_rd, _rn, reg_zero);                                       \
-  }                                                                           \
-  generate_op_arith_flags();                                                  \
-
-#define generate_op_rscs_imm(_rd, _rn)                                        \
-  load_c_flag();                                                              \
-  if (imm) {                                                                  \
-    generate_load_imm(reg_temp, (imm));                                       \
-    aa64_emit_sbcs(_rd, reg_temp, _rn);                                       \
-  } else {                                                                    \
-    aa64_emit_sbcs(_rd, reg_zero, _rn);                                       \
-  }                                                                           \
-  generate_op_arith_flags();                                                  \
-
-
-// Move operations, only logical flags
-#define generate_op_mov_imm(_rd, _rn)                                         \
-  generate_load_imm(_rd, imm)                                                 \
-
-#define generate_op_movs_imm(_rd, _rn)                                        \
-  generate_load_imm(_rd, imm)                                                 \
-  aa64_emit_movlo(reg_n_cache, (imm) >> 31);                                  \
-  aa64_emit_movlo(reg_z_cache, (imm) ? 0 : 1);                                \
-
-#define generate_op_mvn_imm(_rd, _rn)                                         \
-  generate_load_imm(_rd, (~imm))                                              \
-
-#define generate_op_mvns_imm(_rd, _rn)                                        \
-  generate_load_imm(_rd, (~imm));                                             \
-  aa64_emit_movlo(reg_n_cache, (~(imm)) >> 31);                               \
-  aa64_emit_movlo(reg_z_cache, (~(imm)) ? 1 : 0);                             \
-
-#define generate_op_mov_reg(_rd, _rn, _rm)                                    \
-  aa64_emit_mov(_rd, _rm)                                                     \
-
-#define generate_op_movs_reg(_rd, _rn, _rm)                                   \
-  aa64_emit_addi(_rd, _rm, 0);                                                \
-  generate_op_logic_flags(_rd)                                                \
-
-#define generate_op_mvn_reg(_rd, _rn, _rm)                                    \
-  aa64_emit_orn(_rd, reg_zero, _rm)                                           \
-
-#define generate_op_mvns_reg(_rd, _rn, _rm)                                   \
-  aa64_emit_orn(_rd, reg_zero, _rm)                                           \
-  generate_op_logic_flags(_rd)                                                \
-
-// Testing/Comparison functions
-#define generate_op_cmp_reg(_rd, _rn, _rm)                                    \
-  generate_op_subs_reg(reg_temp2, _rn, _rm)                                   \
-
-#define generate_op_cmn_reg(_rd, _rn, _rm)                                    \
-  generate_op_adds_reg(reg_temp2, _rn, _rm)                                   \
-
-#define generate_op_tst_reg(_rd, _rn, _rm)                                    \
-  generate_op_ands_reg(reg_temp2, _rn, _rm)                                   \
-
-#define generate_op_teq_reg(_rd, _rn, _rm)                                    \
-  generate_op_eors_reg(reg_temp2, _rn, _rm)                                   \
-
-#define generate_op_cmp_imm(_rd, _rn)                                         \
-  generate_op_subs_imm(reg_temp2, _rn)                                        \
-
-#define generate_op_cmn_imm(_rd, _rn)                                         \
-  generate_op_adds_imm(reg_temp2, _rn)                                        \
-
-#define generate_op_tst_imm(_rd, _rn)                                         \
-  generate_op_ands_imm(reg_temp2, _rn)                                        \
-
-#define generate_op_teq_imm(_rd, _rn)                                         \
-  generate_op_eors_imm(reg_temp2, _rn)                                        \
-
-
-#define arm_generate_op_load_yes()                                            \
-  generate_load_reg_pc(reg_a1, rn, 8)                                         \
-
-#define arm_generate_op_load_no()                                             \
-
 #define arm_op_check_yes()                                                    \
   check_load_reg_pc(arm_reg_a1, rn, 8)                                        \
 
@@ -1158,36 +975,9 @@ u32 execute_spsr_restore_body(u32 address)
   generate_op_##name##_reg(arm_to_a64_reg[rd], arm_to_a64_reg[rn],            \
                               arm_to_a64_reg[rm])                             \
 
-#define arm_generate_op_imm(name, load_op)                                    \
-  arm_decode_data_proc_imm(opcode);                                           \
-  ror(imm, imm, imm_ror);                                                     \
-  arm_op_check_##load_op();                                                   \
-  generate_op_##name##_imm(arm_to_a64_reg[rd], arm_to_a64_reg[rn])            \
-
-#define arm_generate_op_imm_flags(name, load_op)                              \
-  arm_decode_data_proc_imm(opcode);                                           \
-  ror(imm, imm, imm_ror);                                                     \
-  if(check_generate_c_flag && (imm_ror != 0))                                 \
-  {  /* Generate carry flag from integer rotation */                          \
-     aa64_emit_movlo(reg_c_cache, ((imm) >> 31));                             \
-  }                                                                           \
-  arm_op_check_##load_op();                                                   \
-  generate_op_##name##_imm(arm_to_a64_reg[rd], arm_to_a64_reg[rn])            \
-
 #define arm_data_proc(name, type, flags_op)                                   \
 {                                                                             \
   arm_generate_op_##type(name, yes);                                          \
-  check_store_reg_pc_##flags_op(rd);                                          \
-}                                                                             \
-
-#define arm_data_proc_test(name, type)                                        \
-{                                                                             \
-  arm_generate_op_##type(name, yes);                                          \
-}                                                                             \
-
-#define arm_data_proc_unary(name, type, flags_op)                             \
-{                                                                             \
-  arm_generate_op_##type(name, no);                                           \
   check_store_reg_pc_##flags_op(rd);                                          \
 }                                                                             \
 
@@ -1499,50 +1289,11 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask)
   generate_function_call(execute_store_##type);                               \
 }                                                                             \
 
-#define thumb_generate_op_load_yes(_rs)                                       \
-  generate_load_reg(reg_a1, _rs)                                              \
-
-#define thumb_generate_op_load_no(_rs)                                        \
-
-#define thumb_generate_op_reg(name, _rd, _rs, _rn)                            \
-  generate_op_##name##_reg(arm_to_a64_reg[_rd],                               \
-                           arm_to_a64_reg[_rs], arm_to_a64_reg[_rn])          \
-
-#define thumb_generate_op_imm(name, _rd, _rs, _rn)                            \
-  generate_op_##name##_imm(arm_to_a64_reg[_rd], arm_to_a64_reg[_rs])          \
-
-// Types: add_sub, add_sub_imm, alu_op, imm
-// Affects N/Z/C/V flags
-
 #define check_store_reg_pc_thumb(_rd)                                         \
   if(_rd == REG_PC)                                                           \
   {                                                                           \
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
-
-#define thumb_load_pc(_rd)                                                    \
-{                                                                             \
-  thumb_decode_imm();                                                         \
-  generate_load_pc(arm_to_a64_reg[_rd], (((pc & ~2) + 4) + (imm * 4)));       \
-}                                                                             \
-
-#define thumb_load_sp(_rd)                                                    \
-{                                                                             \
-  thumb_decode_imm();                                                         \
-  aa64_emit_addi(arm_to_a64_reg[_rd], reg_r13, (imm * 4));                    \
-}                                                                             \
-
-#define thumb_adjust_sp_up()                                                  \
-  aa64_emit_addi(reg_r13, reg_r13, (imm * 4));                                \
-
-#define thumb_adjust_sp_down()                                                \
-  aa64_emit_subi(reg_r13, reg_r13, (imm * 4));                                \
-
-#define thumb_adjust_sp(direction)                                            \
-{                                                                             \
-  thumb_decode_add_sp();                                                      \
-  thumb_adjust_sp_##direction();                                              \
-}                                                                             \
 
 // Decode types: shift, alu_op
 // Operation types: lsl, lsr, asr, ror
@@ -1740,15 +1491,6 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask)
   block_exit_position++;                                                      \
 }                                                                             \
 
-#define update_nz_flags(_reg)                                                 \
-  if (it.gen_flag_n()) {                                                      \
-    aa64_emit_lsr(reg_n_cache, _reg, 31);                                     \
-  }                                                                           \
-  if (it.gen_flag_z()) {                                                      \
-    aa64_emit_cmpi(_reg, 0);                                                  \
-    aa64_emit_cset(reg_z_cache, ccode_eq);                                    \
-  }                                                                           \
-
 #define update_nzcv_flags()                                                   \
   /* Assumes that state is in the flags */                                    \
   if (it.gen_flag_c()) {                                                      \
@@ -1794,13 +1536,71 @@ public:
     return arm_to_a64_reg[regn];
   }
 
+  // Forces a register load!
+  inline void force_load_reg(u32 regn, u32 outreg, u32 pcvalue) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    if (regn == REG_PC) {
+      generate_load_pc(outreg, pcvalue);
+    } else {
+      generate_load_reg(outreg, regn);
+    }
+  }
+
   inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
     if (regn == REG_PC)
       return tmp_reg;
     return arm_to_a64_reg[regn];
   }
 
+  inline void load_alloc_reg_lsb(u32 regn, u32 native_reg, u32 pcvalue) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (regn == REG_PC) {
+      aa64_emit_movlo(native_reg, (pcvalue & 0xFF));
+    } else {
+      aa64_emit_andi(native_reg, arm_to_a64_reg[regn], 0, 7); /* 0xFF */
+    }
+  }
 
+  template <FlagOperation flgmode>
+  inline void update_nz_flags(const ARMInst & it, u32 reg) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (flgmode == SetFlags) {
+      if (it.gen_flag_n()) {
+        aa64_emit_lsr(reg_n_cache, reg, 31);
+      }
+      if (it.gen_flag_z()) {
+        aa64_emit_cmpi(reg, 0);
+        aa64_emit_cset(reg_z_cache, ccode_eq);
+      }
+    }
+  }
+
+  inline void update_nz_flags(const ThumbInst & it, u32 reg) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (it.gen_flag_n()) {
+      aa64_emit_lsr(reg_n_cache, reg, 31);
+    }
+    if (it.gen_flag_z()) {
+      aa64_emit_cmpi(reg, 0);
+      aa64_emit_cset(reg_z_cache, ccode_eq);
+    }
+  }
+
+  template <FlagOperation flgmode>
+  inline void upd_nz_flags_imm(const ARMInst & it, u32 imm) {
+    if (flgmode == SetFlags) {
+      u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+      if (it.gen_flag_z()) {
+        aa64_emit_movlo(reg_z_cache, (imm ? 0 : 1));
+      }
+      if (it.gen_flag_n()) {
+        aa64_emit_movlo(reg_n_cache, (imm >> 31));
+      }
+    }
+  }
+
+  // ======== Thumb instructions ======================================
   template <AluOperation aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
@@ -1829,23 +1629,23 @@ public:
     switch (aluop) {
     case OpOrr:
       aa64_emit_orr(rd, rd, rs);
-      update_nz_flags(rd);
+      update_nz_flags(it, rd);
       break;
     case OpAnd:
       aa64_emit_and(rd, rd, rs);
-      update_nz_flags(rd);
+      update_nz_flags(it, rd);
       break;
     case OpXor:
       aa64_emit_xor(rd, rd, rs);
-      update_nz_flags(rd);
+      update_nz_flags(it, rd);
       break;
     case OpBic:
       aa64_emit_bic(rd, rd, rs);
-      update_nz_flags(rd);
+      update_nz_flags(it, rd);
       break;
     case OpMul:
       aa64_emit_mul(rd, rd, rs);
-      update_nz_flags(rd);
+      update_nz_flags(it, rd);
       break;
     case OpAdd:
       aa64_emit_adds(rd, rd, rs);
@@ -1881,7 +1681,7 @@ public:
       break;
     case OpMvn:
       aa64_emit_orn(rd, reg_zero, rs);
-      update_nz_flags(rd);
+      update_nz_flags(it, rd);
       break;
     };
   }
@@ -1895,7 +1695,7 @@ public:
     switch (testop) {
     case OpTst:
       aa64_emit_and(reg_temp, rd, rs);
-      update_nz_flags(reg_temp);
+      update_nz_flags(it, reg_temp);
       break;
     case OpCmp:
       aa64_emit_subs(reg_zero, rd, rs);
@@ -1996,7 +1796,7 @@ public:
 
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>
-  inline void arm_aluimm(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
     u32 rd = store_alloc_reg(it.rd(), reg_a0);
@@ -2018,30 +1818,22 @@ public:
     case OpAnd:
       generate_load_imm(reg_temp, imm);
       aa64_emit_and(rd, rn, reg_temp);
-      if (flg == SetFlags) {
-        update_nz_flags(rd);
-      }
+      update_nz_flags<flg>(it, rd);
       break;
     case OpOrr:
       generate_load_imm(reg_temp, imm);
       aa64_emit_orr(rd, rn, reg_temp);
-      if (flg == SetFlags) {
-        update_nz_flags(rd);
-      }
+      update_nz_flags<flg>(it, rd);
       break;
     case OpXor:
       generate_load_imm(reg_temp, imm);
       aa64_emit_xor(rd, rn, reg_temp);
-      if (flg == SetFlags) {
-        update_nz_flags(rd);
-      }
+      update_nz_flags<flg>(it, rd);
       break;
     case OpBic:
       generate_load_imm(reg_temp, imm);
       aa64_emit_bic(rd, rn, reg_temp);
-      if (flg == SetFlags) {
-        update_nz_flags(rd);
-      }
+      update_nz_flags<flg>(it, rd);
       break;
     case OpAdd:
       if (flg == NoFlags) {
@@ -2141,6 +1933,331 @@ public:
       check_store_reg_pc_flags(it.rd());
     }
   }
+
+  template <AluOperation aluop>
+  inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
+
+    // Immediate is a 8 bit rotated immediate
+    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
+    const u32 imm = rotr32(it.imm8(), sa);
+
+    // Set/Clear carry flag if appropriate (rotation result)
+    if (it.rot4() != 0 && it.gen_flag_c()) {
+      aa64_emit_movlo(reg_c_cache, ((imm) >> 31));
+    }
+
+    switch (aluop) {
+    case OpTst:
+      generate_load_imm(reg_temp, imm);
+      aa64_emit_and(reg_temp, rn, reg_temp);
+      update_nz_flags<SetFlags>(it, reg_temp);
+      break;
+    case OpTeq:
+      generate_load_imm(reg_temp, imm);
+      aa64_emit_xor(reg_temp, rn, reg_temp);
+      update_nz_flags<SetFlags>(it, reg_temp);
+      break;
+    case OpCmp:
+      if (isimm12(imm)) {
+        aa64_emit_subis(reg_temp, rn, imm);
+      } else if (isimmhi12(imm)) {
+        aa64_emit_subis12(reg_temp, rn, (imm >> 12));
+      } else {
+        generate_load_imm(reg_temp, imm);
+        aa64_emit_subs(reg_temp, rn, reg_temp);
+      }
+      update_nzcv_flags();
+      break;
+    case OpCmn:
+      if (isimm12(imm)) {
+        aa64_emit_addis(reg_temp, rn, imm);
+      } else if (isimmhi12(imm)) {
+        aa64_emit_addis12(reg_temp, rn, (imm >> 12));
+      } else {
+        generate_load_imm(reg_temp, imm);
+        aa64_emit_adds(reg_temp, rn, reg_temp);
+      }
+      update_nzcv_flags();
+      break;
+    };
+  }
+
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+
+    // Immediate is a 8 bit rotated immediate
+    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
+    u32 imm = rotr32(it.imm8(), sa);
+
+    // Set/Clear carry flag if appropriate (rotation result)
+    if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
+      aa64_emit_movlo(reg_c_cache, ((imm) >> 31));
+    }
+
+    if (aluop == OpMvn)
+      imm = ~imm;
+
+    generate_load_imm(rd, imm);
+    upd_nz_flags_imm<flg>(it, imm);
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == NoFlags) {
+      check_store_reg_pc_no_flags(it.rd());
+    } else {
+      check_store_reg_pc_flags(it.rd());
+    }
+  }
+
+  // Calculates operand 2 when register is shifted/rotated by an immediate.
+  template<FlagOperation flg>
+  inline void emit_op2_shimm(const ARMInst &it) {
+    u32 imm = it.op2sa();      // Shift amount [0..31]
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rm;
+
+    switch (it.op2smode()) {
+    case 0:      /* LSL */
+      rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+      if (flg == SetFlags && imm) {
+        aa64_emit_ubfx(reg_c_cache, rm, (32 - imm), 1);
+      }
+      aa64_emit_lsl(reg_a0, rm, imm);
+      break;
+
+    case 1:      /* LSR (0 means shift by 32) */
+      if (imm) {
+        rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+        if (flg == SetFlags) {
+          aa64_emit_ubfx(reg_c_cache, rm, (imm - 1), 1);
+        }
+        aa64_emit_lsr(reg_a0, rm, imm);
+      } else {
+        if (flg == SetFlags) {
+          rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+          aa64_emit_lsr(reg_c_cache, rm, 31);
+        }
+        aa64_emit_movlo(reg_a0, 0);
+      }
+      break;
+
+    case 2:      /* ASR (0 is also shift by 32) */
+      rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+      if (flg == SetFlags) {
+        aa64_emit_ubfx(reg_c_cache, rm, ((imm ? imm : 32) - 1), 1);
+      }
+      aa64_emit_asr(reg_a0, rm, (imm ? imm : 31));
+      break;
+
+    case 3:      /* ROR */
+      rm = load_alloc_reg(it.rm(), reg_a1, it.pc + 8);
+      if (imm) {
+        if (flg == SetFlags) {
+          aa64_emit_ubfx(reg_c_cache, rm, (imm - 1), 1);
+        }
+        aa64_emit_ror(reg_a0, rm, imm);
+      } else {
+        aa64_emit_extr(reg_a0, reg_c_cache, rm, 1);
+        if (flg == SetFlags) {
+          aa64_emit_ubfx(reg_c_cache, rm, 0, 1);
+        }
+      }
+      break;
+    };
+  }
+
+  // Calculates operand 2 when register is shifted/rotated by another register.
+  template<FlagOperation flg>
+  inline void emit_op2_shreg(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    load_alloc_reg_lsb(it.rs(), reg_a1, it.pc + 12);  // Loads the LSB byte only!
+
+    if (flg == SetFlags) {
+      force_load_reg(it.rm(), reg_a0, it.pc + 12);    // Load reg into a0
+      switch (it.op2smode()) {
+        case 0:     /* LSL */
+          aa64_emit_cbz(reg_a1, 8);           // Skip it all on shift = 0
+          // This code works if shift <= 32.
+          aa64_emit_subi(reg_temp, reg_a1, 1);
+          aa64_emit_lslv(reg_a0, reg_a0, reg_temp);
+          aa64_emit_lsr(reg_c_cache, reg_a0, 31);
+          aa64_emit_cmpi(reg_a1, 33);
+          aa64_emit_lsl(reg_a0, reg_a0, 1);
+          // If shift > 32 we just clear both reg and C flag
+          aa64_emit_csel(reg_c_cache, reg_zero, reg_c_cache, ccode_hs);
+          aa64_emit_csel(reg_a0,      reg_zero, reg_a0,      ccode_hs);
+          break;
+        case 1:     /* LSR */
+          aa64_emit_cbz(reg_a1, 8);           // Skip it all on shift = 0
+          aa64_emit_subi(reg_temp, reg_a1, 1);
+          aa64_emit_lsrv(reg_a0, reg_a0, reg_temp);
+          aa64_emit_andi(reg_c_cache, reg_a0, 0, 0);  /* imm=1 */
+          aa64_emit_cmpi(reg_a1, 33);
+          aa64_emit_lsr(reg_a0, reg_a0, 1);
+          // If shift > 32 we just clear both reg and C flag
+          aa64_emit_csel(reg_c_cache, reg_zero, reg_c_cache, ccode_hs);
+          aa64_emit_csel(reg_a0,      reg_zero, reg_a0,      ccode_hs);
+          break;
+        case 2:     /* ASR */
+          aa64_emit_cbz(reg_a1, 8);           // Skip it all on shift = 0
+          aa64_emit_movlo(reg_temp, 32);      // Cap amount to 32.
+          aa64_emit_cmpi(reg_a1, 32);
+          aa64_emit_csel(reg_a1, reg_a1, reg_temp, ccode_ls);
+          aa64_emit_subi(reg_temp, reg_a1, 1);
+          aa64_emit_asrv(reg_a0, reg_a0, reg_temp);
+          aa64_emit_andi(reg_c_cache, reg_a0, 0, 0);  /* imm=1 */
+          aa64_emit_asr(reg_a0, reg_a0, 1);
+          break;
+        case 3:     /* ROR */
+          // ror/lsrv only use the 5 LSB in aarch64
+          aa64_emit_rorv(reg_a0, reg_a0, reg_a1);
+          aa64_emit_cbz(reg_a1, 2);
+          aa64_emit_lsr(reg_c_cache, reg_a0, 31);
+          break;
+      };
+    } else {
+      u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 12);
+      switch (it.op2smode()) {
+        case 0:     /* LSL */
+          aa64_emit_cmpi(reg_a1, 32);
+          aa64_emit_lslv(reg_temp, rm, reg_a1);
+          aa64_emit_csel(reg_a0, reg_zero, reg_temp, ccode_hs);
+          break;
+        case 1:     /* LSR */
+          aa64_emit_cmpi(reg_a1, 32);
+          aa64_emit_lsrv(reg_temp, rm, reg_a1);
+          aa64_emit_csel(reg_a0, reg_zero, reg_temp, ccode_hs);
+          break;
+        case 2:     /* ASR */
+          aa64_emit_cmpi(reg_a1, 31);
+          aa64_emit_asr(reg_temp, rm, 31);
+          aa64_emit_asrv(reg_a0, rm, reg_a1);
+          aa64_emit_csel(reg_a0, reg_a0, reg_temp, ccode_lo);
+          break;
+        case 3:     /* ROR */
+          aa64_emit_rorv(reg_a0, rm, reg_a1);
+          break;
+      };
+    }
+  }
+
+  // Calculates the flex operand, honoring flag (CF) generation and returns the
+  // native register where the value is placed (either reg_a0 or some ARM reg).
+  template <FlagOperation flg>
+  inline u32 emit_arm_aluop2(const ARMInst & it) {
+    // Calculates the Op2 part and writes it to a0
+    if (it.op2imm()) {
+      // Special case: LSL with imm = 0 means unmodified register (and Cflag).
+      // Just return the register directly (or scratch to a0 for PC)
+      // Saves one instruction (it is relatively common)
+      if (it.op2sa() == 0 && it.op2smode() == 0 /* LSL */)
+        return load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+
+      if (flg == SetFlags && it.gen_flag_c())
+        emit_op2_shimm<SetFlags>(it);
+      else
+        emit_op2_shimm<NoFlags>(it);
+    } else {
+      if (flg == SetFlags && it.gen_flag_c())
+        emit_op2_shreg<SetFlags>(it);
+      else
+        emit_op2_shreg<NoFlags>(it);
+    }
+    return reg_a0;
+  }
+
+  // 3 regs (with op2) instructions
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    // Generate op2 to a0, op1 to a1
+    u32 regop2 = emit_arm_aluop2<flg>(it);
+    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
+    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+
+    switch (aluop) {
+    case OpAnd:
+      aa64_emit_and(rd, rn, regop2);
+      break;
+    case OpOrr:
+      aa64_emit_orr(rd, rn, regop2);
+      break;
+    case OpXor:
+      aa64_emit_xor(rd, rn, regop2);
+      break;
+    case OpBic:
+      aa64_emit_bic(rd, rn, regop2);
+      break;
+    };
+
+    update_nz_flags<flg>(it, rd);
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == NoFlags) {
+      check_store_reg_pc_no_flags(it.rd());
+    } else {
+      check_store_reg_pc_flags(it.rd());
+    }
+  }
+
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 regop2 = emit_arm_aluop2<flg>(it);   // Generate op2 to a0
+    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+
+    switch (aluop) {
+    case OpMvn:
+      aa64_emit_orn(rd, reg_zero, regop2);
+      break;
+    case OpMov:
+      aa64_emit_mov(rd, regop2);
+      break;
+    };
+
+    update_nz_flags<flg>(it, rd);
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == NoFlags) {
+      check_store_reg_pc_no_flags(it.rd());
+    } else {
+      check_store_reg_pc_flags(it.rd());
+    }
+  }
+
+  // compare/test instructions
+  template <AluOperation aluop, FlagOperation c_flag>
+  inline void arm_alureg2(const ARMInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 regop2 = emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
+    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
+
+    switch (aluop) {
+    case OpAnd:
+       aa64_emit_and(reg_temp, rn, regop2);
+       update_nz_flags<SetFlags>(it, reg_temp);
+       break;
+    case OpXor:
+       aa64_emit_xor(reg_temp, rn, regop2);
+       update_nz_flags<SetFlags>(it, reg_temp);
+       break;
+    case OpCmp:
+      aa64_emit_subs(reg_zero, rn, regop2);
+      update_nzcv_flags();
+      break;
+    case OpCmn:
+      aa64_emit_adds(reg_zero, rn, regop2);
+      update_nzcv_flags();
+      break;
+    };
+  }
+
 };
 
 

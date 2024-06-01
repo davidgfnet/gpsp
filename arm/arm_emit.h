@@ -796,43 +796,6 @@ u32 execute_spsr_restore_body(u32 pc)
   ARM_MVN_REG_REGSHIFT(0, _rd, _rm, shift_type, _rs)                          \
 
 
-#define generate_op_and_imm(_rd, _rn)                                         \
-  ARM_AND_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_orr_imm(_rd, _rn)                                         \
-  ARM_ORR_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_eor_imm(_rd, _rn)                                         \
-  ARM_EOR_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_bic_imm(_rd, _rn)                                         \
-  ARM_BIC_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_sub_imm(_rd, _rn)                                         \
-  ARM_SUB_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_rsb_imm(_rd, _rn)                                         \
-  ARM_RSB_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_sbc_imm(_rd, _rn)                                         \
-  ARM_SBC_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_rsc_imm(_rd, _rn)                                         \
-  ARM_RSC_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_add_imm(_rd, _rn)                                         \
-  ARM_ADD_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_adc_imm(_rd, _rn)                                         \
-  ARM_ADC_REG_IMM(0, _rd, _rn, imm, imm_ror)                                  \
-
-#define generate_op_mov_imm(_rd, _rn)                                         \
-  ARM_MOV_REG_IMM(0, _rd, imm, imm_ror)                                       \
-
-#define generate_op_mvn_imm(_rd, _rn)                                         \
-  ARM_MVN_REG_IMM(0, _rd, imm, imm_ror)                                       \
-
-
 #define generate_op_reg_immshift_lflags(name, _rd, _rn, _rm, st, shift)       \
   ARM_##name##_REG_IMMSHIFT(0, _rd, _rn, _rm, st, shift)                      \
 
@@ -863,23 +826,6 @@ u32 execute_spsr_restore_body(u32 pc)
 
 #define generate_op_reg_regshift_tflags(name, _rn, _rm, shift_type, _rs)      \
   ARM_##name##_REG_REGSHIFT(0, _rn, _rm, shift_type, _rs)                     \
-
-
-#define generate_op_imm_lflags(name, _rd, _rn)                                \
-  ARM_##name##_REG_IMM(0, _rd, _rn, imm, imm_ror)                             \
-
-#define generate_op_imm_aflags(name, _rd, _rn)                                \
-  ARM_##name##_REG_IMM(0, _rd, _rn, imm, imm_ror)                             \
-
-#define generate_op_imm_aflags_load_c(name, _rd, _rn)                         \
-  ARM_##name##_REG_IMM(0, _rd, _rn, imm, imm_ror)                             \
-
-#define generate_op_imm_uflags(name, _rd)                                     \
-  ARM_##name##_REG_IMM(0, _rd, imm, imm_ror)                                  \
-
-#define generate_op_imm_tflags(name, _rn)                                     \
-  ARM_##name##_REG_IMM(0, _rn, imm, imm_ror)                                  \
-
 
 #define generate_op_ands_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
   generate_op_reg_immshift_lflags(ANDS, _rd, _rn, _rm, shift_type, shift)     \
@@ -994,55 +940,6 @@ u32 execute_spsr_restore_body(u32 pc)
   generate_op_reg_regshift_tflags(TEQ, _rn, _rm, shift_type, _rs)             \
 
 
-#define generate_op_ands_imm(_rd, _rn)                                        \
-  generate_op_imm_lflags(ANDS, _rd, _rn)                                      \
-
-#define generate_op_orrs_imm(_rd, _rn)                                        \
-  generate_op_imm_lflags(ORRS, _rd, _rn)                                      \
-
-#define generate_op_eors_imm(_rd, _rn)                                        \
-  generate_op_imm_lflags(EORS, _rd, _rn)                                      \
-
-#define generate_op_bics_imm(_rd, _rn)                                        \
-  generate_op_imm_lflags(BICS, _rd, _rn)                                      \
-
-#define generate_op_subs_imm(_rd, _rn)                                        \
-  generate_op_imm_aflags(SUBS, _rd, _rn)                                      \
-
-#define generate_op_rsbs_imm(_rd, _rn)                                        \
-  generate_op_imm_aflags(RSBS, _rd, _rn)                                      \
-
-#define generate_op_sbcs_imm(_rd, _rn)                                        \
-  generate_op_imm_aflags_load_c(SBCS, _rd, _rn)                               \
-
-#define generate_op_rscs_imm(_rd, _rn)                                        \
-  generate_op_imm_aflags_load_c(RSCS, _rd, _rn)                               \
-
-#define generate_op_adds_imm(_rd, _rn)                                        \
-  generate_op_imm_aflags(ADDS, _rd, _rn)                                      \
-
-#define generate_op_adcs_imm(_rd, _rn)                                        \
-  generate_op_imm_aflags_load_c(ADCS, _rd, _rn)                               \
-
-#define generate_op_movs_imm(_rd, _rn)                                        \
-  generate_op_imm_uflags(MOVS, _rd)                                           \
-
-#define generate_op_mvns_imm(_rd, _rn)                                        \
-  generate_op_imm_uflags(MVNS, _rd)                                           \
-
-#define generate_op_cmp_imm(_rd, _rn)                                         \
-  generate_op_imm_tflags(CMP, _rn)                                            \
-
-#define generate_op_cmn_imm(_rd, _rn)                                         \
-  generate_op_imm_tflags(CMN, _rn)                                            \
-
-#define generate_op_tst_imm(_rd, _rn)                                         \
-  generate_op_imm_tflags(TST, _rn)                                            \
-
-#define generate_op_teq_imm(_rd, _rn)                                         \
-  generate_op_imm_tflags(TEQ, _rn)                                            \
-
-
 #define arm_prepare_load_rn_yes()                                             \
   u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_rn, rn, pc + 8)      \
 
@@ -1084,29 +981,9 @@ u32 execute_spsr_restore_body(u32 pc)
 
 /* imm will be loaded by the called function if necessary. */
 
-#define arm_generate_op_imm(name, load_op, store_op, flags_op)                \
-  arm_decode_data_proc_imm(opcode);                                           \
-  arm_prepare_load_rn_##load_op();                                            \
-  arm_prepare_store_rd_##store_op();                                          \
-  generate_op_##name##_imm(_rd, _rn);                                         \
-  arm_complete_store_rd_##store_op(flags_op)                                  \
-
-#define arm_generate_op_imm_flags(name, load_op, store_op, flags_op)          \
-  arm_generate_op_imm(name, load_op, store_op, flags_op)                      \
-
 #define arm_data_proc(name, type, flags_op)                                   \
 {                                                                             \
   arm_generate_op_##type(name, yes, yes, flags_op);                           \
-}                                                                             \
-
-#define arm_data_proc_test(name, type)                                        \
-{                                                                             \
-  arm_generate_op_##type(name, yes, no, no);                                  \
-}                                                                             \
-
-#define arm_data_proc_unary(name, type, flags_op)                             \
-{                                                                             \
-  arm_generate_op_##type(name, no, yes, flags_op);                            \
 }                                                                             \
 
 
@@ -1565,18 +1442,6 @@ static void trace_instruction(u32 pc, u32 mode)
   write32((pc + 4));                                                          \
 }                                                                             \
 
-
-#define thumb_generate_op_reg(name, _rd, _rs, _rn)                            \
-  u32 __rm = thumb_prepare_load_reg(translation_ptr, reg_rm, _rn);            \
-  generate_op_##name##_reg_immshift(__rd, __rn, __rm, ARMSHIFT_LSL, 0)        \
-
-#define thumb_generate_op_imm(name, _rd, _rs, imm_)                           \
-{                                                                             \
-  u32 imm_ror = 0;                                                            \
-  generate_op_##name##_imm(__rd, __rn);                                       \
-}                                                                             \
-
-
 #define complete_store_reg_pc_thumb()                                         \
   if (it.rd_hi() == REG_PC)                                                   \
   {                                                                           \
@@ -2021,7 +1886,7 @@ public:
 
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>
-  inline void arm_aluimm(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
@@ -2110,6 +1975,260 @@ public:
       arm_complete_store_reg_pc_no_flags(reg_rd, it.rd());
     }
   }
+
+  template <AluOperation aluop>
+  inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
+
+    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
+    const u32 imm8 = it.imm8();
+
+    switch (aluop) {
+    case OpTst:
+      ARM_TST_REG_IMM(0, rn, imm8, sa);
+      break;
+    case OpTeq:
+      ARM_TEQ_REG_IMM(0, rn, imm8, sa);
+      break;
+    case OpCmp:
+      ARM_CMP_REG_IMM(0, rn, imm8, sa);
+      break;
+    case OpCmn:
+      ARM_CMN_REG_IMM(0, rn, imm8, sa);
+      break;
+    };
+  }
+
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
+
+    // Immediate is a 8 bit rotated immediate
+    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
+    const u32 imm8 = it.imm8();
+
+    switch (aluop) {
+    case OpMov:
+      if (flg == SetFlags) {
+        ARM_MOVS_REG_IMM(0, rd, imm8, sa);
+      } else {
+        ARM_MOV_REG_IMM(0, rd, imm8, sa);
+      }
+      break;
+    case OpMvn:
+      if (flg == SetFlags) {
+        ARM_MVNS_REG_IMM(0, rd, imm8, sa);
+      } else {
+        ARM_MVN_REG_IMM(0, rd, imm8, sa);
+      }
+      break;
+    }
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == SetFlags) {
+      arm_complete_store_reg_pc_flags(reg_rd, it.rd());
+    } else {
+      arm_complete_store_reg_pc_no_flags(reg_rd, it.rd());
+    }
+  }
+
+  // 3 regs (with op2) instructions
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
+
+    if (it.op2imm()) {
+      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
+      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
+
+      // TODO merge this into a native ARM encoder to simplify the code.
+      if (flg == SetFlags) {
+        switch (aluop) {
+        case OpAnd:
+           generate_op_ands_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpOrr:
+           generate_op_orrs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpXor:
+           generate_op_eors_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpBic:
+           generate_op_bics_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        };
+      } else {
+        switch (aluop) {
+        case OpAnd:
+           generate_op_and_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpOrr:
+           generate_op_orr_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpXor:
+           generate_op_eor_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpBic:
+           generate_op_bic_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        };
+      }
+    } else {
+      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 12);
+      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
+      u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
+
+      if (flg == SetFlags) {
+        switch (aluop) {
+        case OpAnd:
+           generate_op_ands_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpOrr:
+           generate_op_orrs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpXor:
+           generate_op_eors_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpBic:
+           generate_op_bics_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        };
+      } else {
+        switch (aluop) {
+        case OpAnd:
+           generate_op_and_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpOrr:
+           generate_op_orr_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpXor:
+           generate_op_eor_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpBic:
+           generate_op_bic_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        };
+      }
+    }
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == SetFlags) {
+      arm_complete_store_reg_pc_flags(reg_rd, it.rd());
+    } else {
+      arm_complete_store_reg_pc_no_flags(reg_rd, it.rd());
+    }
+  }
+
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
+    if (it.op2imm()) {
+      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
+
+      // TODO merge this into a native ARM encoder to simplify the code.
+      if (flg == SetFlags) {
+        switch (aluop) {
+        case OpMvn:
+           generate_op_mvns_reg_immshift(rd, 0, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpMov:
+           generate_op_movs_reg_immshift(rd, 0, rm, it.op2smode(), it.op2sa());
+           break;
+        };
+      } else {
+        switch (aluop) {
+        case OpMvn:
+           generate_op_mvn_reg_immshift(rd, 0, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpMov:
+           generate_op_mov_reg_immshift(rd, 0, rm, it.op2smode(), it.op2sa());
+           break;
+        };
+      }
+    } else {
+      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
+      u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
+
+      if (flg == SetFlags) {
+        switch (aluop) {
+        case OpMvn:
+           generate_op_mvns_reg_regshift(rd, 0, rm, it.op2smode(), rs);
+           break;
+        case OpMov:
+           generate_op_movs_reg_regshift(rd, 0, rm, it.op2smode(), rs);
+           break;
+        };
+      } else {
+        switch (aluop) {
+        case OpMvn:
+           generate_op_mvn_reg_regshift(rd, 0, rm, it.op2smode(), rs);
+           break;
+        case OpMov:
+           generate_op_mov_reg_regshift(rd, 0, rm, it.op2smode(), rs);
+           break;
+        };
+      }
+    }
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == SetFlags) {
+      arm_complete_store_reg_pc_flags(reg_rd, it.rd());
+    } else {
+      arm_complete_store_reg_pc_no_flags(reg_rd, it.rd());
+    }
+  }
+
+  // compare/test instructions
+  template <AluOperation aluop, FlagOperation c_flag>
+  inline void arm_alureg2(const ARMInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    if (it.op2imm()) {
+      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
+      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
+
+      // TODO merge this into a native ARM encoder to simplify the code.
+      switch (aluop) {
+      case OpAnd:
+         ARM_TST_REG_IMMSHIFT(0, rn, rm, it.op2smode(), it.op2sa());
+         break;
+      case OpXor:
+         ARM_TEQ_REG_IMMSHIFT(0, rn, rm, it.op2smode(), it.op2sa());
+         break;
+      case OpCmp:
+         ARM_CMP_REG_IMMSHIFT(0, rn, rm, it.op2smode(), it.op2sa());
+         break;
+      case OpCmn:
+         ARM_CMN_REG_IMMSHIFT(0, rn, rm, it.op2smode(), it.op2sa());
+         break;
+      };
+    } else {
+      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 12);
+      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
+      u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
+
+      switch (aluop) {
+      case OpAnd:
+         ARM_TST_REG_REGSHIFT(0, rn, rm, it.op2smode(), rs);
+         break;
+      case OpXor:
+         ARM_TEQ_REG_REGSHIFT(0, rn, rm, it.op2smode(), rs);
+         break;
+      case OpCmp:
+         ARM_CMP_REG_REGSHIFT(0, rn, rm, it.op2smode(), rs);
+         break;
+      case OpCmn:
+         ARM_CMN_REG_REGSHIFT(0, rn, rm, it.op2smode(), rs);
+         break;
+      };
+    }
+  }
+
 };
 
 #define arm_conditional_block_header()                                        \

@@ -99,7 +99,7 @@ typedef enum {
   OpRsb, OpRsc,
   OpMul,
   OpNeg, OpMov, OpMvn,
-  OpTst, OpCmp, OpCmn
+  OpTst, OpTeq, OpCmp, OpCmn
 } AluOperation;
 
 typedef enum {
@@ -344,11 +344,9 @@ void translate_icache_sync() {
           cycle_count += 2;  /* variable 1..4, pick 2 as an aprox. */         \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* AND rd, rn, reg_op */                                              \
-        arm_data_proc(and, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* AND rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpAnd, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x01:                                                                \
@@ -378,11 +376,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* ANDS rd, rn, reg_op */                                             \
-        arm_data_proc(ands, reg_flags, flags);                                \
-      }                                                                       \
+      else         /* ANDS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpAnd, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x02:                                                                \
@@ -400,11 +396,9 @@ void translate_icache_sync() {
           cycle_count += 3;  /* variable 2..5, pick 3 as an aprox. */         \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* EOR rd, rn, reg_op */                                              \
-        arm_data_proc(eor, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* XOR rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpXor, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x03:                                                                \
@@ -434,11 +428,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* EORS rd, rn, reg_op */                                             \
-        arm_data_proc(eors, reg_flags, flags);                                \
-      }                                                                       \
+      else         /* XORS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpXor, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x04:                                                                \
@@ -789,11 +781,8 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* TST rd, rn, reg_op */                                              \
-        arm_data_proc_test(tst, reg_flags);                                   \
-      }                                                                       \
+      else         /* TST rn, reg_op */                                       \
+        ce.arm_alureg2<OpAnd, SetFlags>(inst);                                \
       break;                                                                  \
                                                                               \
     case 0x12:                                                                \
@@ -838,11 +827,8 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* TEQ rd, rn, reg_op */                                              \
-        arm_data_proc_test(teq, reg_flags);                                   \
-      }                                                                       \
+      else         /* TEQ rn, reg_op */                                       \
+        ce.arm_alureg2<OpXor, SetFlags>(inst);                                \
       break;                                                                  \
                                                                               \
     case 0x14:                                                                \
@@ -887,11 +873,8 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* CMP rn, reg_op */                                                  \
-        arm_data_proc_test(cmp, reg);                                         \
-      }                                                                       \
+      else         /* CMP rn, reg_op */                                       \
+        ce.arm_alureg2<OpCmp, NoFlags>(inst);                                 \
       break;                                                                  \
                                                                               \
     case 0x16:                                                                \
@@ -928,11 +911,8 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* CMN rd, rn, reg_op */                                              \
-        arm_data_proc_test(cmn, reg);                                         \
-      }                                                                       \
+      else         /* CMN rn, reg_op */                                       \
+        ce.arm_alureg2<OpCmn, NoFlags>(inst);                                 \
       break;                                                                  \
                                                                               \
     case 0x18:                                                                \
@@ -941,11 +921,9 @@ void translate_icache_sync() {
         /* STRH rd, [rn + rm] */                                              \
         arm_access_memory(store, up, pre, u16, half_reg);                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* ORR rd, rn, reg_op */                                              \
-        arm_data_proc(orr, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* ORR rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpOrr, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x19:                                                                \
@@ -969,11 +947,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* ORRS rd, rn, reg_op */                                             \
-        arm_data_proc(orrs, reg_flags, flags);                                \
-      }                                                                       \
+      else         /* ORRS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpOrr, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x1A:                                                                \
@@ -982,11 +958,8 @@ void translate_icache_sync() {
         /* STRH rd, [rn + rm]! */                                             \
         arm_access_memory(store, up, pre_wb, u16, half_reg);                  \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* MOV rd, reg_op */                                                  \
-        arm_data_proc_unary(mov, reg, no_flags);                              \
-      }                                                                       \
+      else         /* MOV rd, reg_op */                                       \
+        ce.arm_alureg1<OpMov, NoFlags>(inst, cycle_count);                    \
       break;                                                                  \
                                                                               \
     case 0x1B:                                                                \
@@ -1010,11 +983,8 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* MOVS rd, reg_op */                                                 \
-        arm_data_proc_unary(movs, reg_flags, flags);                          \
-      }                                                                       \
+      else         /* MOVS rd, reg_op */                                      \
+        ce.arm_alureg1<OpMov, SetFlags>(inst, cycle_count);                   \
       break;                                                                  \
                                                                               \
     case 0x1C:                                                                \
@@ -1023,11 +993,9 @@ void translate_icache_sync() {
         /* STRH rd, [rn + imm] */                                             \
         arm_access_memory(store, up, pre, u16, half_imm);                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* BIC rd, rn, reg_op */                                              \
-        arm_data_proc(bic, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* BIC rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpBic, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x1D:                                                                \
@@ -1051,11 +1019,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* BICS rd, rn, reg_op */                                             \
-        arm_data_proc(bics, reg_flags, flags);                                \
-      }                                                                       \
+      else         /* BIC rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpBic, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x1E:                                                                \
@@ -1064,11 +1030,8 @@ void translate_icache_sync() {
         /* STRH rd, [rn + imm]! */                                            \
         arm_access_memory(store, up, pre_wb, u16, half_imm);                  \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* MVN rd, reg_op */                                                  \
-        arm_data_proc_unary(mvn, reg, no_flags);                              \
-      }                                                                       \
+      else         /* MVN rd, reg_op */                                       \
+        ce.arm_alureg1<OpMvn, NoFlags>(inst, cycle_count);                    \
       break;                                                                  \
                                                                               \
     case 0x1F:                                                                \
@@ -1092,65 +1055,60 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* MVNS rd, rn, reg_op */                                             \
-        arm_data_proc_unary(mvns, reg_flags, flags);                          \
-      }                                                                       \
+      else         /* MVNS rd, reg_op */                                      \
+        ce.arm_alureg1<OpMvn, SetFlags>(inst, cycle_count);                   \
       break;                                                                  \
                                                                               \
     case 0x20:     /* AND rd, rn, imm */                                      \
-      ce.arm_aluimm<OpAnd, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpAnd, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x21:     /* ANDS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpAnd, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpAnd, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
     case 0x22:     /* EOR rd, rn, imm */                                      \
-      ce.arm_aluimm<OpXor, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpXor, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x23:     /* EORS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpXor, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpXor, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
     case 0x24:     /* SUB rd, rn, imm */                                      \
-      ce.arm_aluimm<OpSub, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpSub, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x25:     /* SUBS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpSub, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpSub, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
     case 0x26:     /* RSB rd, rn, imm */                                      \
-      ce.arm_aluimm<OpRsb, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpRsb, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x27:     /* RSBS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpRsb, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpRsb, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
     case 0x28:     /* ADD rd, rn, imm */                                      \
-      ce.arm_aluimm<OpAdd, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpAdd, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x29:     /* ADDS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpAdd, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpAdd, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
     case 0x2A:     /* ADC rd, rn, imm */                                      \
-      ce.arm_aluimm<OpAdc, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpAdc, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x2B:     /* ADCS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpAdc, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpAdc, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
     case 0x2C:     /* SBC rd, rn, imm */                                      \
-      ce.arm_aluimm<OpSbc, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpSbc, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x2D:     /* SBCS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpSbc, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpSbc, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
     case 0x2E:     /* RSC rd, rn, imm */                                      \
-      ce.arm_aluimm<OpRsc, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpRsc, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x2F:     /* RSCS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpRsc, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpRsc, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
-                                                                              \
-    case 0x30 ... 0x31:                                                       \
-      /* TST rn, imm */                                                       \
-      arm_data_proc_test(tst, imm_flags);                                     \
+    case 0x30 ... 0x31:      /* TST rn, imm */                                \
+      ce.arm_aluimm2<OpTst>(inst, cycle_count);                               \
       break;                                                                  \
                                                                               \
     case 0x32:                                                                \
@@ -1158,14 +1116,11 @@ void translate_icache_sync() {
       arm_psr(imm, store, cpsr);                                              \
       break;                                                                  \
                                                                               \
-    case 0x33:                                                                \
-      /* TEQ rn, imm */                                                       \
-      arm_data_proc_test(teq, imm_flags);                                     \
+    case 0x33:     /* TEQ rn, imm */                                          \
+      ce.arm_aluimm2<OpTeq>(inst, cycle_count);                               \
       break;                                                                  \
-                                                                              \
-    case 0x34 ... 0x35:                                                       \
-      /* CMP rn, imm */                                                       \
-      arm_data_proc_test(cmp, imm);                                           \
+    case 0x34 ... 0x35:      /* CMP rn, imm */                                \
+      ce.arm_aluimm2<OpCmp>(inst, cycle_count);                               \
       break;                                                                  \
                                                                               \
     case 0x36:                                                                \
@@ -1173,43 +1128,32 @@ void translate_icache_sync() {
       arm_psr(imm, store, spsr);                                              \
       break;                                                                  \
                                                                               \
-    case 0x37:                                                                \
-      /* CMN rn, imm */                                                       \
-      arm_data_proc_test(cmn, imm);                                           \
+    case 0x37:     /* CMN rn, imm */                                          \
+      ce.arm_aluimm2<OpCmn>(inst, cycle_count);                               \
       break;                                                                  \
-                                                                              \
     case 0x38:     /* ORR rd, rn, imm */                                      \
-      ce.arm_aluimm<OpOrr, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpOrr, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x39:     /* ORRS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpOrr, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpOrr, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
-                                                                              \
-    case 0x3A:                                                                \
-      /* MOV rd, imm */                                                       \
-      arm_data_proc_unary(mov, imm, no_flags);                                \
+    case 0x3A:     /* MOV rd, imm */                                          \
+      ce.arm_aluimm1<OpMov, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x3B:                                                                \
-      /* MOVS rd, imm */                                                      \
-      arm_data_proc_unary(movs, imm_flags, flags);                            \
+    case 0x3B:     /* MOVS rd, imm */                                         \
+      ce.arm_aluimm1<OpMov, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
-                                                                              \
     case 0x3C:     /* BIC rd, rn, imm */                                      \
-      ce.arm_aluimm<OpBic, NoFlags>(inst, cycle_count);                       \
+      ce.arm_aluimm3<OpBic, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
     case 0x3D:     /* BICS rd, rn, imm */                                     \
-      ce.arm_aluimm<OpBic, SetFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpBic, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
-                                                                              \
-    case 0x3E:                                                                \
-      /* MVN rd, imm */                                                       \
-      arm_data_proc_unary(mvn, imm, no_flags);                                \
+    case 0x3E:     /* MVN rd, imm */                                          \
+      ce.arm_aluimm1<OpMvn, NoFlags>(inst, cycle_count);                      \
       break;                                                                  \
-                                                                              \
-    case 0x3F:                                                                \
-      /* MVNS rd, imm */                                                      \
-      arm_data_proc_unary(mvns, imm_flags, flags);                            \
+    case 0x3F:     /* MVNS rd, imm */                                         \
+      ce.arm_aluimm1<OpMvn, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
                                                                               \
     case 0x40:                                                                \

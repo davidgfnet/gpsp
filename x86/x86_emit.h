@@ -867,9 +867,6 @@ u32 function_cc execute_spsr_restore(u32 address)
   block_exit_position++;                                                      \
 }                                                                             \
 
-#define rm_op_reg rm
-#define rm_op_imm imm
-
 #define arm_data_proc_reg_flags()                                             \
   arm_decode_data_proc_reg(opcode);                                           \
   if(flag_status & 0x02)                                                      \
@@ -885,47 +882,11 @@ u32 function_cc execute_spsr_restore(u32 address)
   arm_decode_data_proc_reg(opcode);                                           \
   generate_load_rm_sh(no_flags)                                               \
 
-#define arm_data_proc_imm()                                                   \
-  arm_decode_data_proc_imm(opcode);                                           \
-  ror(imm, imm, imm_ror);                                                     \
-  generate_load_imm(a0, imm)                                                  \
-
-#define arm_data_proc_imm_flags()                                             \
-  arm_decode_data_proc_imm(opcode);                                           \
-  if((flag_status & 0x02) && (imm_ror != 0))                                  \
-  {                                                                           \
-    /* Generate carry flag from integer rotation */                           \
-    u32 flagbit = ((imm >> (imm_ror - 1)) & 0x01);                            \
-    generate_store_reg_i32(flagbit, REG_C_FLAG);                              \
-  }                                                                           \
-  ror(imm, imm, imm_ror);                                                     \
-  generate_load_imm(a0, imm)                                                  \
-
-
 #define arm_data_proc(name, type, flags_op)                                   \
 {                                                                             \
   arm_data_proc_##type();                                                     \
   generate_load_reg_pc(a1, rn, 8);                                            \
   arm_data_proc_##name(rd, generate_store_reg_pc_##flags_op);                 \
-}                                                                             \
-
-#define arm_data_proc_test(name, type)                                        \
-{                                                                             \
-  arm_data_proc_##type();                                                     \
-  generate_load_reg_pc(a1, rn, 8);                                            \
-  arm_data_proc_test_##name();                                                \
-}                                                                             \
-
-#define arm_data_proc_unary(name, type, flags_op)                             \
-{                                                                             \
-  arm_data_proc_##type();                                                     \
-  arm_data_proc_unary_##name(rd, generate_store_reg_pc_##flags_op);           \
-}                                                                             \
-
-#define arm_data_proc_mov(type)                                               \
-{                                                                             \
-  arm_data_proc_##type();                                                     \
-  generate_store_reg_pc_no_flags(a0, rd);                                     \
 }                                                                             \
 
 #define arm_multiply_flags_yes()                                              \
@@ -1515,44 +1476,6 @@ u32 execute_store_cpsr_body()
     generate_update_flag(o, REG_V_FLAG)                                       \
   }                                                                           \
 
-#define arm_data_proc_and(rd, storefnc)                                       \
-  generate_and(a0, a1);                                                       \
-  storefnc(a0, rd);
-
-#define arm_data_proc_ands(rd, storefnc)                                      \
-  generate_and(a0, a1);                                                       \
-  update_logical_flags();                                                     \
-  storefnc(a0, rd);
-
-#define arm_data_proc_eor(rd, storefnc)                                       \
-  generate_xor(a0, a1);                                                       \
-  storefnc(a0, rd);
-
-#define arm_data_proc_eors(rd, storefnc)                                      \
-  generate_xor(a0, a1);                                                       \
-  update_logical_flags();                                                     \
-  storefnc(a0, rd);
-
-#define arm_data_proc_orr(rd, storefnc)                                       \
-  generate_or(a0, a1);                                                        \
-  storefnc(a0, rd);
-
-#define arm_data_proc_orrs(rd, storefnc)                                      \
-  generate_or(a0, a1);                                                        \
-  update_logical_flags();                                                     \
-  storefnc(a0, rd);
-
-#define arm_data_proc_bic(rd, storefnc)                                       \
-  generate_not(a0);                                                           \
-  generate_and(a0, a1);                                                       \
-  storefnc(a0, rd);
-
-#define arm_data_proc_bics(rd, storefnc)                                      \
-  generate_not(a0);                                                           \
-  generate_and(a0, a1);                                                       \
-  update_logical_flags();                                                     \
-  storefnc(a0, rd);
-
 #define arm_data_proc_add(rd, storefnc)                                       \
   generate_add(a0, a1);                                                       \
   storefnc(a0, rd);
@@ -1635,43 +1558,6 @@ u32 execute_store_cpsr_body()
   generate_sbb(a0, a1);                                                       \
   update_sub_flags()                                                          \
   storefnc(a0, rd);
-
-
-#define arm_data_proc_test_cmp()                                              \
-  generate_sub(a1, a0);                                                       \
-  update_sub_flags()
-
-#define arm_data_proc_test_cmn()                                              \
-  generate_add(a1, a0);                                                       \
-  update_add_flags()
-
-#define arm_data_proc_test_tst()                                              \
-  generate_and(a0, a1);                                                       \
-  update_logical_flags()
-
-#define arm_data_proc_test_teq()                                              \
-  generate_xor(a0, a1);                                                       \
-  update_logical_flags()
-
-#define arm_data_proc_unary_mov(rd, storefnc)                                 \
-  storefnc(a0, rd);
-
-#define arm_data_proc_unary_movs(rd, storefnc)                                \
-  arm_data_proc_unary_mov(rd, storefnc);                                      \
-  generate_or(a0, a0);                                                        \
-  update_logical_flags()
-
-#define arm_data_proc_unary_mvn(rd, storefnc)                                 \
-  generate_xor_imm(a0, ~0U);    /* Using xor generates flags vs not */        \
-  storefnc(a0, rd);
-
-#define arm_data_proc_unary_mvns(rd, storefnc)                                \
-  arm_data_proc_unary_mvn(rd, storefnc);                                      \
-  update_logical_flags()
-
-#define arm_data_proc_unary_neg(rd, storefnc)                                 \
-  generate_xor(a1, a1);                                                       \
-  arm_data_proc_subs(rd, storefnc)
 
 
 static void function_cc execute_swi(u32 pc)
@@ -1763,6 +1649,14 @@ static void function_cc execute_swi(u32 pc)
     generate_load_reg(ireg, regnum);                                          \
   }                                                                           \
 
+/* Just loads the LSB byte of the desired register */
+#define emit_load_reg_pc_lsb(ireg, regnum, pc_offset)                         \
+  if(regnum == REG_PC) {                                                      \
+    x86_emit_mov_reg_imm(ireg, 0xFF & (it.pc + (pc_offset)));                 \
+  } else {                                                                    \
+    x86_emit_mem_movzxb(ireg, reg_base, (regnum) * 4);                        \
+  }                                                                           \
+
 
 #define update_nz_flags()                                                     \
   if (it.gen_flag_z()) {                                                      \
@@ -1808,6 +1702,19 @@ public:
     }
     if (it.gen_flag_n()) {
       generate_update_flag(s, REG_N_FLAG);
+    }
+  }
+
+  template <FlagOperation flgmode>
+  inline void upd_nz_flags_imm(const ARMInst & it, u32 imm) {
+    if (flgmode == SetFlags) {
+      u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+      if (it.gen_flag_z()) {
+        generate_store_reg_i32((imm ? 0 : 1), REG_Z_FLAG);
+      }
+      if (it.gen_flag_n()) {
+        generate_store_reg_i32((imm >> 31), REG_N_FLAG);
+      }
     }
   }
 
@@ -1932,7 +1839,7 @@ public:
     switch (aluop) {
     case OpMov:
       generate_store_reg_i32(it.imm8(), it.rd8());
-      generate_store_reg_i32(it.imm8() ? 0 : 1, REG_Z_FLAG);
+      generate_store_reg_i32((it.imm8() ? 0 : 1), REG_Z_FLAG);
       generate_store_reg_i32(0, REG_N_FLAG);
       break;
     case OpAdd:
@@ -2039,7 +1946,7 @@ public:
 
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>
-  inline void arm_aluimm(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     emit_load_reg_pc(a0, it.rn(), 8);
 
@@ -2126,6 +2033,330 @@ public:
         generate_store_reg_pc_no_flags(a0, it.rd());
       }
     }
+  }
+
+  template <AluOperation aluop>
+  inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    emit_load_reg_pc(a0, it.rn(), 8);
+
+    // Immediate is a 8 bit rotated immediate
+    u32 sa = it.rot4() * 2;
+    u32 imm = rotr32(it.imm8(), sa);
+
+    // Set/Clear carry flag if appropriate (rotation result)
+    if (it.rot4() != 0 && it.gen_flag_c()) {
+      generate_store_reg_i32((imm >> 31), REG_C_FLAG);
+    }
+
+    switch (aluop) {
+    case OpTst:
+      x86_emit_and_reg_imm(reg_a0, imm);
+      upd_nz_flags(it);
+      break;
+    case OpTeq:
+      x86_emit_xor_reg_imm(reg_a0, imm);
+      upd_nz_flags(it);
+      break;
+    case OpCmp:
+      x86_emit_sub_reg_imm(reg_a0, imm);
+      upd_nzcv_sub_flags(it);
+      break;
+    case OpCmn:
+      x86_emit_add_reg_imm(reg_a0, imm);
+      upd_nzcv_add_flags(it);
+      break;
+    };
+  }
+
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    // Immediate is a 8 bit rotated immediate
+    u32 sa = it.rot4() * 2;
+    u32 imm = rotr32(it.imm8(), sa);
+
+    // Set/Clear carry flag if appropriate (rotation result)
+    if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
+      generate_store_reg_i32((imm >> 31), REG_C_FLAG);
+    }
+
+    if (aluop == OpMvn)
+      imm = ~imm;
+
+    generate_load_imm(a0, imm);
+    upd_nz_flags_imm<flg>(it, imm);
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == SetFlags) {
+      generate_store_reg_pc_flags(a0, it.rd());
+    } else {
+      generate_store_reg_pc_no_flags(a0, it.rd());
+    }
+  }
+
+  // Calculates operand 2 when register is shifted/rotated by an immediate.
+  template<FlagOperation flg>
+  inline void emit_op2_shimm(const ARMInst &it) {
+    u32 imm = it.op2sa();      // Shift amount [0..31]
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    // Uses X86 similarities to ARM to calculate the carry flag
+
+    switch (it.op2smode()) {
+    case 0:      /* LSL */
+      emit_load_reg_pc(a0, it.rm(), 8);
+      if (imm) {
+        generate_shift_left(a0, imm);
+        if (flg == SetFlags) {
+          generate_update_flag(c, REG_C_FLAG);
+        }
+      }
+      break;
+
+    case 1:      /* LSR (0 means shift by 32) */
+      if (imm) {
+        emit_load_reg_pc(a0, it.rm(), 8);
+        generate_shift_right(a0, imm);
+        if (flg == SetFlags) {
+          generate_update_flag(c, REG_C_FLAG);
+        }
+      } else {
+        if (flg == SetFlags) {
+          emit_load_reg_pc(a0, it.rm(), 8);
+          generate_shift_right(a0, 31);
+          generate_store_reg(a0, REG_C_FLAG);
+        }
+        generate_load_imm(a0, 0);
+      }
+      break;
+
+    case 2:      /* ASR (0 is also shift by 32) */
+      emit_load_reg_pc(a0, it.rm(), 8);
+      if (imm) {
+        generate_shift_right_arithmetic(a0, imm);
+        if (flg == SetFlags) {
+          generate_update_flag(c, REG_C_FLAG);
+        }
+      } else {
+        // Shift by "32"
+        generate_shift_right_arithmetic(a0, 31);
+        if (flg == SetFlags) {
+          generate_update_flag(nz, REG_C_FLAG);
+        }
+      }
+      break;
+
+    case 3:      /* ROR */
+      emit_load_reg_pc(a0, it.rm(), 8);
+      if (imm) {
+        generate_rotate_right(a0, imm);
+        if (flg == SetFlags) {
+          generate_update_flag(c, REG_C_FLAG);
+        }
+      } else {   /* RRX{S} mode */
+        generate_load_reg(a2, REG_C_FLAG);
+        generate_shift_right(a0, 1);
+        if (flg == SetFlags) {
+          generate_update_flag(c, REG_C_FLAG);
+        }
+        generate_shift_left(a2, 31);
+        generate_or(a0, a2);
+      }
+      break;
+    };
+  }
+
+  // Calculates operand 2 when register is shifted/rotated by another register.
+  template<FlagOperation flg>
+  inline void emit_op2_shreg(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    emit_load_reg_pc(a0, it.rm(), 12);
+    emit_load_reg_pc_lsb(reg_a2, it.rs(), 12);   // Loads the LSB byte only! Into ECX
+
+    if (flg == SetFlags) {
+      u8 *iszeroj, *jmpz32;
+      x86_emit_jecxz_filler(iszeroj);    // Skip if shift amount is zero.
+      switch (it.op2smode()) {
+        case 0:     /* LSL */
+          generate_sub_imm(a2, 1);
+          generate_shift_left_var(a0);
+          x86_emit_bittest(reg_a0, 31);
+          generate_update_flag(c, REG_C_FLAG);
+          generate_shift_left(a0, 1);
+          generate_cmp_imm(a2, 32);
+          x86_emit_j_filler(x86_condition_code_l, jmpz32);
+            generate_load_imm(a0, 0);
+            generate_store_reg_i32(0, REG_C_FLAG);
+          generate_branch_patch_conditional(jmpz32, translation_ptr);
+          break;
+        case 1:     /* LSR */
+          generate_sub_imm(a2, 1);
+          generate_shift_right_var(a0);
+          generate_test_imm(a0, 1);
+          generate_update_flag(nz, REG_C_FLAG);
+          generate_shift_right(a0, 1);
+          generate_cmp_imm(a2, 32);
+          x86_emit_j_filler(x86_condition_code_l, jmpz32);
+            generate_load_imm(a0, 0);
+            generate_store_reg_i32(0, REG_C_FLAG);
+          generate_branch_patch_conditional(jmpz32, translation_ptr);
+          break;
+        case 2:     /* ASR */
+          generate_shift_right_arithmetic_var(a0);
+          generate_update_flag(c, REG_C_FLAG);
+          generate_cmp_imm(a2, 32);
+          x86_emit_j_filler(x86_condition_code_l, jmpz32);
+          generate_shift_right_arithmetic(a0, 16);
+          generate_shift_right_arithmetic(a0, 16);
+          generate_update_flag(c, REG_C_FLAG);
+          generate_branch_patch_conditional(jmpz32, translation_ptr);
+          break;
+        case 3:     /* ROR */
+          generate_rotate_right_var(a0);
+          x86_emit_bittest(reg_a0, 31);
+          generate_update_flag(c, REG_C_FLAG);
+          break;
+      };
+      generate_branch_patch_jecxz(iszeroj, translation_ptr);
+    } else {
+      switch (it.op2smode()) {
+        case 0:     /* LSL */
+          generate_xor(a1, a1);
+          generate_shift_left_var(a0);
+          generate_cmp_imm(a2, 32);
+          x86_emit_cmov(nc, reg_a0, reg_a1);
+          break;
+        case 1:     /* LSR */
+          generate_xor(a1, a1);
+          generate_shift_right_var(a0);
+          generate_cmp_imm(a2, 32);
+          x86_emit_cmov(nc, reg_a0, reg_a1);
+          break;
+        case 2:     /* ASR */
+          generate_cmp_imm(a2, 32);
+          generate_load_imm(a1, 31);
+          x86_emit_cmov(nc, reg_a2, reg_a1);
+          generate_shift_right_arithmetic_var(a0);
+          break;
+        case 3:     /* ROR */
+          generate_rotate_right_var(a0);
+          break;
+      };
+    }
+  }
+
+  // Calculates the flex operand to a0, honoring flag (CF) generation
+  template <FlagOperation flg>
+  inline void emit_arm_aluop2(const ARMInst & it) {
+    // Calculates the Op2 part and writes it to a0
+    if (flg == SetFlags && it.gen_flag_c()) {
+      if (it.op2imm())
+        emit_op2_shimm<SetFlags>(it);
+      else
+        emit_op2_shreg<SetFlags>(it);
+    } else {
+      if (it.op2imm())
+        emit_op2_shimm<NoFlags>(it);
+      else
+        emit_op2_shreg<NoFlags>(it);
+    }
+  }
+
+  // 3 regs (with op2) instructions
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    // Generate op2 to a0, op1 to a1
+    emit_arm_aluop2<flg>(it);
+    emit_load_reg_pc(a1, it.rn(), (it.op2imm() ? 8 : 12));
+
+    switch (aluop) {
+    case OpAnd:
+       generate_and(a0, a1);
+       if (flg == SetFlags)
+         upd_nz_flags(it);
+       break;
+    case OpOrr:
+       generate_or(a0, a1);
+       if (flg == SetFlags)
+         upd_nz_flags(it);
+       break;
+    case OpXor:
+       generate_xor(a0, a1);
+       if (flg == SetFlags)
+         upd_nz_flags(it);
+       break;
+    case OpBic:
+       generate_not(a0);
+       generate_and(a0, a1);
+       if (flg == SetFlags)
+         upd_nz_flags(it);
+       break;
+    };
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == SetFlags) {
+      generate_store_reg_pc_flags(a0, it.rd());
+    } else {
+      generate_store_reg_pc_no_flags(a0, it.rd());
+    }
+  }
+
+  template <AluOperation aluop, FlagOperation flg>
+  inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    emit_arm_aluop2<flg>(it);   // Generate op2 to a0
+    switch (aluop) {
+    case OpMvn:
+       generate_xor_imm(a0, ~0U);  // Forces flag generation
+       if (flg == SetFlags)
+         upd_nz_flags(it);
+       break;
+    case OpMov:
+       if (flg == SetFlags) {
+         generate_or(a0, a0);
+         upd_nz_flags(it);
+       }
+       break;
+    };
+
+    const u8 condition = it.cond();        // TODO remove this
+    if (flg == SetFlags) {
+      generate_store_reg_pc_flags(a0, it.rd());
+    } else {
+      generate_store_reg_pc_no_flags(a0, it.rd());
+    }
+  }
+
+  // compare/test instructions
+  template <AluOperation aluop, FlagOperation c_flag>
+  inline void arm_alureg2(const ARMInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
+    emit_load_reg_pc(a1, it.rn(), (it.op2imm() ? 8 : 12));
+
+    switch (aluop) {
+    case OpAnd:
+       generate_and(a0, a1);
+       upd_nz_flags(it);
+       break;
+    case OpXor:
+       generate_xor(a0, a1);
+       upd_nz_flags(it);
+       break;
+    case OpCmp:
+       generate_sub(a1, a0);
+       update_nzcv_sub_flags();
+       break;
+    case OpCmn:
+       generate_add(a1, a0);
+       update_nzcv_add_flags();
+       break;
+    };
   }
 };
 

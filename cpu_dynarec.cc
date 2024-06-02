@@ -439,11 +439,9 @@ void translate_icache_sync() {
         /* STRH rd, [rn], -imm */                                             \
         arm_access_memory(store, down, post, u16, half_imm);                  \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* SUB rd, rn, reg_op */                                              \
-        arm_data_proc(sub, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* SUB rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpSub, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x05:                                                                \
@@ -467,11 +465,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* SUBS rd, rn, reg_op */                                             \
-        arm_data_proc(subs, reg, flags);                                      \
-      }                                                                       \
+      else         /* SUBS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpSub, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x06:                                                                \
@@ -480,11 +476,9 @@ void translate_icache_sync() {
         /* STRH rd, [rn], -imm */                                             \
         arm_access_memory(store, down, post, u16, half_imm);                  \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* RSB rd, rn, reg_op */                                              \
-        arm_data_proc(rsb, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* RSB rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpRsb, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x07:                                                                \
@@ -508,11 +502,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* RSBS rd, rn, reg_op */                                             \
-        arm_data_proc(rsbs, reg, flags);                                      \
-      }                                                                       \
+      else         /* RSBS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpRsb, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x08:                                                                \
@@ -530,11 +522,9 @@ void translate_icache_sync() {
           cycle_count += 3;  /* this is an aproximation :P */                 \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* ADD rd, rn, reg_op */                                              \
-        arm_data_proc(add, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* ADD rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpAdd, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x09:                                                                \
@@ -564,11 +554,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* ADDS rd, rn, reg_op */                                             \
-        arm_data_proc(adds, reg, flags);                                      \
-      }                                                                       \
+      else         /* ADDS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpAdd, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x0A:                                                                \
@@ -586,11 +574,9 @@ void translate_icache_sync() {
           cycle_count += 3;  /* Between 2 and 5 cycles? */                    \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* ADC rd, rn, reg_op */                                              \
-        arm_data_proc(adc, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* ADC rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpAdc, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x0B:                                                                \
@@ -620,11 +606,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* ADCS rd, rn, reg_op */                                             \
-        arm_data_proc(adcs, reg, flags);                                      \
-      }                                                                       \
+      else         /* ADCS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpAdc, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x0C:                                                                \
@@ -642,11 +626,9 @@ void translate_icache_sync() {
           cycle_count += 2;  /* Between 1 and 4 cycles? */                    \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* SBC rd, rn, reg_op */                                              \
-        arm_data_proc(sbc, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* SBC rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpSbc, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x0D:                                                                \
@@ -676,11 +658,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* SBCS rd, rn, reg_op */                                             \
-        arm_data_proc(sbcs, reg, flags);                                      \
-      }                                                                       \
+      else         /* SBCS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpSbc, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x0E:                                                                \
@@ -698,11 +678,9 @@ void translate_icache_sync() {
           cycle_count += 3;  /* Between 2 and 5 cycles? */                    \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* RSC rd, rn, reg_op */                                              \
-        arm_data_proc(rsc, reg, no_flags);                                    \
-      }                                                                       \
+      else         /* RSC rd, rn, reg_op */                                   \
+        ce.arm_alureg3<OpRsc, NoFlags>(inst, cycle_count);                    \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x0F:                                                                \
@@ -732,11 +710,9 @@ void translate_icache_sync() {
             break;                                                            \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* RSCS rd, rn, reg_op */                                             \
-        arm_data_proc(rscs, reg, flags);                                      \
-      }                                                                       \
+      else         /* RSCS rd, rn, reg_op */                                  \
+        ce.arm_alureg3<OpRsc, SetFlags>(inst, cycle_count);                   \
+                                                                              \
       break;                                                                  \
                                                                               \
     case 0x10:                                                                \

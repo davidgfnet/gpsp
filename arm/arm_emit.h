@@ -2059,6 +2059,24 @@ public:
         case OpBic:
            generate_op_bics_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
            break;
+        case OpAdd:
+           generate_op_adds_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpAdc:
+           generate_op_adcs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpSub:
+           generate_op_subs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpRsb:
+           generate_op_rsbs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpSbc:
+           generate_op_sbcs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpRsc:
+           generate_op_rscs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
         };
       } else {
         switch (aluop) {
@@ -2073,6 +2091,24 @@ public:
            break;
         case OpBic:
            generate_op_bic_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpAdd:
+           generate_op_add_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpAdc:
+           generate_op_adc_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpSub:
+           generate_op_sub_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpRsb:
+           generate_op_rsb_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpSbc:
+           generate_op_sbc_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
+           break;
+        case OpRsc:
+           generate_op_rsc_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
            break;
         };
       }
@@ -2095,6 +2131,24 @@ public:
         case OpBic:
            generate_op_bics_reg_regshift(rd, rn, rm, it.op2smode(), rs);
            break;
+        case OpAdd:
+           generate_op_adds_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpAdc:
+           generate_op_adcs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpSub:
+           generate_op_subs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpRsb:
+           generate_op_rsbs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpSbc:
+           generate_op_sbcs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpRsc:
+           generate_op_rscs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
         };
       } else {
         switch (aluop) {
@@ -2109,6 +2163,24 @@ public:
            break;
         case OpBic:
            generate_op_bic_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpAdd:
+           generate_op_add_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpAdc:
+           generate_op_adc_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpSub:
+           generate_op_sub_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpRsb:
+           generate_op_rsb_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpSbc:
+           generate_op_sbc_reg_regshift(rd, rn, rm, it.op2smode(), rs);
+           break;
+        case OpRsc:
+           generate_op_rsc_reg_regshift(rd, rn, rm, it.op2smode(), rs);
            break;
         };
       }

@@ -327,18 +327,6 @@ extern "C" {
 #define check_generate_c_flag   (flag_status & 0x02)
 #define check_generate_v_flag   (flag_status & 0x01)
 
-#define generate_asr_no_flags_reg(ireg)                                       \
-{                                                                             \
-  u8 *jmpinst;                                                                \
-  x86_emit_movzxb(reg_a2, reg_a1);                                            \
-  generate_shift_right_arithmetic_var(a0);                                    \
-  generate_cmp_imm(a2, 32);                                                   \
-  x86_emit_j_filler(x86_condition_code_l, jmpinst);                           \
-  generate_shift_right_arithmetic(a0, 31);                                    \
-  generate_branch_patch_conditional(jmpinst, translation_ptr);                \
-  generate_mov(ireg, a0);                                                     \
-}
-
 #define generate_asr_flags_reg(ireg)                                          \
 {                                                                             \
   u8 *jmpinst1, *jmpinst2;                                                    \
@@ -353,18 +341,6 @@ extern "C" {
   generate_update_flag(c, REG_C_FLAG)                                         \
   generate_branch_patch_jecxz(jmpinst1, translation_ptr);                     \
   generate_branch_patch_conditional(jmpinst2, translation_ptr);               \
-  generate_mov(ireg, a0);                                                     \
-}
-
-#define generate_lsl_no_flags_reg(ireg)                                       \
-{                                                                             \
-  u8 *jmpinst;                                                                \
-  x86_emit_movzxb(reg_a2, reg_a1);                                            \
-  generate_shift_left_var(a0);                                                \
-  generate_cmp_imm(a2, 32);                                                   \
-  x86_emit_j_filler(x86_condition_code_l, jmpinst);                           \
-  generate_load_imm(a0, 0);                                                   \
-  generate_branch_patch_conditional(jmpinst, translation_ptr);                \
   generate_mov(ireg, a0);                                                     \
 }
 
@@ -387,18 +363,6 @@ extern "C" {
   generate_mov(ireg, a0);                                                     \
 }
 
-#define generate_lsr_no_flags_reg(ireg)                                       \
-{                                                                             \
-  u8 *jmpinst;                                                                \
-  x86_emit_movzxb(reg_a2, reg_a1);                                            \
-  generate_shift_right_var(a0);                                               \
-  generate_cmp_imm(a2, 32);                                                   \
-  x86_emit_j_filler(x86_condition_code_l, jmpinst);                           \
-  generate_xor(a0, a0);                                                       \
-  generate_branch_patch_conditional(jmpinst, translation_ptr);                \
-  generate_mov(ireg, a0);                                                     \
-}
-
 #define generate_lsr_flags_reg(ireg)                                          \
 {                                                                             \
   u8 *jmpinst1, *jmpinst2;                                                    \
@@ -417,11 +381,6 @@ extern "C" {
   generate_branch_patch_conditional(jmpinst2, translation_ptr);               \
   generate_mov(ireg, a0);                                                     \
 }
-
-#define generate_ror_no_flags_reg(ireg)                                       \
-  x86_emit_movzxb(reg_a2, reg_a1);                                            \
-  generate_rotate_right_var(a0);                                              \
-  generate_mov(ireg, a0);
 
 #define generate_ror_flags_reg(ireg)                                          \
 {                                                                             \
@@ -540,66 +499,6 @@ extern "C" {
 #define generate_shift_imm(ireg, name, flags_op)                              \
   get_shift_imm();                                                            \
   generate_shift_imm_##name##_##flags_op(ireg)                                \
-
-#define generate_load_rm_sh(flags_op)                                         \
-  switch((opcode >> 4) & 0x07)                                                \
-  {                                                                           \
-    /* LSL imm */                                                             \
-    case 0x0:                                                                 \
-    {                                                                         \
-      generate_shift_imm(a0, lsl, flags_op);                                  \
-      break;                                                                  \
-    }                                                                         \
-                                                                              \
-    /* LSL reg */                                                             \
-    case 0x1:                                                                 \
-    {                                                                         \
-      generate_shift_reg(a0, lsl, flags_op);                                  \
-      break;                                                                  \
-    }                                                                         \
-                                                                              \
-    /* LSR imm */                                                             \
-    case 0x2:                                                                 \
-    {                                                                         \
-      generate_shift_imm(a0, lsr, flags_op);                                  \
-      break;                                                                  \
-    }                                                                         \
-                                                                              \
-    /* LSR reg */                                                             \
-    case 0x3:                                                                 \
-    {                                                                         \
-      generate_shift_reg(a0, lsr, flags_op);                                  \
-      break;                                                                  \
-    }                                                                         \
-                                                                              \
-    /* ASR imm */                                                             \
-    case 0x4:                                                                 \
-    {                                                                         \
-      generate_shift_imm(a0, asr, flags_op);                                  \
-      break;                                                                  \
-    }                                                                         \
-                                                                              \
-    /* ASR reg */                                                             \
-    case 0x5:                                                                 \
-    {                                                                         \
-      generate_shift_reg(a0, asr, flags_op);                                  \
-      break;                                                                  \
-    }                                                                         \
-                                                                              \
-    /* ROR imm */                                                             \
-    case 0x6:                                                                 \
-    {                                                                         \
-      generate_shift_imm(a0, ror, flags_op);                                  \
-      break;                                                                  \
-    }                                                                         \
-                                                                              \
-    /* ROR reg */                                                             \
-    case 0x7:                                                                 \
-    {                                                                         \
-      generate_shift_reg(a0, ror, flags_op);                                  \
-      break;                                                                  \
-    }                                                                         \
-  }                                                                           \
 
 #define generate_load_offset_sh()                                             \
   switch((opcode >> 5) & 0x03)                                                \
@@ -865,28 +764,6 @@ u32 function_cc execute_spsr_restore(u32 address)
      block_exits[block_exit_position].branch_target);                         \
   }                                                                           \
   block_exit_position++;                                                      \
-}                                                                             \
-
-#define arm_data_proc_reg_flags()                                             \
-  arm_decode_data_proc_reg(opcode);                                           \
-  if(flag_status & 0x02)                                                      \
-  {                                                                           \
-    generate_load_rm_sh(flags)                                                \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_load_rm_sh(no_flags);                                            \
-  }                                                                           \
-
-#define arm_data_proc_reg()                                                   \
-  arm_decode_data_proc_reg(opcode);                                           \
-  generate_load_rm_sh(no_flags)                                               \
-
-#define arm_data_proc(name, type, flags_op)                                   \
-{                                                                             \
-  arm_data_proc_##type();                                                     \
-  generate_load_reg_pc(a1, rn, 8);                                            \
-  arm_data_proc_##name(rd, generate_store_reg_pc_##flags_op);                 \
 }                                                                             \
 
 #define arm_multiply_flags_yes()                                              \
@@ -1526,40 +1403,6 @@ u32 execute_store_cpsr_body()
   generate_sub_imm(tmpreg, 1);                                                \
 
 
-#define arm_data_proc_adc(rd, storefnc)                                       \
-  load_c_flag(a2)                                                             \
-  generate_adc(a0, a1);                                                       \
-  storefnc(a0, rd);
-
-#define arm_data_proc_adcs(rd, storefnc)                                      \
-  load_c_flag(a2)                                                             \
-  generate_adc(a0, a1);                                                       \
-  update_add_flags()                                                          \
-  storefnc(a0, rd);
-
-#define arm_data_proc_sbc(rd, storefnc)                                       \
-  load_inv_c_flag(a2)                                                         \
-  generate_sbb(a1, a0);                                                       \
-  storefnc(a1, rd);
-
-#define arm_data_proc_sbcs(rd, storefnc)                                      \
-  load_inv_c_flag(a2)                                                         \
-  generate_sbb(a1, a0);                                                       \
-  update_sub_flags()                                                          \
-  storefnc(a1, rd);
-
-#define arm_data_proc_rsc(rd, storefnc)                                       \
-  load_inv_c_flag(a2)                                                         \
-  generate_sbb(a0, a1);                                                       \
-  storefnc(a0, rd);
-
-#define arm_data_proc_rscs(rd, storefnc)                                      \
-  load_inv_c_flag(a2)                                                         \
-  generate_sbb(a0, a1);                                                       \
-  update_sub_flags()                                                          \
-  storefnc(a0, rd);
-
-
 static void function_cc execute_swi(u32 pc)
 {
   // Open bus value after SWI
@@ -1658,14 +1501,6 @@ static void function_cc execute_swi(u32 pc)
   }                                                                           \
 
 
-#define update_nz_flags()                                                     \
-  if (it.gen_flag_z()) {                                                      \
-    generate_update_flag(z, REG_Z_FLAG)                                       \
-  }                                                                           \
-  if (it.gen_flag_n()) {                                                      \
-    generate_update_flag(s, REG_N_FLAG)                                       \
-  }                                                                           \
-
 #define update_cv_add_flags()                                                 \
   if (it.gen_flag_c()) {                                                      \
     generate_update_flag(c, REG_C_FLAG);                                      \
@@ -1682,26 +1517,21 @@ static void function_cc execute_swi(u32 pc)
     generate_update_flag(o, REG_V_FLAG)                                       \
   }                                                                           \
 
-#define update_nzcv_add_flags()                                               \
-  update_nz_flags();                                                          \
-  update_cv_add_flags();                                                      \
-
-#define update_nzcv_sub_flags()                                               \
-  update_nz_flags();                                                          \
-  update_cv_sub_flags();                                                      \
-
 class CodeEmitter : public CodeEmitterBase {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
    : CodeEmitterBase(emit_ptr, emit_end) {}
 
-  inline void upd_nz_flags(const ARMInst & it) {
+  template <FlagOperation flgmode>
+  inline void upd_nz_flags(const InstFlagInfo & it) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    if (it.gen_flag_z()) {
-      generate_update_flag(z, REG_Z_FLAG);
-    }
-    if (it.gen_flag_n()) {
-      generate_update_flag(s, REG_N_FLAG);
+    if (flgmode == SetFlags) {
+      if (it.gen_flag_z()) {
+        generate_update_flag(z, REG_Z_FLAG);
+      }
+      if (it.gen_flag_n()) {
+        generate_update_flag(s, REG_N_FLAG);
+      }
     }
   }
 
@@ -1718,25 +1548,31 @@ public:
     }
   }
 
-  inline void upd_nzcv_add_flags(const ARMInst & it) {
-    upd_nz_flags(it);
+  template <FlagOperation flgmode>
+  inline void upd_nzcv_add_flags(const InstFlagInfo & it) {
+    upd_nz_flags<flgmode>(it);
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    if (it.gen_flag_c()) {
-      generate_update_flag(c, REG_C_FLAG);
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG);
+    if (flgmode == SetFlags) {
+      if (it.gen_flag_c()) {
+        generate_update_flag(c, REG_C_FLAG);
+      }
+      if (it.gen_flag_v()) {
+        generate_update_flag(o, REG_V_FLAG);
+      }
     }
   }
 
-  inline void upd_nzcv_sub_flags(const ARMInst & it) {
-    upd_nz_flags(it);
+  template <FlagOperation flgmode>
+  inline void upd_nzcv_sub_flags(const InstFlagInfo & it) {
+    upd_nz_flags<flgmode>(it);
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    if (it.gen_flag_c()) {
-      generate_update_flag(nc, REG_C_FLAG);
-    }
-    if (it.gen_flag_v()) {
-      generate_update_flag(o, REG_V_FLAG);
+    if (flgmode == SetFlags) {
+      if (it.gen_flag_c()) {
+        generate_update_flag(nc, REG_C_FLAG);
+      }
+      if (it.gen_flag_v()) {
+        generate_update_flag(o, REG_V_FLAG);
+      }
     }
   }
 
@@ -1785,7 +1621,7 @@ public:
       break;
     };
 
-    update_nz_flags();
+    upd_nz_flags<SetFlags>(it);
     generate_store_reg(a0, it.rd());
   }
 
@@ -1807,7 +1643,7 @@ public:
       break;
     };
 
-    update_nz_flags();
+    upd_nz_flags<SetFlags>(it);
   }
 
   template <AluOperation testop>
@@ -1819,15 +1655,15 @@ public:
     switch (testop) {
     case OpTst:
       generate_and(a0, a1);
-      update_nz_flags();
+      upd_nz_flags<SetFlags>(it);
       break;
     case OpCmp:
       generate_sub(a0, a1);
-      update_nzcv_sub_flags();
+      upd_nzcv_sub_flags<SetFlags>(it);
       break;
     case OpCmn:
       generate_add(a0, a1);
-      update_nzcv_add_flags();
+      upd_nzcv_add_flags<SetFlags>(it);
       break;
     };
   }
@@ -1845,20 +1681,20 @@ public:
     case OpAdd:
       generate_load_reg(a0, it.rd8());
       x86_emit_add_reg_imm(reg_a0, it.imm8());
-      update_nzcv_add_flags();
+      upd_nzcv_add_flags<SetFlags>(it);
       generate_store_reg(a0, it.rd8());
       break;
     case OpSub:
       generate_load_reg(a0, it.rd8());
       x86_emit_sub_reg_imm(reg_a0, it.imm8());
-      update_nzcv_sub_flags();
+      upd_nzcv_sub_flags<SetFlags>(it);
       generate_store_reg(a0, it.rd8());
       break;
     case OpCmp:
       generate_load_reg(a1, it.rd8());
       generate_load_imm(a0, it.imm8());
       generate_sub(a1, a0);
-      update_nzcv_sub_flags();
+      upd_nzcv_sub_flags<SetFlags>(it);
       break;
     };
   }
@@ -1871,11 +1707,11 @@ public:
     switch (aluop) {
     case OpAdd:
       x86_emit_add_reg_imm(reg_a0, it.imm3());
-      update_nzcv_add_flags();
+      upd_nzcv_add_flags<SetFlags>(it);
       break;
     case OpSub:
       x86_emit_sub_reg_imm(reg_a0, it.imm3());
-      update_nzcv_sub_flags();
+      upd_nzcv_sub_flags<SetFlags>(it);
       break;
     };
 
@@ -1891,11 +1727,11 @@ public:
     switch (aluop) {
     case OpAdd:
       generate_add(a0, a1);
-      update_nzcv_add_flags();
+      upd_nzcv_add_flags<SetFlags>(it);
       break;
     case OpSub:
       generate_sub(a0, a1);
-      update_nzcv_sub_flags();
+      upd_nzcv_sub_flags<SetFlags>(it);
       break;
     };
 
@@ -1916,8 +1752,7 @@ public:
     case OpCmp:
       emit_load_reg_pc(a1, it.rd_hi(), 4);
       generate_sub(a1, a0);
-      update_nz_flags();
-      update_nzcv_sub_flags();
+      upd_nzcv_sub_flags<SetFlags>(it);
       break;
     case OpMov:
       generate_store_reg_pc_thumb(a0, it.rd_hi());
@@ -1964,58 +1799,48 @@ public:
     switch (aluop) {
     case OpAnd:
       x86_emit_and_reg_imm(reg_a0, imm);
-      if (flg == SetFlags)
-        upd_nz_flags(it);
+      upd_nz_flags<flg>(it);
       break;
     case OpOrr:
       x86_emit_or_reg_imm(reg_a0, imm);
-      if (flg == SetFlags)
-        upd_nz_flags(it);
+      upd_nz_flags<flg>(it);
       break;
     case OpXor:
       x86_emit_xor_reg_imm(reg_a0, imm);
-      if (flg == SetFlags)
-        upd_nz_flags(it);
+      upd_nz_flags<flg>(it);
       break;
     case OpBic:
       x86_emit_and_reg_imm(reg_a0, ~imm);
-      if (flg == SetFlags)
-        upd_nz_flags(it);
+      upd_nz_flags<flg>(it);
       break;
     case OpAdd:
       x86_emit_add_reg_imm(reg_a0, imm);
-      if (flg == SetFlags)
-        upd_nzcv_add_flags(it);
+      upd_nzcv_add_flags<flg>(it);
       break;
     case OpAdc:
       load_c_flag(a2);         // Load C flag into CFLAGS
       x86_emit_adc_reg_imm(reg_a0, imm);
-      if (flg == SetFlags)
-        upd_nzcv_add_flags(it);
+      upd_nzcv_add_flags<flg>(it);
       break;
     case OpSub:
       x86_emit_sub_reg_imm(reg_a0, imm);
-      if (flg == SetFlags)
-        upd_nzcv_sub_flags(it);
+      upd_nzcv_sub_flags<flg>(it);
       break;
     case OpRsb:
       generate_load_imm(a1, imm);
       x86_emit_sub_reg_reg(reg_a1, reg_a0);
-      if (flg == SetFlags)
-        upd_nzcv_sub_flags(it);
+      upd_nzcv_sub_flags<flg>(it);
       break;
     case OpSbc:
       load_inv_c_flag(a2);     // Load C flag into CFLAGS
       x86_emit_sbb_reg_imm(reg_a0, imm);
-      if (flg == SetFlags)
-        upd_nzcv_sub_flags(it);
+      upd_nzcv_sub_flags<flg>(it);
       break;
     case OpRsc:
       load_inv_c_flag(a2);     // Load C flag into CFLAGS
       generate_load_imm(a1, imm);
       x86_emit_sbb_reg_reg(reg_a1, reg_a0);
-      if (flg == SetFlags)
-        upd_nzcv_sub_flags(it);
+      upd_nzcv_sub_flags<flg>(it);
       break;
     };
 
@@ -2052,19 +1877,19 @@ public:
     switch (aluop) {
     case OpTst:
       x86_emit_and_reg_imm(reg_a0, imm);
-      upd_nz_flags(it);
+      upd_nz_flags<SetFlags>(it);
       break;
     case OpTeq:
       x86_emit_xor_reg_imm(reg_a0, imm);
-      upd_nz_flags(it);
+      upd_nz_flags<SetFlags>(it);
       break;
     case OpCmp:
       x86_emit_sub_reg_imm(reg_a0, imm);
-      upd_nzcv_sub_flags(it);
+      upd_nzcv_sub_flags<SetFlags>(it);
       break;
     case OpCmn:
       x86_emit_add_reg_imm(reg_a0, imm);
-      upd_nzcv_add_flags(it);
+      upd_nzcv_add_flags<SetFlags>(it);
       break;
     };
   }
@@ -2269,38 +2094,73 @@ public:
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
     // Generate op2 to a0, op1 to a1
-    emit_arm_aluop2<flg>(it);
+    if (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
+        aluop == OpAdc || aluop == OpSbc || aluop == OpRsc)
+      emit_arm_aluop2<NoFlags>(it);   // Do not generate C flag
+    else
+      emit_arm_aluop2<flg>(it);
     emit_load_reg_pc(a1, it.rn(), (it.op2imm() ? 8 : 12));
 
     switch (aluop) {
     case OpAnd:
        generate_and(a0, a1);
-       if (flg == SetFlags)
-         upd_nz_flags(it);
+       upd_nz_flags<flg>(it);
        break;
     case OpOrr:
        generate_or(a0, a1);
-       if (flg == SetFlags)
-         upd_nz_flags(it);
+       upd_nz_flags<flg>(it);
        break;
     case OpXor:
        generate_xor(a0, a1);
-       if (flg == SetFlags)
-         upd_nz_flags(it);
+       upd_nz_flags<flg>(it);
        break;
     case OpBic:
        generate_not(a0);
        generate_and(a0, a1);
-       if (flg == SetFlags)
-         upd_nz_flags(it);
+       upd_nz_flags<flg>(it);
+       break;
+    case OpAdd:
+       generate_add(a0, a1);
+       upd_nzcv_add_flags<flg>(it);
+       break;
+    case OpAdc:
+       load_c_flag(a2);         // Load C flag into CFLAGS
+       generate_adc(a0, a1);
+       upd_nzcv_add_flags<flg>(it);
+       break;
+    case OpSub:
+       generate_sub(a1, a0);
+       upd_nzcv_sub_flags<flg>(it);
+       break;
+    case OpSbc:
+       load_inv_c_flag(a2);     // Load C flag into CFLAGS
+       generate_sbb(a1, a0);
+       upd_nzcv_sub_flags<flg>(it);
+       break;
+    case OpRsb:
+       generate_sub(a0, a1);
+       upd_nzcv_sub_flags<flg>(it);
+       break;
+    case OpRsc:
+       load_inv_c_flag(a2);     // Load C flag into CFLAGS
+       generate_sbb(a0, a1);
+       upd_nzcv_sub_flags<flg>(it);
        break;
     };
 
     const u8 condition = it.cond();        // TODO remove this
     if (flg == SetFlags) {
-      generate_store_reg_pc_flags(a0, it.rd());
+      if (aluop == OpSub || aluop == OpSbc) {
+        generate_store_reg_pc_flags(a1, it.rd());
+      } else {
+        generate_store_reg_pc_flags(a0, it.rd());
+      }
     } else {
-      generate_store_reg_pc_no_flags(a0, it.rd());
+      if (aluop == OpSub || aluop == OpSbc) {
+        generate_store_reg_pc_no_flags(a1, it.rd());
+      } else {
+        generate_store_reg_pc_no_flags(a0, it.rd());
+      }
     }
   }
 
@@ -2312,13 +2172,12 @@ public:
     switch (aluop) {
     case OpMvn:
        generate_xor_imm(a0, ~0U);  // Forces flag generation
-       if (flg == SetFlags)
-         upd_nz_flags(it);
+       upd_nz_flags<flg>(it);
        break;
     case OpMov:
        if (flg == SetFlags) {
          generate_or(a0, a0);
-         upd_nz_flags(it);
+         upd_nz_flags<SetFlags>(it);
        }
        break;
     };
@@ -2342,19 +2201,19 @@ public:
     switch (aluop) {
     case OpAnd:
        generate_and(a0, a1);
-       upd_nz_flags(it);
+       upd_nz_flags<SetFlags>(it);
        break;
     case OpXor:
        generate_xor(a0, a1);
-       upd_nz_flags(it);
+       upd_nz_flags<SetFlags>(it);
        break;
     case OpCmp:
        generate_sub(a1, a0);
-       update_nzcv_sub_flags();
+       upd_nzcv_sub_flags<SetFlags>(it);
        break;
     case OpCmn:
        generate_add(a1, a0);
-       update_nzcv_add_flags();
+       upd_nzcv_add_flags<SetFlags>(it);
        break;
     };
   }

@@ -379,23 +379,6 @@ u32 arm_to_mips_reg[] =
   }                                                                           \
   _rm = arm_reg                                                               \
 
-#define generate_shift_imm_ror_flags(arm_reg, _rm, _shift)                    \
-  check_load_reg_pc(arm_reg, _rm, 8);                                         \
-  if(_shift != 0)                                                             \
-  {                                                                           \
-    extract_bits(reg_c_cache, arm_to_mips_reg[_rm], (_shift - 1), 1);         \
-    rotate_right(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm],              \
-                 reg_temp, _shift);                                           \
-  }                                                                           \
-  else                                                                        \
-  { /* Special case: RRX (carry update) */                                    \
-    mips_emit_sll(reg_temp, reg_c_cache, 31);                                 \
-    mips_emit_andi(reg_c_cache, arm_to_mips_reg[_rm], 1);                     \
-    mips_emit_srl(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], 1);         \
-    mips_emit_or(arm_to_mips_reg[arm_reg], arm_to_mips_reg[arm_reg],reg_temp);\
-  }                                                                           \
-  _rm = arm_reg                                                               \
-
 #define generate_shift_reg_lsl_no_flags(_rm, _rs)                             \
   mips_emit_sltiu(reg_temp, arm_to_mips_reg[_rs], 32);                        \
   mips_emit_sllv(reg_a0, arm_to_mips_reg[_rm], arm_to_mips_reg[_rs]);         \
@@ -484,56 +467,6 @@ u32 arm_to_mips_reg[] =
   generate_shift_reg_##name##_##flags_op(rm, rs);                             \
   rm = arm_reg                                                                \
 
-// Made functions due to the macro expansion getting too large.
-// Returns a new rm if it redirects it (which will happen on most of these
-// cases)
-
-#define generate_load_rm_sh(rm, flags_op)                                     \
-{                                                                             \
-  switch((opcode >> 4) & 0x07)                                                \
-  {                                                                           \
-    case 0x0: /* LSL imm */                                                   \
-    {                                                                         \
-      generate_shift_imm(arm_reg_a0, lsl, flags_op);                          \
-      break;                                                                  \
-    }                                                                         \
-    case 0x1: /* LSL reg */                                                   \
-    {                                                                         \
-      generate_shift_reg(arm_reg_a0, lsl, flags_op);                          \
-      break;                                                                  \
-    }                                                                         \
-    case 0x2: /* LSR imm */                                                   \
-    {                                                                         \
-      generate_shift_imm(arm_reg_a0, lsr, flags_op);                          \
-      break;                                                                  \
-    }                                                                         \
-    case 0x3: /* LSR reg */                                                   \
-    {                                                                         \
-      generate_shift_reg(arm_reg_a0, lsr, flags_op);                          \
-      break;                                                                  \
-    }                                                                         \
-    case 0x4: /* ASR imm */                                                   \
-    {                                                                         \
-      generate_shift_imm(arm_reg_a0, asr, flags_op);                          \
-      break;                                                                  \
-    }                                                                         \
-    case 0x5: /* ASR reg */                                                   \
-    {                                                                         \
-      generate_shift_reg(arm_reg_a0, asr, flags_op);                          \
-      break;                                                                  \
-    }                                                                         \
-    case 0x6: /* ROR imm */                                                   \
-    {                                                                         \
-      generate_shift_imm(arm_reg_a0, ror, flags_op);                          \
-      break;                                                                  \
-    }                                                                         \
-    case 0x7: /* ROR reg */                                                   \
-    {                                                                         \
-      generate_shift_reg(arm_reg_a0, ror, flags_op);                          \
-      break;                                                                  \
-    }                                                                         \
-  }                                                                           \
-}                                                                             \
 
 #define generate_block_extra_vars()                                           \
   u32 stored_pc = pc;                                                         \
@@ -867,39 +800,6 @@ u32 execute_spsr_restore_body(u32 address)
   generate_load_reg_pc(reg_a1, rn, 8)                                         \
 
 #define arm_generate_op_load_no()                                             \
-
-#define arm_op_check_yes()                                                    \
-  check_load_reg_pc(arm_reg_a1, rn, 8)                                        \
-
-#define arm_op_check_no()                                                     \
-
-#define arm_generate_op_reg_flags(name, load_op)                              \
-  arm_decode_data_proc_reg(opcode);                                           \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
-    generate_load_rm_sh(rm, flags);                                           \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_load_rm_sh(rm, no_flags);                                        \
-  }                                                                           \
-                                                                              \
-  arm_op_check_##load_op();                                                   \
-  generate_op_##name##_reg(arm_to_mips_reg[rd], arm_to_mips_reg[rn],          \
-   arm_to_mips_reg[rm])                                                       \
-
-#define arm_generate_op_reg(name, load_op)                                    \
-  arm_decode_data_proc_reg(opcode);                                           \
-  generate_load_rm_sh(rm, no_flags);                                          \
-  arm_op_check_##load_op();                                                   \
-  generate_op_##name##_reg(arm_to_mips_reg[rd], arm_to_mips_reg[rn],          \
-   arm_to_mips_reg[rm])                                                       \
-
-#define arm_data_proc(name, type, flags_op)                                   \
-{                                                                             \
-  arm_generate_op_##type(name, yes);                                          \
-  check_store_reg_pc_##flags_op(rd);                                          \
-}                                                                             \
 
 #define arm_multiply_flags_yes(_rd)                                           \
   generate_op_logic_flags(_rd)                                                \
@@ -2245,29 +2145,79 @@ public:
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
     // Generate op2 to a0, op1 to a1
-    u32 regop2 = emit_arm_aluop2<flg>(it);
+    u32 regop2 = (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
+                  aluop == OpAdc || aluop == OpSbc || aluop == OpRsc) ?
+                  emit_arm_aluop2<NoFlags>(it) :  // Do not generate C flag
+                  emit_arm_aluop2<flg>(it);
+
     u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
     u32 rd = store_alloc_reg(it.rd(), reg_a0);
 
     switch (aluop) {
     case OpAnd:
       mips_emit_and(rd, rn, regop2);
+      update_nz_flags<flg>(it, rd);
       break;
     case OpOrr:
       mips_emit_or(rd, rn, regop2);
+      update_nz_flags<flg>(it, rd);
       break;
     case OpXor:
       mips_emit_xor(rd, rn, regop2);
+      update_nz_flags<flg>(it, rd);
       break;
     case OpBic:
       mips_emit_nor(reg_rv, regop2, reg_zero);
       mips_emit_and(rd, rn, reg_rv);
+      update_nz_flags<flg>(it, rd);
+      break;
+
+    case OpAdd:
+      if (flg == SetFlags) {
+        generate_op_adds_reg(rd, rn, regop2);
+      } else {
+        generate_op_add_reg(rd, rn, regop2);
+      }
+      break;
+    case OpAdc:
+      if (flg == SetFlags) {
+        generate_op_adcs_reg(rd, rn, regop2);
+      } else {
+        generate_op_adc_reg(rd, rn, regop2);
+      }
+      break;
+    case OpSub:
+      if (flg == SetFlags) {
+        generate_op_subs_reg(rd, rn, regop2);
+      } else {
+        generate_op_sub_reg(rd, rn, regop2);
+      }
+      break;
+    case OpSbc:
+      if (flg == SetFlags) {
+        generate_op_sbcs_reg(rd, rn, regop2);
+      } else {
+        generate_op_sbc_reg(rd, rn, regop2);
+      }
+      break;
+    case OpRsb:
+      if (flg == SetFlags) {
+        generate_op_subs_reg(rd, regop2, rn);
+      } else {
+        generate_op_sub_reg(rd, regop2, rn);
+      }
+      break;
+    case OpRsc:
+      if (flg == SetFlags) {
+        generate_op_sbcs_reg(rd, regop2, rn);
+      } else {
+        generate_op_sbc_reg(rd, regop2, rn);
+      }
       break;
     };
-
-    update_nz_flags<flg>(it, rd);
 
     const u8 condition = it.cond();        // TODO remove this
     if (flg == NoFlags) {

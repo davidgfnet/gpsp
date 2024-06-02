@@ -23,10 +23,10 @@
 
 #include "decoder.h"
 
-class ThumbInst : public ThumbInstDec {
+class InstFlagInfo {
 public:
-  ThumbInst(u32 pc, u16 opcode, u16 flag_status)
-   : ThumbInstDec(opcode), flag_status(flag_status), pc(pc) {}
+  InstFlagInfo(u16 flgst)
+   : flag_status(flgst) {}
 
   bool gen_flag_n() const { return flag_status & 0x8; }
   bool gen_flag_z() const { return flag_status & 0x4; }
@@ -34,20 +34,21 @@ public:
   bool gen_flag_v() const { return flag_status & 0x1; }
 
   u16 flag_status;
+};
+
+class ThumbInst : public ThumbInstDec, public InstFlagInfo {
+public:
+  ThumbInst(u32 pc, u16 opcode, u16 flag_status)
+   : ThumbInstDec(opcode), InstFlagInfo(flag_status), pc(pc) {}
+
   u32 pc;
 };
 
-class ARMInst : public ARMInstDec {
+class ARMInst : public ARMInstDec, public InstFlagInfo {
 public:
   ARMInst(u32 pc, u32 opcode, u16 flag_status)
-   : ARMInstDec(opcode), flag_status(flag_status), pc(pc) {}
+   : ARMInstDec(opcode), InstFlagInfo(flag_status), pc(pc) {}
 
-  bool gen_flag_n() const { return flag_status & 0x8; }
-  bool gen_flag_z() const { return flag_status & 0x4; }
-  bool gen_flag_c() const { return flag_status & 0x2; }
-  bool gen_flag_v() const { return flag_status & 0x1; }
-
-  u16 flag_status;
   u32 pc;
 };
 

@@ -49,6 +49,21 @@ extern "C" {
   u32 execute_arm_translate_internal(u32 cycles, void *regptr);
 }
 
+// Memory handler table offsets.
+template <typename memtype> inline uintptr_t ldr_handler_offset();
+template <typename memtype> inline uintptr_t str_handler_offset();
+
+template <> inline u32 str_handler_offset<u8>()  { return 0; }
+template <> inline u32 str_handler_offset<u16>() { return 1; }
+template <> inline u32 str_handler_offset<u32>() { return 2; }
+
+template <> inline u32 ldr_handler_offset<u8>()  { return 4; }
+template <> inline u32 ldr_handler_offset<s8>()  { return 5; }
+template <> inline u32 ldr_handler_offset<u16>() { return 6; }
+template <> inline u32 ldr_handler_offset<s16>() { return 7; }
+template <> inline u32 ldr_handler_offset<u32>() { return 8; }
+
+
 #define armfn_gbaup_idle_arm       0
 #define armfn_gbaup_idle_thumb     1
 #define armfn_gbaup_arm            2
@@ -1497,41 +1512,6 @@ static void trace_instruction(u32 pc, u32 mode)
   generate_load_pc(rgdst, (value));                                           \
   thumb_complete_store_reg(rgdst, reg_rd)
 
-#define thumb_access_memory_load(mem_type, _rd)                               \
-  cycle_count += 2;                                                           \
-  generate_load_call_##mem_type();                                            \
-  write32(pc);                                                                \
-  thumb_generate_store_reg(reg_rv, _rd)                                       \
-
-#define thumb_access_memory_store(mem_type, _rd)                              \
-  cycle_count++;                                                              \
-  thumb_generate_load_reg(reg_a1, _rd);                                       \
-  generate_store_call_##mem_type();                                           \
-  write32((pc + 2))                                                           \
-
-#define thumb_access_memory_generate_address_pc_relative(offset, _rb, _ro)    \
-  generate_load_pc(reg_a0, (offset))                                          \
-
-#define thumb_access_memory_generate_address_reg_imm(offset, _rb, _ro)        \
-  u32 __rb = thumb_prepare_load_reg(translation_ptr, reg_a0, _rb);            \
-  ARM_ADD_REG_IMM(0, reg_a0, __rb, offset, 0)                                 \
-
-#define thumb_access_memory_generate_address_reg_imm_sp(offset, _rb, _ro)     \
-  u32 __rb = thumb_prepare_load_reg(translation_ptr, reg_a0, _rb);            \
-  ARM_ADD_REG_IMM(0, reg_a0, __rb, offset, arm_imm_lsl_to_rot(2))             \
-
-#define thumb_access_memory_generate_address_reg_reg(offset, _rb, _ro)        \
-  u32 __rb = thumb_prepare_load_reg(translation_ptr, reg_a0, _rb);            \
-  u32 __ro = thumb_prepare_load_reg(translation_ptr, reg_a1, _ro);            \
-  ARM_ADD_REG_REG(0, reg_a0, __rb, __ro)                                      \
-
-#define thumb_access_memory(access_type, op_type, _rd, _rb, _ro,              \
- address_type, offset, mem_type)                                              \
-{                                                                             \
-  thumb_decode_##op_type();                                                   \
-  thumb_access_memory_generate_address_##address_type(offset, _rb, _ro);      \
-  thumb_access_memory_##access_type(mem_type, _rd);                           \
-}                                                                             \
 
 /* TODO: Make these use cached registers. Implement iwram_stack_optimize. */
 
@@ -1877,6 +1857,62 @@ public:
     thumb_complete_store_reg(reg_a0, REG_SP);
   }
 
+  // ============= Memory functions =================
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    // Generate the memory address to a0
+    if (offt == OffPC) {
+      // PC-relative offset. It is word aligned.
+      generate_load_pc(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
+    } else {
+      u32 rb = thumb_prepare_load_reg(translation_ptr, reg_a0, regn);
+      if (offt == OffReg) {
+        u32 ro = thumb_prepare_load_reg(translation_ptr, reg_a1, it.ro());
+        ARM_ADD_REG_REG(0, reg_a0, rb, ro);
+      } else if (offt == OffImm5) {
+        ARM_ADD_REG_IMM(0, reg_a0, rb, (it.imm5() * sizeof(memtype)), 0);
+      } else {
+        u32 rotam = sizeof(memtype) / 2;  // log2(size)
+        ARM_ADD_REG_IMM(0, reg_a0, rb, it.imm8(), arm_imm_lsl_to_rot(rotam));
+      }
+    }
+  }
+
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    cycle_count += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
+    // Generate the address
+    thumb_memaddr<memtype, offt>(it, regn);
+    // Generate a call to the right memory section handler.
+    u32 ldtype = ldr_handler_offset<memtype>();
+    u32 nbits = sizeof(memtype) / 2;  // log2(size)
+    mem_calc_region(nbits);
+    generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
+    ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);
+    ARM_BLX(0, reg_a2);
+    write32(it.pc);
+    thumb_generate_store_reg(reg_rv, regd);
+  }
+
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    cycle_count++;  // TODO: Use proper cycle accounting and honor WAITCNT
+    // Generate the address
+    thumb_memaddr<memtype, offt>(it, regn);
+    // Load value and generate call to handler
+    u32 sttype = str_handler_offset<memtype>();
+    mem_calc_region(0);
+    generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*sttype + 4) >> 2, 0);
+    ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);
+    thumb_generate_load_reg(reg_a1, regd);
+    ARM_BLX(0, reg_a2);
+    write32((it.pc + 2));
+  }
 
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>

@@ -106,6 +106,10 @@ typedef enum {
   NoFlags, SetFlags
 } FlagOperation;
 
+typedef enum {
+  OffReg, OffPC, OffImm5, OffImm8
+} ThumbMemOffset;
+
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
 
@@ -1792,75 +1796,70 @@ void translate_icache_sync() {
           u32 value = address32(pc_address_block, (aoff & 0x7FFF));           \
           thumb_load_pc_pool_const(rdreg, value);                             \
         } else {                                                              \
-          thumb_access_memory(load, imm, rdreg, 0, 0, pc_relative, aoff, u32);\
+          ce.thumb_memld<u32, OffPC>(inst, inst.rd8(), REG_PC, cycle_count);  \
         }                                                                     \
       }                                                                       \
       break;                                                                  \
                                                                               \
     case 0x50 ... 0x51:      /* STR rd, [rb + ro] */                          \
-      thumb_access_memory(store, mem_reg, rd, rb, ro, reg_reg, 0, u32);       \
+      ce.thumb_memst<u32, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
       break;                                                                  \
     case 0x52 ... 0x53:      /* STRH rd, [rb + ro] */                         \
-      thumb_access_memory(store, mem_reg, rd, rb, ro, reg_reg, 0, u16);       \
+      ce.thumb_memst<u16, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
       break;                                                                  \
     case 0x54 ... 0x55:      /* STRB rd, [rb + ro] */                         \
-      thumb_access_memory(store, mem_reg, rd, rb, ro, reg_reg, 0, u8);        \
+      ce.thumb_memst<u8, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);    \
       break;                                                                  \
                                                                               \
     case 0x56 ... 0x57:      /* LDSB rd, [rb + ro] */                         \
-      thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, s8);         \
+      ce.thumb_memld<s8, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);    \
       break;                                                                  \
     case 0x58 ... 0x59:      /* LDR rd, [rb + ro] */                          \
-      thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, u32);        \
+      ce.thumb_memld<u32, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
       break;                                                                  \
     case 0x5A ... 0x5B:      /* LDRH rd, [rb + ro] */                         \
-      thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, u16);        \
+      ce.thumb_memld<u16, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
       break;                                                                  \
     case 0x5C ... 0x5D:      /* LDRB rd, [rb + ro] */                         \
-      thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, u8);         \
+      ce.thumb_memld<u8, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);    \
       break;                                                                  \
     case 0x5E ... 0x5F:      /* LDSH rd, [rb + ro] */                         \
-      thumb_access_memory(load, mem_reg, rd, rb, ro, reg_reg, 0, s16);        \
+      ce.thumb_memld<s16, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
       break;                                                                  \
                                                                               \
     case 0x60 ... 0x67:      /* STR rd, [rb + imm] */                         \
-      thumb_access_memory(store, mem_imm, rd, rb, 0, reg_imm, (imm * 4), u32);\
+      ce.thumb_memst<u32, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);  \
       break;                                                                  \
     case 0x68 ... 0x6F:      /* LDR rd, [rb + imm] */                         \
-      thumb_access_memory(load, mem_imm, rd, rb, 0, reg_imm, (imm * 4), u32); \
+      ce.thumb_memld<u32, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);  \
       break;                                                                  \
     case 0x70 ... 0x77:      /* STRB rd, [rb + imm] */                        \
-      thumb_access_memory(store, mem_imm, rd, rb, 0, reg_imm, imm, u8);       \
+      ce.thumb_memst<u8, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);   \
       break;                                                                  \
     case 0x78 ... 0x7F:      /* LDRB rd, [rb + imm] */                        \
-      thumb_access_memory(load, mem_imm, rd, rb, 0, reg_imm, imm, u8);        \
+      ce.thumb_memld<u8, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);   \
       break;                                                                  \
     case 0x80 ... 0x87:      /* STRH rd, [rb + imm] */                        \
-      thumb_access_memory(store, mem_imm, rd, rb, 0, reg_imm, (imm * 2), u16);\
+      ce.thumb_memst<u16, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);  \
       break;                                                                  \
     case 0x88 ... 0x8F:      /* LDRH rd, [rb + imm] */                        \
-      thumb_access_memory(load, mem_imm, rd, rb, 0, reg_imm, (imm * 2), u16); \
+      ce.thumb_memld<u16, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);  \
       break;                                                                  \
                                                                               \
-    /* STR r0..7, [sp + imm] */                                               \
-    case 0x90 ... 0x97:                                                       \
-      thumb_access_memory(store, imm, inst.rd8(), 13, 0,reg_imm_sp, imm, u32);\
+    case 0x90 ... 0x97:      /* STR r0..7, [sp + imm] */                      \
+      ce.thumb_memst<u32, OffImm8>(inst, inst.rd8(), REG_SP, cycle_count);    \
       break;                                                                  \
-    /* LDR r0..7, [sp + imm] */                                               \
-    case 0x98 ... 0x9F:                                                       \
-      thumb_access_memory(load, imm, inst.rd8(), 13, 0, reg_imm_sp, imm, u32);\
+    case 0x98 ... 0x9F:      /* LDR r0..7, [sp + imm] */                      \
+      ce.thumb_memld<u32, OffImm8>(inst, inst.rd8(), REG_SP, cycle_count);    \
       break;                                                                  \
                                                                               \
-    /* ADD r0..7, pc, +imm */                                                 \
-    case 0xA0 ... 0xA7:                                                       \
+    case 0xA0 ... 0xA7:      /* ADD r0..7, pc, +imm */                        \
       ce.thumb_regoff<REG_PC>(inst);                                          \
       break;                                                                  \
-    /* ADD r0..7, sp, +imm */                                                 \
-    case 0xA8 ... 0xAF:                                                       \
+    case 0xA8 ... 0xAF:      /* ADD r0..7, sp, +imm */                        \
       ce.thumb_regoff<REG_SP>(inst);                                          \
       break;                                                                  \
-    /* ADD sp, sp, +/-imm */                                                  \
-    case 0xB0 ... 0xB3:                                                       \
+    case 0xB0 ... 0xB3:      /* ADD sp, sp, +/-imm */                         \
       ce.thumb_spadj(inst.imm71());                                           \
       break;                                                                  \
                                                                               \

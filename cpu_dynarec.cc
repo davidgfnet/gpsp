@@ -113,21 +113,6 @@ typedef enum {
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
 
-#define arm_decode_data_proc_reg(opcode)                                      \
-  u32 rn = (opcode >> 16) & 0x0F;                                             \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 rm = opcode & 0x0F;                                                     \
-  (void)rn;                                                                   \
-  (void)rd;
-
-#define arm_decode_data_proc_imm(opcode)                                      \
-  u32 rn = (opcode >> 16) & 0x0F;                                             \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 imm = opcode & 0xFF;                                                    \
-  u32 imm_ror = ((opcode >> 8) & 0x0F) * 2;                                   \
-  (void)rn;                                                                   \
-  (void)rd;
-
 #define arm_decode_psr_reg(opcode)                                            \
   u32 psr_pfield = ((opcode >> 16) & 1) | ((opcode >> 18) & 2);               \
   u32 rd = (opcode >> 12) & 0x0F;                                             \
@@ -195,16 +180,6 @@ typedef enum {
   u32 rs = (opcode >> 3) & 0x07;                                              \
   u32 rd = opcode & 0x07                                                      \
 
-#define thumb_decode_add_sub()                                                \
-  u32 rn = (opcode >> 6) & 0x07;                                              \
-  u32 rs = (opcode >> 3) & 0x07;                                              \
-  u32 rd = opcode & 0x07                                                      \
-
-#define thumb_decode_add_sub_imm()                                            \
-  u32 imm = (opcode >> 6) & 0x07;                                             \
-  u32 rs = (opcode >> 3) & 0x07;                                              \
-  u32 rd = opcode & 0x07                                                      \
-
 #define thumb_decode_imm()                                                    \
   u32 imm = opcode & 0xFF;                                                    \
   (void)imm
@@ -217,19 +192,6 @@ typedef enum {
   u32 rs = (opcode >> 3) & 0x0F;                                              \
   u32 rd = ((opcode >> 4) & 0x08) | (opcode & 0x07);                          \
   (void)rd;
-
-#define thumb_decode_mem_reg()                                                \
-  u32 ro = (opcode >> 6) & 0x07;                                              \
-  u32 rb = (opcode >> 3) & 0x07;                                              \
-  u32 rd = opcode & 0x07                                                      \
-
-#define thumb_decode_mem_imm()                                                \
-  u32 imm = (opcode >> 6) & 0x1F;                                             \
-  u32 rb = (opcode >> 3) & 0x07;                                              \
-  u32 rd = opcode & 0x07                                                      \
-
-#define thumb_decode_add_sp()                                                 \
-  u32 imm = opcode & 0x7F                                                     \
 
 #define thumb_decode_rlist()                                                  \
   u32 reg_list = opcode & 0xFF                                                \

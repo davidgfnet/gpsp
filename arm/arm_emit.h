@@ -1194,13 +1194,7 @@ static void trace_instruction(u32 pc, u32 mode)
     ARM_ORR_REG_IMMSHIFT(0, reg_a2, reg_a2, ARMREG_LR, ARMSHIFT_ASR, 31);
 #endif
 
-#define generate_load_call_byte(tblnum)                                       \
-  mem_calc_region(0);                                                         \
-  generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*tblnum + 4) >> 2, 0);          \
-  ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);                   \
-  ARM_BLX(0, reg_a2);                                                         \
-
-#define generate_load_call_mbyte(tblnum, abits)                               \
+#define generate_load_call(tblnum, abits)                                     \
   mem_calc_region(abits);                                                     \
   generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*tblnum + 4) >> 2, 0);          \
   ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);                   \
@@ -1217,11 +1211,11 @@ static void trace_instruction(u32 pc, u32 mode)
 #define generate_store_call_u16()       generate_store_call(1)
 #define generate_store_call_u32()       generate_store_call(2)
 #define generate_store_call_u32_safe()  generate_store_call(3)
-#define generate_load_call_u8()         generate_load_call_byte(4)
-#define generate_load_call_s8()         generate_load_call_byte(5)
-#define generate_load_call_u16()        generate_load_call_mbyte(6, 1)
-#define generate_load_call_s16()        generate_load_call_mbyte(7, 1)
-#define generate_load_call_u32()        generate_load_call_mbyte(8, 2)
+#define generate_load_call_u8()         generate_load_call(4, 0)
+#define generate_load_call_s8()         generate_load_call(5, 0)
+#define generate_load_call_u16()        generate_load_call(6, 1)
+#define generate_load_call_s16()        generate_load_call(7, 1)
+#define generate_load_call_u32()        generate_load_call(8, 2)
 
 
 #define arm_access_memory_load(mem_type)                                      \

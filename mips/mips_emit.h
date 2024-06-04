@@ -22,6 +22,11 @@
 
 #include "mips/mips_codegen.h"
 
+// Pointer table to stubs, indexed by type and region
+extern u32 tmemld[11][16];
+extern u32 tmemst[ 4][16];
+extern u32 thnjal[15*16];
+
 // Pointers to default handlers.
 // Use IWRAM as default, assume aligned by default too
 #define execute_load_u8   tmemld[0][3]
@@ -119,6 +124,20 @@ u32 arm_to_mips_reg[] =
 #define arm_reg_a0   15
 #define arm_reg_a1   16
 #define arm_reg_a2   17
+
+template <typename memtype> inline uintptr_t call_ldr_handler();
+template <typename memtype> inline uintptr_t call_str_handler();
+
+template <> inline uintptr_t call_ldr_handler<u32>() { return (uintptr_t)execute_load_u32; }
+template <> inline uintptr_t call_ldr_handler<u16>() { return (uintptr_t)execute_load_u16; }
+template <> inline uintptr_t call_ldr_handler<u8>()  { return (uintptr_t)execute_load_u8 ; }
+template <> inline uintptr_t call_ldr_handler<s16>() { return (uintptr_t)execute_load_s16; }
+template <> inline uintptr_t call_ldr_handler<s8>()  { return (uintptr_t)execute_load_s8 ; }
+
+template <> inline uintptr_t call_str_handler<u32>() { return (uintptr_t)execute_store_u32; }
+template <> inline uintptr_t call_str_handler<u16>() { return (uintptr_t)execute_store_u16; }
+template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute_store_u8 ; }
+
 
 #define generate_load_reg(ireg, reg_index)                                    \
   mips_emit_addu(ireg, arm_to_mips_reg[reg_index], reg_zero)                  \
@@ -1186,41 +1205,6 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
   generate_op_logic_flags(arm_to_mips_reg[rd]);                               \
 }                                                                             \
 
-// Operation types: imm, mem_reg, mem_imm
-
-#define thumb_access_memory_load(mem_type, reg_rd)                            \
-  cycle_count += 2;                                                           \
-  mips_emit_jal(mips_absolute_offset(execute_load_##mem_type));               \
-  generate_load_pc(reg_a1, (pc));                                             \
-  generate_store_reg(reg_rv, reg_rd)                                          \
-
-#define thumb_access_memory_store(mem_type, reg_rd)                           \
-  cycle_count++;                                                              \
-  generate_load_pc(reg_a2, (pc + 2));                                         \
-  mips_emit_jal(mips_absolute_offset(execute_store_##mem_type));              \
-  generate_load_reg(reg_a1, reg_rd)                                           \
-
-#define thumb_access_memory_generate_address_pc_relative(offset, reg_rb,      \
- reg_ro)                                                                      \
-  generate_load_pc(reg_a0, (offset))                                          \
-
-#define thumb_access_memory_generate_address_reg_imm(offset, reg_rb, reg_ro)  \
-  mips_emit_addiu(reg_a0, arm_to_mips_reg[reg_rb], (offset))                  \
-
-#define thumb_access_memory_generate_address_reg_imm_sp(offset, reg_rb, reg_ro) \
-  mips_emit_addiu(reg_a0, arm_to_mips_reg[reg_rb], (offset * 4))              \
-
-#define thumb_access_memory_generate_address_reg_reg(offset, reg_rb, reg_ro)  \
-  mips_emit_addu(reg_a0, arm_to_mips_reg[reg_rb], arm_to_mips_reg[reg_ro])    \
-
-#define thumb_access_memory(access_type, op_type, reg_rd, reg_rb, reg_ro,     \
- address_type, offset, mem_type)                                              \
-{                                                                             \
-  thumb_decode_##op_type();                                                   \
-  thumb_access_memory_generate_address_##address_type(offset, reg_rb,         \
-   reg_ro);                                                                   \
-  thumb_access_memory_##access_type(mem_type, reg_rd);                        \
-}                                                                             \
 
 #define thumb_block_address_preadjust_no(base_reg)                            \
   mips_emit_addu(reg_a2, arm_to_mips_reg[base_reg], reg_zero)                 \
@@ -1768,6 +1752,59 @@ public:
     mips_emit_addiu(reg_r13, reg_r13, (offset * 4));
   }
 
+  // ============= Memory functions =================
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+
+    // Generate the memory address to a0
+    switch (offt) {
+    case OffPC:
+      // PC-relative offset. It is word aligned.
+      generate_load_pc(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
+      break;
+
+    // rb/ro/regn are never PC in thumb mode (this is handled by OffPC mode)
+    case OffReg:
+      mips_emit_addu(reg_a0, arm_to_mips_reg[regn], arm_to_mips_reg[it.ro()]);
+      break;
+    case OffImm5:
+      mips_emit_addiu(reg_a0, arm_to_mips_reg[regn], it.imm5() * sizeof(memtype));
+      break;
+    case OffImm8:
+      mips_emit_addiu(reg_a0, arm_to_mips_reg[regn], it.imm8() * sizeof(memtype));
+      break;
+    }
+  }
+
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+
+    cycle_count += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
+    // Generate the address
+    thumb_memaddr<memtype, offt>(it, regn);
+    // Generate call to handler, store the result in the rd() register
+    generate_load_pc(reg_a1, it.pc);
+    generate_function_call_swap_delay(call_ldr_handler<memtype>());
+    generate_store_reg(reg_rv, regd);
+  }
+
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+
+    cycle_count++;  // TODO: Use proper cycle accounting and honor WAITCNT
+    // Generate the address
+    thumb_memaddr<memtype, offt>(it, regn);
+    // Load value and generate call to handler
+    generate_load_reg(reg_a1, regd);
+    generate_load_pc(reg_a2, (it.pc + 2));
+    generate_function_call_swap_delay(call_str_handler<memtype>());
+  }
 
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>
@@ -2445,11 +2482,6 @@ public:
   emit_mem_call_ds(fnptr, mask)         \
   mips_emit_jr(mips_reg_ra);            \
   mips_emit_nop();
-
-// Pointer table to stubs, indexed by type and region
-extern u32 tmemld[11][16];
-extern u32 tmemst[ 4][16];
-extern u32 thnjal[15*16];
 
 // This is a pointer table to the open load stubs, used by the BIOS (optimization)
 u32* openld_core_ptrs[11];

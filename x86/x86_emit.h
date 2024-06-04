@@ -1162,42 +1162,6 @@ u32 execute_store_cpsr_body()
 #define thumb_load_pc_pool_const(reg_rd, value)                               \
   generate_store_reg_i32(value, reg_rd)                                       \
 
-#define thumb_access_memory_load(mem_type, reg_rd)                            \
-  cycle_count += 2;                                                           \
-  generate_load_pc(a1, pc);                                                   \
-  generate_function_call(execute_load_##mem_type);                            \
-  generate_store_reg(rv, reg_rd)                                              \
-
-#define thumb_access_memory_store(mem_type, reg_rd)                           \
-  cycle_count++;                                                              \
-  generate_load_reg(a1, reg_rd);                                              \
-  generate_store_reg_i32(pc + 2, REG_PC);                                     \
-  generate_function_call(execute_store_##mem_type)                            \
-
-#define thumb_access_memory_generate_address_pc_relative(offset, _rb, _ro)    \
-  generate_load_pc(a0, (offset))                                              \
-
-#define thumb_access_memory_generate_address_reg_imm_sp(offset, _rb, _ro)     \
-  generate_load_reg(a0, _rb);                                                 \
-  generate_add_imm(a0, (offset * 4))                                          \
-
-#define thumb_access_memory_generate_address_reg_imm(offset, _rb, _ro)        \
-  generate_load_reg(a0, _rb);                                                 \
-  generate_add_imm(a0, (offset))                                              \
-
-#define thumb_access_memory_generate_address_reg_reg(offset, _rb, _ro)        \
-  generate_load_reg(a0, _rb);                                                 \
-  generate_load_reg(a1, _ro);                                                 \
-  generate_add(a0, a1)                                                        \
-
-#define thumb_access_memory(access_type, op_type, _rd, _rb, _ro,              \
- address_type, offset, mem_type)                                              \
-{                                                                             \
-  thumb_decode_##op_type();                                                   \
-  thumb_access_memory_generate_address_##address_type(offset, _rb, _ro);      \
-  thumb_access_memory_##access_type(mem_type, _rd);                           \
-}                                                                             \
-
 #define thumb_block_address_preadjust_up()                                    \
   generate_add_imm(a0, (bit_count[reg_list] * 4))                             \
 
@@ -1517,6 +1481,20 @@ static void function_cc execute_swi(u32 pc)
     generate_update_flag(o, REG_V_FLAG)                                       \
   }                                                                           \
 
+template <typename memtype> inline uintptr_t call_ldr_handler();
+template <typename memtype> inline uintptr_t call_str_handler();
+
+template <> inline uintptr_t call_ldr_handler<u32>() { return (uintptr_t)execute_load_u32; }
+template <> inline uintptr_t call_ldr_handler<u16>() { return (uintptr_t)execute_load_u16; }
+template <> inline uintptr_t call_ldr_handler<u8>()  { return (uintptr_t)execute_load_u8 ; }
+template <> inline uintptr_t call_ldr_handler<s16>() { return (uintptr_t)execute_load_s16; }
+template <> inline uintptr_t call_ldr_handler<s8>()  { return (uintptr_t)execute_load_s8 ; }
+
+template <> inline uintptr_t call_str_handler<u32>() { return (uintptr_t)execute_store_u32; }
+template <> inline uintptr_t call_str_handler<u16>() { return (uintptr_t)execute_store_u16; }
+template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute_store_u8 ; }
+
+
 class CodeEmitter : public CodeEmitterBase {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
@@ -1777,6 +1755,50 @@ public:
     generate_load_reg(a0, REG_SP);
     generate_add_imm(a0, offset * 4);
     generate_store_reg(a0, REG_SP);
+  }
+
+  // ======== Memory instructions ===================================
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    // Generate the memory address to a0
+    if (offt == OffPC) {
+      // PC-relative offset. It is word aligned.
+      generate_load_pc(a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
+    } else {
+      generate_load_reg(a0, regn);
+      if (offt == OffReg) {
+        generate_add_memreg(a0, it.ro());
+      } else if (offt == OffImm5) {
+        generate_add_imm(a0, it.imm5() * sizeof(memtype));
+      } else {
+        generate_add_imm(a0, it.imm8() * sizeof(memtype));
+      }
+    }
+  }
+
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    cycle_count += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
+    // Generate the address
+    thumb_memaddr<memtype, offt>(it, regn);
+    // Generate call to handler, store the result in the rd() register
+    generate_load_pc(a1, it.pc);
+    generate_function_call(call_ldr_handler<memtype>());
+    generate_store_reg(rv, regd);
+  }
+
+  template <typename memtype, ThumbMemOffset offt>
+  inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    cycle_count++;  // TODO: Use proper cycle accounting and honor WAITCNT
+    // Generate the address
+    thumb_memaddr<memtype, offt>(it, regn);
+    // Load value and generate call to handler
+    emit_load_reg_pc(a1, regd, 12);
+    generate_store_reg_i32(it.pc + 2, REG_PC);
+    generate_function_call(call_str_handler<memtype>());
   }
 
   // ======== ARM instructions ======================================

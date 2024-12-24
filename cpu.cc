@@ -847,18 +847,8 @@ const u32 spsr_masks[4] = { 0x00000000, 0x000000EF, 0xF0000000, 0xF00000EF };
     STATS_MEMORY_ACCESS(read, type, region);                                  \
   }                                                                           \
                                                                               \
-  if (                                                                        \
-     (((_address >> 24) == 0) && (reg[REG_PC] >= 0x4000)) ||  /* BIOS read */ \
-     (_address & aligned_address_mask##size) ||      /* Unaligned access */   \
-     !(map = memory_map_read[_address >> 15])        /* Unmapped memory */    \
-  )                                                                           \
   {                                                                           \
     dest = (type)(readfn)(_address);                                          \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    /* Aligned and mapped read */                                             \
-    dest = (type)readaddress##size(map, (_address & 0x7FFF));                 \
   }                                                                           \
 }                                                                             \
 

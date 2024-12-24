@@ -188,6 +188,7 @@ u32 function_cc update_gba(int remaining_cycles)
         video_count += 960;
         dispstat &= ~0x02;
         vcount++;
+        //printf("vc %d\n", vcount);
 
         if(vcount == 160)
         {
@@ -235,6 +236,7 @@ u32 function_cc update_gba(int remaining_cycles)
           // We completed a frame, tell the dynarec to exit to the main thread
           frame_complete = 0x80000000;
           frame_counter++;
+          //printf("Frame %d\n", frame_counter);
         }
 
         // Vcount trigger (flag) and IRQ if enabled
@@ -318,6 +320,7 @@ void print_regs(void)
          reg[4], reg[5], reg[6], reg[7],
          reg[8], reg[9], reg[10], reg[11],
          reg[12], reg[13], reg[14]);
+  fflush(stdout);
 }
 #endif
 

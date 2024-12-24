@@ -514,9 +514,9 @@ endif
 # Add -DTRACE_INSTRUCTIONS to trace instruction execution
 # Can add -DTRACE_REGISTERS to additionally print register values
 ifeq ($(DEBUG), 1)
-	OPTIMIZE      := -O0 -g
+	OPTIMIZE      := -O0 -g    # -DTRACE_INSTRUCTIONS -DTRACE_REGISTERS
 else
-	OPTIMIZE      := -O3 -DNDEBUG
+	OPTIMIZE      := -O3 -DNDEBUG -g  # -DTRACE_INSTRUCTIONS -DTRACE_REGISTERS
 endif
 
 DEFINES := -DHAVE_STRINGS_H -DHAVE_STDINT_H -DHAVE_INTTYPES_H -D__LIBRETRO__ -DINLINE=inline -Wall

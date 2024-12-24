@@ -17,8 +17,16 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <assert.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include "common.h"
 #include "streams/file_stream.h"
+
+uint8_t *sdcardmap = NULL;
+uint64_t sdcardsize;
 
 /* Sound */
 #define gbc_sound_tone_control_low(channel, regn)                             \
@@ -349,7 +357,8 @@ dma_transfer_type dma[4];
 // mapping system. We will try to allocate 32 of them to allow loading
 // ROMs up to 32MB, but we might fail on memory constrained systems.
 
-u8 *gamepak_buffers[32];    /* Pointers to malloc'ed blocks */
+//u8 *gamepak_buffers[32];    /* Pointers to malloc'ed blocks */
+u8 gamepak_buffer[32*1024*1024];
 u32 gamepak_buffer_count;   /* Value between 1 and 32 */
 u32 gamepak_size;           /* Size of the ROM in bytes */
 // We allocate in 1MB chunks.
@@ -562,14 +571,324 @@ void function_cc write_eeprom(u32 unused_address, u32 value)
   }
 }
 
+enum SDstate {
+  ScanCmd = 0,
+  ReadCmd = 1,
+  ReadReq = 2,
+  WriteResp = 3,
+};
+
+enum SDstate sdst = ScanCmd;
+u32 cmdbits = 0;
+u8 sdcmd[6] = {0};
+u32 sdrespsz = 0;
+u32 foffset = 0;
+u32 clkcnt = 0;
+u32 bytesread = 0;
+u32 tokenbits = 0;
+u8 sdresp[1024] = {0};
+
+enum SDBlkstate {
+  SDBusy = 0,           // Make it seem busy (return 0x100)
+  SDDataRead = 1,       // Feeding data and clocking
+  SDWaitData = 2,       // Wait for write data
+  SDDataWrite = 3,      // Getting data and clocking
+  SDDataWriteToken = 4, // Return 8 bit token
+  SDDataWriteDone = 5,
+};
+enum SDBlkstate blkstate = SDBusy;
+
+bool supercard_we = false;
+bool supercard_sdcard = false;
+u16 modeq[4] = {0};
+void supercard_mode(u16 data) {
+  for (unsigned i = 0; i < 3; i++)
+    modeq[i] = modeq[i+1];
+  modeq[3] = data;
+
+  if (modeq[0] == 0xA55A && modeq[1] == 0xA55A && modeq[2] == modeq[3]) {
+    supercard_we = data & 0x4;
+    supercard_sdcard = data & 2;
+    printf("Supercard new mode: WE %d SD %d\n", supercard_we, supercard_sdcard);
+  }
+}
+
+void supercard_cmd_write(u16 value) {
+  //printf("Write CMD bit %d\n", value);
+  if (sdst == ScanCmd) {
+    if ((value >> 7) == 0) {
+      memset(sdcmd, 0, sizeof(sdcmd));
+      sdst = ReadCmd;
+      cmdbits = 1;
+      //printf("Start reading command data\n");
+    }
+  } else if (sdst == ReadCmd) {
+    sdcmd[cmdbits >> 3] &= ~(1 << (7 - (cmdbits & 7)));
+    sdcmd[cmdbits >> 3] |= (((value >> 7) & 1) << (7 - (cmdbits & 7)));
+    if (++cmdbits == 48) {
+      cmdbits = 0;
+      // CHANGE STATE!
+      u32 d = (sdcmd[1] << 24) |
+              (sdcmd[2] << 16) |
+              (sdcmd[3] <<  8) |
+              (sdcmd[4] <<  0);
+      u32 fcmd = sdcmd[0] & 0x3F;
+      //printf("Got command %d with data %x\n", fcmd, d);
+      switch (fcmd) {
+      case 0:
+        sdrespsz = 8;
+        sdresp[0] = 0x01;
+        sdst = WriteResp;
+        break;
+      case 8:   // SDCv2 detection, return echo data + voltage info
+        sdrespsz = 8*5;
+        sdresp[4] = 0x08;   // OK and Idle (CMD8)
+        sdresp[3] = 0x00;
+        sdresp[2] = 0x00;
+        sdresp[1] = 0x01;   // Voltage level TTL
+        sdresp[0] = sdcmd[4];
+        sdst = WriteResp;
+        break;
+      case 55:   // CMD55, app specific command
+        sdrespsz = 8*6;
+        sdresp[5] = 55;   // Command number
+        sdresp[4] = 0x00;  // Card status?
+        sdresp[3] = 0x00;
+        sdresp[2] = 0x00;
+        sdresp[1] = 0x00;
+        sdresp[0] = 0xFF;   // TODO CRC calc
+        sdst = WriteResp;
+        break;
+      case 41:   // ACMD41, set stuff for SHDC
+      case 58:   // 58 just reads the OCR really.
+        sdrespsz = 8*6;
+        sdresp[5] = 0x3F;   // Reserver command num?
+        sdresp[4] = 0xC0;  // Card status (ready + SHDC)
+        sdresp[3] = 0x00;
+        sdresp[2] = 0x00;
+        sdresp[1] = 0x00;
+        sdresp[0] = 0xFF;   // Reserver too
+        sdst = WriteResp;
+        break;
+      case 2:  // Get CID stuff (manufacturer info!)
+        sdrespsz = 8*17;
+        sdresp[16] = 0x3F;   // Reserved
+        for (int i = 15; i > 0; i--)
+          sdresp[i] = 0;
+        sdresp[0] = 0xFF;   // Some rand val
+        sdst = WriteResp;
+        break;
+      case 3:  // Set RCA
+        sdrespsz = 8*6;
+        sdresp[5] = 3;  // command
+        sdresp[4] = 0x12;
+        sdresp[3] = 0x34;
+        sdresp[2] = 0;
+        sdresp[1] = 0;
+        sdresp[0] = 0xFF;   // FIXME Should have a CRC
+        sdst = WriteResp;
+        break;
+      case 7: case 9:   // Not really used, send dummy
+      case 6:   // set bus width, should we handle this?
+      case 16:   // set block len (not sure if this is used?)
+      case 23:   // Just ignore as well 
+        sdrespsz = 8;
+        sdresp[0] = 0;
+        sdst = WriteResp;
+        break;
+      case 13:   // send-status. Not sure what to return!
+        sdrespsz = 8*6;
+        sdresp[5] = 13;   // cmd13
+        sdresp[4] = 0x00;
+        sdresp[3] = 0x00;
+        sdresp[2] = 0x09;  // Emulate state 4 + data ready
+        sdresp[1] = 0x00;
+        sdresp[0] = 0x00;  // crc
+        sdst = WriteResp;
+        break;
+      case 12:
+        // Stop replying with blocks! :D
+        sdrespsz = 8;
+        sdresp[0] = 0;    
+                sdst = WriteResp;    
+        break;
+      case 17:
+      case 18:
+        sdrespsz = 8;
+        sdresp[0] = 0;
+        sdst = WriteResp;
+        foffset = 512 * d;
+        //printf("Read card addr %d\n", d);
+        blkstate = SDBusy;
+        bytesread = 0;
+        clkcnt = 0;
+        break;
+      case 25:
+      case 24:
+        sdrespsz = 8;
+        sdresp[0] = 0;
+        sdst = WriteResp;
+        foffset = 512 * d;
+        //printf("write card addr %d\n", d);
+        blkstate = SDWaitData;
+        bytesread = 0;
+        clkcnt = 0;
+        break;
+      };
+    }
+  }
+}
+
+void supercard_writereg_write(u16 value) {
+  //printf("Write Reg write val %x (off reg %d)\n", value, foffset);
+  if (blkstate == SDWaitData) {
+    if (value == 0)
+      blkstate = SDDataWrite;
+  }
+  else if (blkstate == SDDataWrite) {
+    if (foffset < sdcardsize && bytesread < 512) {
+      sdcardmap[foffset++] = value;   // byte write
+    }
+    // TODO: Do not ignore the CRC and return errors if necessary
+    if (bytesread == 520) {
+      blkstate = SDDataWriteToken;
+      tokenbits = 0xEB;  // 111.0.101.1
+      clkcnt = 0;
+    }
+
+    bytesread++;
+  }
+  else if (blkstate == SDDataWriteToken) {
+    clkcnt++;
+    tokenbits <<= 1;
+  }
+}
+
+void sdclock(int c) {
+  if (blkstate == SDBusy) {
+    clkcnt += c;
+    if (clkcnt > 32) {
+      clkcnt = 0;
+      blkstate = SDDataRead;
+    }
+  }
+  else if (blkstate == SDDataRead) {
+    if (bytesread >= 512) {
+      clkcnt = 0;
+      blkstate = SDBusy;
+      bytesread = 0;
+    } else {
+      clkcnt += c;
+      if (clkcnt >= 4) {
+        foffset += 2;
+        clkcnt -= 4;
+        bytesread += 2;
+      }
+    }
+  }
+  else if (blkstate == SDDataWriteToken) {
+    tokenbits <<= 1;
+    clkcnt++;
+    if (clkcnt > 8) {
+      //blkstate = SDDataWriteDone;
+      // Next block (mutliple)
+      blkstate = SDWaitData;
+      bytesread = 0;
+    }
+  }
+  else if (blkstate == SDWaitData || blkstate == SDDataWriteDone) {
+    // We wait for the start zero bits to show up!
+  }
+  else {
+    if (bytesread >= 512 + 8) {  // Include checksum
+      clkcnt = 0;
+      blkstate = SDBusy;
+      bytesread = 0;
+    } else {
+      clkcnt += c;
+      if (clkcnt >= 4) {
+        foffset += 2;
+        clkcnt -= 4;
+        bytesread += 2;
+      }
+    }
+  }
+}
+
+void supercard_readreg_write(u32 type, u16 value) {
+  sdclock(type / 16);
+
+  //printf("Read Reg write val (type %d, off %d, clk %d)\n", type, foffset, clkcnt);
+}
+
+u16 supercard_cmd_read() {
+  u16 ret = 1;
+  if (sdst == WriteResp) {
+    if (sdrespsz) {
+      sdrespsz--;
+      u32 boff = sdrespsz >> 3;
+      u32 bitn = sdrespsz & 7;
+      ret = (sdresp[boff] >> (bitn)) & 1;
+    }
+    else
+      sdst = ScanCmd;
+  }
+  //printf("CMD read %d\n", ret);
+  return ret;
+}
+
+u16 supercard_readreg_read() {
+  sdclock(1);
+
+  //printf("ReadREG read status (lo), clk %d foffset %d\n", clkcnt, foffset);
+  if (blkstate == SDDataWriteToken) {
+    return tokenbits & 0x100;
+  }
+  if (blkstate == SDBusy || blkstate == SDWaitData  || blkstate == SDDataWriteDone)
+    return 0xF00;
+  return 0;
+}
+
+u32 supercard_readreg_read_hi() {
+
+  u16 ret = 0;
+
+  sdclock(1);
+
+  {
+    u32 offset = (foffset - 2) & ~1;
+   {
+      if (offset < sdcardsize)
+        ret = *(uint16_t*)(&sdcardmap[offset]);
+      else
+        ret = 0xFFFF;
+      //printf("Read value %x off %x\n", ret, offset);
+    }
+  }
+
+  //printf("ReadREG read hi %x (clk %d off %d byteread %d)\n", ret, clkcnt, foffset, bytesread);
+  return ret;
+}
+
 #define read_memory_gamepak(type)                                             \
   u32 gamepak_index = address >> 15;                                          \
   u8 *map = memory_map_read[gamepak_index];                                   \
+  if (supercard_sdcard && (address & 0x1FFFFFF) == 0x1800000)                   \
+    value = supercard_cmd_read();                                             \
+  else if (type == 16 && supercard_sdcard && ((address & 0x1FFFFFF) == 0x1100000 || (address & 0x1FFFFFF) == 0x1000000))    \
+    value = supercard_readreg_read();                                             \
+  else if (type == 16 && supercard_sdcard && (address & 0x1FFFFFF) == 0x1100002)                   \
+    value = supercard_readreg_read_hi();                                             \
+  else if (type == 32 && supercard_sdcard && ((address & 0x1FFFFFF) == 0x1100000 || (address & 0x1FFFFFF) == 0x1000000) )    \
+    { value = supercard_readreg_read(); value |= (supercard_readreg_read_hi() << 16);  }                \
+  else if (supercard_sdcard && ((address & 0x1FFFFFF) >= 0x1000000 ) )    \
+    { value = 0xDEADBEEF;  /* Simulate unmapping of the HI mem */  }                \
+  else {                                                                             \
+    if(!map)                                                                    \
+      map = load_gamepak_page(gamepak_index & 0x3FF);                           \
                                                                               \
-  if(!map)                                                                    \
-    map = load_gamepak_page(gamepak_index & 0x3FF);                           \
-                                                                              \
-  value = readaddress##type(map, address & 0x7FFF)                            \
+    value = readaddress##type(map, address & 0x7FFF);                            \
+  }
 
 
 #define unmapped_rom_read8(addr)                                              \
@@ -703,7 +1022,7 @@ u32 function_cc read_eeprom(void)
     case 0x0B:                                                                \
     case 0x0C:                                                                \
       /* gamepak ROM */                                                       \
-      if((address & 0x1FFFFFF) >= gamepak_size)                               \
+      if(false && !supercard_sdcard && (address & 0x1FFFFFF) >= gamepak_size)                               \
         value = unmapped_rom_read##type(address);                             \
       else                                                                    \
       {                                                                       \
@@ -812,6 +1131,9 @@ cpu_alert_type function_cc write_io_register16(u32 address, u32 value)
   value &= 0xffff;
   switch(ioreg)
   {
+    case REG_DEBUG:
+      printf("Debug message %d\n", value);
+      break;
     case REG_DISPCNT:
       // Changing the lowest 3 bits might require object re-sorting
       reg[OAM_UPDATED] |= ((value & 0x07) != (read_ioreg(REG_DISPCNT) & 0x07));
@@ -999,6 +1321,9 @@ cpu_alert_type function_cc write_io_register32(u32 address, u32 value)
     sound_timer_queue32(1, value);
     return CPU_ALERT_NONE;
   }
+
+  if (address == 0x380)
+    printf("debug value %08x\n", value);
 
   // Perform two 16 bit writes. Low part goes first apparently.
   // Some Count+Control DMA writes use 32 bit, so control must be last.
@@ -1400,6 +1725,8 @@ void function_cc write_gpio(u32 address, u32 value) {
   update_gpio_romregs();
 }
 
+
+
 #define write_gpio8()                                                         \
 
 #define write_gpio16()                                                        \
@@ -1408,6 +1735,22 @@ void function_cc write_gpio(u32 address, u32 value) {
 #define write_gpio32()                                                        \
 
 #define write_memory(type)                                                    \
+  if (address == 0x09FFFFFE && type == 16)                                    \
+    supercard_mode(value);                                                    \
+  if (supercard_we && (address >> 24) >= 0x8 && (address >> 24) <= 0xF) {     \
+    u32 addr = (address) & 0x7FFFFFF & (~((type)/8-1));                        \
+    /*printf("Write to ROM %x : %x type %d\n", addr, value, type);*/ \
+    u8 *rombuf = memory_map_read[address >> 15];                                 \
+    address##type(rombuf, (addr & 0x7FFF)) = eswap##type(value);              \
+  }                                                                           \
+  if (supercard_sdcard && (address >> 24) >= 0x8 && (address >> 24) <= 0xF) { \
+    u32 addr = (address) & 0xFFFFFFF;                                         \
+    switch (addr) {                                                           \
+    case 0x09800000: case 0x0B800000: supercard_cmd_write(value); break;                       \
+    case 0x09100000: case 0x0B100000: supercard_readreg_write(type, value); break;                   \
+    case 0x09000000: case 0x0B000000: supercard_writereg_write(value); break;                  \
+    }; \
+  }                                                                           \
   switch(address >> 24)                                                       \
   {                                                                           \
     case 0x02:                                                                \
@@ -1821,6 +2164,7 @@ cpu_alert_type dma_tf_loop##tfsize(                                           \
   u32 dest_region = MIN(dest_ptr >> 24, 16);                                  \
   dma_region_type src_region_type = dma_region_map[src_region];               \
   dma_region_type dest_region_type = dma_region_map[dest_region];             \
+  /*printf("Start DMA src %x to %x with size %d (PC %x)\n", src_ptr, dest_ptr, length, reg[REG_PC]); */\
                                                                               \
   switch(src_region_type + dest_region_type * DMA_REGION_COUNT)               \
   {                                                                           \
@@ -2016,6 +2360,36 @@ cpu_alert_type dma_tf_loop##tfsize(                                           \
                                                                               \
     case DMA_REGION_EXT + DMA_REGION_EXT * DMA_REGION_COUNT:                  \
       dma_tfloop(ext, ext, src_strd, dest_strd, tfsize);                      \
+\
+     /* Writing to gamepak! */ \
+    case DMA_REGION_BUS + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:                \
+      dma_tfloop(bus, ext, src_strd, dest_strd, tfsize);                    \
+                                                                              \
+    case DMA_REGION_IWRAM + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:              \
+      dma_tfloop(iwram, ext, src_strd, dest_strd, tfsize);                  \
+                                                                              \
+    case DMA_REGION_EWRAM + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:              \
+      dma_tfloop(ewram, ext, src_strd, dest_strd, tfsize);                  \
+                                                                              \
+    case DMA_REGION_VRAM + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:               \
+      dma_tfloop(vram, ext, src_strd, dest_strd, tfsize);                   \
+                                                                              \
+    case DMA_REGION_PALETTE_RAM + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:        \
+      dma_tfloop(palette_ram, ext, src_strd, dest_strd, tfsize);            \
+                                                                              \
+    case DMA_REGION_OAM_RAM + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:            \
+      dma_tfloop(oam_ram, ext, src_strd, dest_strd, tfsize);                \
+                                                                              \
+    case DMA_REGION_IO + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:                 \
+      dma_tfloop(io, ext, src_strd, dest_strd, tfsize);                     \
+                                                                              \
+    case DMA_REGION_GAMEPAK + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:            \
+      dma_tfloop(gamepak, ext, src_strd, dest_strd, tfsize);                \
+                                                                              \
+    case DMA_REGION_EXT + DMA_REGION_GAMEPAK * DMA_REGION_COUNT:                \
+      dma_tfloop(ext, ext, src_strd, dest_strd, tfsize);                    \
+\
+\
   }                                                                           \
                                                                               \
   /* Remember the last value copied in case we read from a bad zone */        \
@@ -2183,10 +2557,12 @@ static u32 evict_gamepak_page(void)
   return ret;
 }
 
+
 u8 *load_gamepak_page(u32 physical_index)
 {
+  assert(0); /*
   if(physical_index >= (gamepak_size >> 15))
-    return &gamepak_buffers[0][0];
+    return &gamepak_buffers[0];
 
   u32 entry = evict_gamepak_page();
   u32 block_idx = entry / 32;
@@ -2206,21 +2582,22 @@ u8 *load_gamepak_page(u32 physical_index)
   if (physical_index == 0)
     update_gpio_romregs();
 
-  return swap_location;
+  return swap_location;*/
+  return NULL;
 }
 
 void init_gamepak_buffer(void)
 {
   unsigned i;
   // Try to allocate up to 32 blocks of 1MB each
-  gamepak_buffer_count = 0;
+  /*gamepak_buffer_count = 0;
   while (gamepak_buffer_count < ROM_BUFFER_SIZE)
   {
     void *ptr = malloc(gamepak_buffer_blocksize);
     if (!ptr)
       break;
     gamepak_buffers[gamepak_buffer_count++] = (u8*)ptr;
-  }
+  }*/
 
   // Initialize the memory map structure
   for (i = 0; i < 1024; i++)
@@ -2231,6 +2608,15 @@ void init_gamepak_buffer(void)
 
   gamepak_lru_head = 0;
   gamepak_lru_tail = 32 * gamepak_buffer_count - 1;
+
+  struct stat st;
+  int sdfd = open("sdcard.img", O_RDWR);
+  assert(sdfd >= 0);
+  fstat(sdfd, &st);
+  printf("Maping SD card file (size %d bytes)\n", st.st_size);
+  sdcardmap = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, sdfd, 0);
+  assert(sdcardmap != NULL);
+  sdcardsize = st.st_size;
 }
 
 bool gamepak_must_swap(void)
@@ -2311,9 +2697,9 @@ void memory_term(void)
     gamepak_file_large = NULL;
   }
 
-  while (gamepak_buffer_count)
+//  while (gamepak_buffer_count)
   {
-    free(gamepak_buffers[--gamepak_buffer_count]);
+    //free(gamepak_buffers[--gamepak_buffer_count]);
   }
 }
 
@@ -2518,10 +2904,21 @@ static s32 load_gamepak_raw(const char *name)
     map_null(read, 0x8000000, 0xD000000);
 
     // Proceed to read the whole ROM or as much as possible.
-    for (i = 0; i < ldblks; i++)
+    memset(gamepak_buffer, 0, sizeof(gamepak_buffer));
+    filestream_read(gamepak_file_large, gamepak_buffer, sizeof(gamepak_buffer));    
+    
+    for (unsigned i = 0; i < 1024; i++ ) {
+       memory_map_read[(0x8000000 / (32 * 1024)) + i] = &gamepak_buffer[32*1024*i];
+       memory_map_read[(0xA000000 / (32 * 1024)) + i] = &gamepak_buffer[32*1024*i];
+    }
+    for (unsigned i = 0; i < 512; i++ ) {
+       memory_map_read[(0xC000000 / (32 * 1024)) + i] = &gamepak_buffer[32*1024*i];
+    }
+
+/*    for (i = 0; i < ldblks; i++)
     {
       // Load 1MB chunk and map it
-      filestream_read(gamepak_file_large, gamepak_buffers[i], gamepak_buffer_blocksize);
+
       for (j = 0; j < 32 && i*32 + j < rom_blocks; j++)
       {
         u32 phyn = i*32 + j;
@@ -2531,7 +2928,8 @@ static s32 load_gamepak_raw(const char *name)
         // Map it to the read handlers now
         map_rom_entry(read, phyn, blkptr, rom_blocks);
       }
-    } 
+    } */
+    
 
     return 0;
   }
@@ -2549,9 +2947,9 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
 
    // Buffer 0 always has the first 1MB chunk of the ROM
    memset(&gpinfo, 0, sizeof(gpinfo));
-   memcpy(gpinfo.gamepak_title, &gamepak_buffers[0][0xA0], 12);
-   memcpy(gpinfo.gamepak_code,  &gamepak_buffers[0][0xAC],  4);
-   memcpy(gpinfo.gamepak_maker, &gamepak_buffers[0][0xB0],  2);
+   memcpy(gpinfo.gamepak_title, &gamepak_buffer[0xA0], 12);
+   memcpy(gpinfo.gamepak_code,  &gamepak_buffer[0xAC],  4);
+   memcpy(gpinfo.gamepak_maker, &gamepak_buffer[0xB0],  2);
 
    idle_loop_target_pc = 0xFFFFFFFF;
    translation_gate_targets = 0;

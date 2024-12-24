@@ -127,9 +127,9 @@
   static void interp_trace_instruction(u32 pc, u32 mode)
   {
     if (mode)
-      printf("Executed arm %x\n", pc);
+      printf("Executed arm %x [%x]\n", pc, read_memory32(pc));
     else
-      printf("Executed thumb %x\n", pc);
+      printf("Executed thumb %x [%x]\n", pc, read_memory16(pc));
     #ifdef TRACE_REGISTERS
     print_regs();
     #endif

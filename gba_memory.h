@@ -185,7 +185,8 @@ typedef enum
   REG_IF = 0x101,
   REG_WAITCNT = 0x102,
   REG_IME = 0x104,
-  REG_HALTCNT = 0x180
+  REG_HALTCNT = 0x180,
+  REG_DEBUG = 0x190
 } hardware_register;
 
 // Some useful macros to avoid reg math

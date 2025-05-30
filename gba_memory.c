@@ -25,6 +25,8 @@
 #include "common.h"
 #include "streams/file_stream.h"
 
+extern bool supercard_we;
+
 uint8_t *sdcardmap = NULL;
 uint64_t sdcardsize;
 
@@ -358,7 +360,11 @@ dma_transfer_type dma[4];
 // ROMs up to 32MB, but we might fail on memory constrained systems.
 
 //u8 *gamepak_buffers[32];    /* Pointers to malloc'ed blocks */
-u8 gamepak_buffer[32*1024*1024];
+u8 gamepak_buffer_SDRAM[32*1024*1024];
+u8 gamepak_buffer_FLASH[32*1024*1024];
+bool gamepak_map_sdram = false;
+
+
 u32 gamepak_buffer_count;   /* Value between 1 and 32 */
 u32 gamepak_size;           /* Size of the ROM in bytes */
 // We allocate in 1MB chunks.
@@ -391,8 +397,8 @@ RFILE *gamepak_file_large = NULL;
 // If the GBC audio waveform is modified:
 u32 gbc_sound_wave_update = 0;
 
-u32 backup_type = BACKUP_UNKN;
-u32 backup_type_reset = BACKUP_UNKN;
+u32 backup_type = BACKUP_SRAM;
+u32 backup_type_reset = BACKUP_SRAM; // Override for SUPERCARD
 u32 flash_mode = FLASH_BASE_MODE;
 u32 flash_command_position = 0;
 u32 flash_bank_num;  // 0 or 1
@@ -439,7 +445,7 @@ u8 read_backup(u32 address)
     backup_type = BACKUP_SRAM;
 
   if(backup_type == BACKUP_SRAM)
-    value = gamepak_backup[address];
+    value = gamepak_backup[address + (supercard_we ? 64*1024 : 0)];
   else if(flash_mode == FLASH_ID_MODE)
   {
     if (flash_bank_cnt == FLASH_SIZE_128KB)
@@ -598,6 +604,8 @@ enum SDBlkstate {
 };
 enum SDBlkstate blkstate = SDBusy;
 
+void remap_gamepak();
+
 bool supercard_we = false;
 bool supercard_sdcard = false;
 u16 modeq[4] = {0};
@@ -609,11 +617,17 @@ void supercard_mode(u16 data) {
   if (modeq[0] == 0xA55A && modeq[1] == 0xA55A && modeq[2] == modeq[3]) {
     supercard_we = data & 0x4;
     supercard_sdcard = data & 2;
-    printf("Supercard new mode: WE %d SD %d\n", supercard_we, supercard_sdcard);
+    // Map flash vs SDRAM
+    gamepak_map_sdram = data & 1;
+
+    //printf("Supercard new mode: WE %d SD %d MAP %s\n", supercard_we, supercard_sdcard, 
+    //   gamepak_map_sdram ? "SDRAM" : "FLASH");
+
+    remap_gamepak();
   }
 }
 
-void supercard_cmd_write(u16 value) {
+void supercard_cmd_write_16(u16 value) {
   //printf("Write CMD bit %d\n", value);
   if (sdst == ScanCmd) {
     if ((value >> 7) == 0) {
@@ -688,7 +702,18 @@ void supercard_cmd_write(u16 value) {
         sdresp[0] = 0xFF;   // FIXME Should have a CRC
         sdst = WriteResp;
         break;
-      case 7: case 9:   // Not really used, send dummy
+      case 9:   // Get CSD
+        // Send some sensible data for the SD reinit
+        sdrespsz = 8*6;
+        sdresp[5] = 0x3F;  // special token
+        sdresp[4] = 1 << 6; // version 2.0, so SDHC
+        sdresp[3] = 0;
+        sdresp[2] = 0;
+        sdresp[1] = 0;
+        sdresp[0] = 0xFF;   // FIXME Should have a CRC
+        sdst = WriteResp;
+        break;
+      case 7:   // Not really used, send dummy
       case 6:   // set bus width, should we handle this?
       case 16:   // set block len (not sure if this is used?)
       case 23:   // Just ignore as well 
@@ -718,7 +743,7 @@ void supercard_cmd_write(u16 value) {
         sdresp[0] = 0;
         sdst = WriteResp;
         foffset = 512 * d;
-        //printf("Read card addr %d\n", d);
+        //printf("\nread card addr %d\n", d);
         blkstate = SDBusy;
         bytesread = 0;
         clkcnt = 0;
@@ -729,7 +754,7 @@ void supercard_cmd_write(u16 value) {
         sdresp[0] = 0;
         sdst = WriteResp;
         foffset = 512 * d;
-        //printf("write card addr %d\n", d);
+        //printf("\nwrite card addr %d\n", d);
         blkstate = SDWaitData;
         bytesread = 0;
         clkcnt = 0;
@@ -738,6 +763,15 @@ void supercard_cmd_write(u16 value) {
     }
   }
 }
+
+void supercard_cmd_write(int type, u32 value) {
+  while (type > 0) {
+    supercard_cmd_write_16(value);
+    value >>= 16;
+    type -= 16;
+  }
+}
+
 
 void supercard_writereg_write(u16 value) {
   //printf("Write Reg write val %x (off reg %d)\n", value, foffset);
@@ -748,6 +782,7 @@ void supercard_writereg_write(u16 value) {
   else if (blkstate == SDDataWrite) {
     if (foffset < sdcardsize && bytesread < 512) {
       sdcardmap[foffset++] = value;   // byte write
+      //printf("%02x ", value & 0xFF);
     }
     // TODO: Do not ignore the CRC and return errors if necessary
     if (bytesread == 520) {
@@ -779,10 +814,10 @@ void sdclock(int c) {
       bytesread = 0;
     } else {
       clkcnt += c;
-      if (clkcnt >= 4) {
-        foffset += 2;
-        clkcnt -= 4;
-        bytesread += 2;
+      if (clkcnt >= 2) {
+        foffset++;
+        clkcnt -= 2;
+        bytesread++;
       }
     }
   }
@@ -829,6 +864,7 @@ u16 supercard_cmd_read() {
       u32 boff = sdrespsz >> 3;
       u32 bitn = sdrespsz & 7;
       ret = (sdresp[boff] >> (bitn)) & 1;
+      //printf("read cmd byte %d %x\n", sdrespsz, sdresp[boff]);
     }
     else
       sdst = ScanCmd;
@@ -838,33 +874,42 @@ u16 supercard_cmd_read() {
 }
 
 u16 supercard_readreg_read() {
+  uint16_t ret = 0;
   sdclock(1);
 
   //printf("ReadREG read status (lo), clk %d foffset %d\n", clkcnt, foffset);
   if (blkstate == SDDataWriteToken) {
     return tokenbits & 0x100;
   }
+
+  if (blkstate == SDBusy && clkcnt == 32) {
+    return 0x0;
+  }
+
   if (blkstate == SDBusy || blkstate == SDWaitData  || blkstate == SDDataWriteDone)
     return 0xF00;
-  return 0;
+
+  {
+    u32 offset = foffset; //(foffset - 1) & ~1;
+    //if (foffset > 0) {
+    {
+
+      if (offset < sdcardsize)
+        ret = (sdcardmap[offset] << 8) | (sdcardmap[offset ? offset - 1 : 0]);
+      else
+        ret = 0xFFFF;
+      //printf("Read value %x off %x\n", ret, offset);
+    }
+  }
+
+  return ret;
 }
 
 u32 supercard_readreg_read_hi() {
 
   u16 ret = 0;
 
-  sdclock(1);
 
-  {
-    u32 offset = (foffset - 2) & ~1;
-   {
-      if (offset < sdcardsize)
-        ret = *(uint16_t*)(&sdcardmap[offset]);
-      else
-        ret = 0xFFFF;
-      //printf("Read value %x off %x\n", ret, offset);
-    }
-  }
 
   //printf("ReadREG read hi %x (clk %d off %d byteread %d)\n", ret, clkcnt, foffset, bytesread);
   return ret;
@@ -875,12 +920,10 @@ u32 supercard_readreg_read_hi() {
   u8 *map = memory_map_read[gamepak_index];                                   \
   if (supercard_sdcard && (address & 0x1FFFFFF) == 0x1800000)                   \
     value = supercard_cmd_read();                                             \
-  else if (type == 16 && supercard_sdcard && ((address & 0x1FFFFFF) == 0x1100000 || (address & 0x1FFFFFF) == 0x1000000))    \
-    value = supercard_readreg_read();                                             \
-  else if (type == 16 && supercard_sdcard && (address & 0x1FFFFFF) == 0x1100002)                   \
-    value = supercard_readreg_read_hi();                                             \
-  else if (type == 32 && supercard_sdcard && ((address & 0x1FFFFFF) == 0x1100000 || (address & 0x1FFFFFF) == 0x1000000) )    \
-    { value = supercard_readreg_read(); value |= (supercard_readreg_read_hi() << 16);  }                \
+  else if (type == 16 && supercard_sdcard && ((address & 0x1FFFF00) == 0x1100000 || (address & 0x1FFFF00) == 0x1000000))    \
+    { value = supercard_readreg_read();  }                                             \
+  else if (type == 32 && supercard_sdcard && ((address & 0x1FFFF00) == 0x1100000 || (address & 0x1FFFF00) == 0x1000000) )    \
+    { value = supercard_readreg_read(); value |= (supercard_readreg_read() << 16);  }                \
   else if (supercard_sdcard && ((address & 0x1FFFFFF) >= 0x1000000 ) )    \
     { value = 0xDEADBEEF;  /* Simulate unmapping of the HI mem */  }                \
   else {                                                                             \
@@ -1279,6 +1322,7 @@ cpu_alert_type function_cc write_io_register16(u32 address, u32 value)
       break;  // Do nothing
 
     case REG_WAITCNT:
+      printf("Writing WAITCNT: %x [PC %x]\n", value, reg[REG_PC]);
       write_ioreg(REG_WAITCNT, value);
       reload_timing_info();
       break;
@@ -1312,6 +1356,22 @@ cpu_alert_type function_cc write_io_register8(u32 address, u32 value)
 
 cpu_alert_type function_cc write_io_register32(u32 address, u32 value)
 {
+  if ((address >> 1) == REG_DEBUG) {
+    printf("Debug message %08x\n", value);
+    return CPU_ALERT_NONE;
+  }
+  if ((address >> 1) == REG_DEBUGSTR) {
+    printf("Debug str ");
+    u32 add = value;
+    while (true) {
+      char t = (char)read_memory8(add++);
+      if (!t) break;
+      printf("%c", t);
+    }
+    printf("\n");
+    return CPU_ALERT_NONE;
+  }
+
   // Handle sound FIFO data write
   if (address == 0xA0) {
     sound_timer_queue32(0, value);
@@ -1434,7 +1494,7 @@ void function_cc write_backup(u32 address, u32 value)
       flash_command_position = 0;
     }
     if(backup_type == BACKUP_SRAM)
-      gamepak_backup[0x5555] = value;
+      gamepak_backup[0x5555 + (supercard_we ? 64*1024 : 0)] = value;
   }
   else
 
@@ -1475,7 +1535,7 @@ void function_cc write_backup(u32 address, u32 value)
     if(backup_type == BACKUP_SRAM)
     {
       // Write value to SRAM
-      gamepak_backup[address] = value;
+      gamepak_backup[address + (supercard_we ? 64*1024 : 0)] = value;
     }
   }
 }
@@ -1737,16 +1797,22 @@ void function_cc write_gpio(u32 address, u32 value) {
 #define write_memory(type)                                                    \
   if (address == 0x09FFFFFE && type == 16)                                    \
     supercard_mode(value);                                                    \
-  if (supercard_we && (address >> 24) >= 0x8 && (address >> 24) <= 0xF) {     \
+  if (supercard_we && (address >> 24) >= 0x8 && (address >> 24) <= 0xC) {     \
     u32 addr = (address) & 0x7FFFFFF & (~((type)/8-1));                        \
     /*printf("Write to ROM %x : %x type %d\n", addr, value, type);*/ \
-    u8 *rombuf = memory_map_read[address >> 15];                                 \
-    address##type(rombuf, (addr & 0x7FFF)) = eswap##type(value);              \
+    if (gamepak_map_sdram) {                                                  \
+      u8 *rombuf = memory_map_read[address >> 15];                            \
+      if (type == 8) {                                                        \
+        address16(rombuf, (addr & 0x7FFE)) = (value << 8) | (value);          \
+      } else {                                                                \
+        address##type(rombuf, (addr & 0x7FFF)) = eswap##type(value);          \
+      }                                                                       \
+    } \
   }                                                                           \
-  if (supercard_sdcard && (address >> 24) >= 0x8 && (address >> 24) <= 0xF) { \
-    u32 addr = (address) & 0xFFFFFFF;                                         \
+  if (supercard_sdcard && (address >> 24) >= 0x8 && (address >> 24) <= 0xC) { \
+    u32 addr = (address) & 0x0FFFFF00;  /* Ignore LSB */                      \
     switch (addr) {                                                           \
-    case 0x09800000: case 0x0B800000: supercard_cmd_write(value); break;                       \
+    case 0x09800000: case 0x0B800000: supercard_cmd_write(type, value); break;                       \
     case 0x09100000: case 0x0B100000: supercard_readreg_write(type, value); break;                   \
     case 0x09000000: case 0x0B000000: supercard_writereg_write(value); break;                  \
     }; \
@@ -1761,6 +1827,7 @@ void function_cc write_gpio(u32 address, u32 value) {
     case 0x03:                                                                \
       /* internal work RAM */                                                 \
       address##type(iwram, (address & 0x7FFF) + 0x8000) = eswap##type(value); \
+      if (((address) & 0x7FFF) == 0x7FFC) printf("Wrote IRQH %08x at %08x\n", value, reg[REG_PC]); \
       break;                                                                  \
                                                                               \
     case 0x04:                                                                \
@@ -2529,33 +2596,6 @@ cpu_alert_type dma_transfer(unsigned dma_chan, int *usedcycles)
   }                                                                           \
 
 
-static u32 evict_gamepak_page(void)
-{
-  u32 ret;
-  s16 phyrom;
-  do {
-    // Return the index to the last used entry
-    u32 newhead = gamepak_blk_queue[gamepak_lru_head].next_lru;
-    phyrom = gamepak_blk_queue[gamepak_lru_head].phy_rom;
-    ret = gamepak_lru_head;
-
-    // Second elem becomes head now
-    gamepak_lru_head = newhead;
-
-    // The evicted element goes at the end of the queue
-    gamepak_blk_queue[gamepak_lru_tail].next_lru = ret;
-    gamepak_lru_tail = ret;
-    // If this page is marked as sticky, we keep going through the list
-  } while (phyrom >= 0 && gamepak_sb_test(phyrom));
-
-  // We unmap the ROM page if it was mapped, ensure we do not access it
-  // without triggering a "page fault"
-  if (phyrom >= 0) {
-    map_rom_entry(read, phyrom, NULL, gamepak_size >> 15);
-  }
-
-  return ret;
-}
 
 
 u8 *load_gamepak_page(u32 physical_index)
@@ -2687,6 +2727,12 @@ void init_memory(void)
   rtc_state = RTC_DISABLED;
   memset(gpio_regs, 0, sizeof(gpio_regs));
   reg[REG_BUS_VALUE] = 0xe129f000;
+
+  // Default to flash, RO, noSD
+  gamepak_map_sdram = false;
+  supercard_we = false;
+  supercard_sdcard = false;
+  remap_gamepak();
 }
 
 void memory_term(void)
@@ -2883,6 +2929,21 @@ unsigned memory_write_savestate(u8 *dst)
   return (unsigned int)(dst - startp);
 }
 
+void remap_gamepak() {
+  //printf("Remapping ROM space to %s!\n", gamepak_map_sdram ? "SDRAM" : "FLASH");
+
+  u8 *ptr = gamepak_map_sdram ? gamepak_buffer_SDRAM : gamepak_buffer_FLASH;
+
+    for (unsigned i = 0; i < 1024; i++ ) {
+       memory_map_read[(0x8000000 / (32 * 1024)) + i] = &ptr[32*1024*i];
+       memory_map_read[(0xA000000 / (32 * 1024)) + i] = &ptr[32*1024*i];
+    }
+    for (unsigned i = 0; i < 512; i++ ) {
+       memory_map_read[(0xC000000 / (32 * 1024)) + i] = &ptr[32*1024*i];
+    }
+
+}
+
 static s32 load_gamepak_raw(const char *name)
 {
   unsigned i, j;
@@ -2904,16 +2965,18 @@ static s32 load_gamepak_raw(const char *name)
     map_null(read, 0x8000000, 0xD000000);
 
     // Proceed to read the whole ROM or as much as possible.
-    memset(gamepak_buffer, 0, sizeof(gamepak_buffer));
-    filestream_read(gamepak_file_large, gamepak_buffer, sizeof(gamepak_buffer));    
-    
-    for (unsigned i = 0; i < 1024; i++ ) {
-       memory_map_read[(0x8000000 / (32 * 1024)) + i] = &gamepak_buffer[32*1024*i];
-       memory_map_read[(0xA000000 / (32 * 1024)) + i] = &gamepak_buffer[32*1024*i];
-    }
-    for (unsigned i = 0; i < 512; i++ ) {
-       memory_map_read[(0xC000000 / (32 * 1024)) + i] = &gamepak_buffer[32*1024*i];
-    }
+    memset(gamepak_buffer_FLASH, 0, sizeof(gamepak_buffer_FLASH));
+
+    for (unsigned i = 0; i < sizeof(gamepak_buffer_SDRAM); i++)
+      gamepak_buffer_SDRAM[i] = (uint8_t)rand();
+
+    filestream_read(gamepak_file_large, gamepak_buffer_FLASH, sizeof(gamepak_buffer_FLASH));
+
+    // Copy the flash into 512KB mirrors
+    for (unsigned i = 1; i < 64; i++)
+      memcpy(&gamepak_buffer_FLASH[i*512*1024], gamepak_buffer_FLASH, 512*1024);
+
+    remap_gamepak();
 
 /*    for (i = 0; i < ldblks; i++)
     {
@@ -2947,9 +3010,9 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
 
    // Buffer 0 always has the first 1MB chunk of the ROM
    memset(&gpinfo, 0, sizeof(gpinfo));
-   memcpy(gpinfo.gamepak_title, &gamepak_buffer[0xA0], 12);
-   memcpy(gpinfo.gamepak_code,  &gamepak_buffer[0xAC],  4);
-   memcpy(gpinfo.gamepak_maker, &gamepak_buffer[0xB0],  2);
+   memcpy(gpinfo.gamepak_title, &gamepak_buffer_FLASH[0xA0], 12);
+   memcpy(gpinfo.gamepak_code,  &gamepak_buffer_FLASH[0xAC],  4);
+   memcpy(gpinfo.gamepak_maker, &gamepak_buffer_FLASH[0xB0],  2);
 
    idle_loop_target_pc = 0xFFFFFFFF;
    translation_gate_targets = 0;

@@ -133,6 +133,7 @@
     #ifdef TRACE_REGISTERS
     print_regs();
     #endif
+    fflush(stdout);
   }
 #endif
 

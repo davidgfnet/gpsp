@@ -876,11 +876,7 @@ const u32 spsr_masks[4] = { 0x00000000, 0x000000EF, 0xF0000000, 0xF00000EF };
     cycles_remaining -= ws_cyc_seq[region][1];                                \
     STATS_MEMORY_ACCESS(read, u32, region);                                   \
   }                                                                           \
-  if(_address < 0x10000000 && map)                                            \
-  {                                                                           \
-    dest = readaddress32(map, _address & 0x7FFF);                             \
-  }                                                                           \
-  else                                                                        \
+                                                                              \
   {                                                                           \
     dest = read_memory32(_address);                                           \
   }                                                                           \

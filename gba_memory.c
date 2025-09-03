@@ -1555,6 +1555,7 @@ typedef struct
 #define FLAGS_RTC            0x0008   // Enables RTC support by default.
 #define FLAGS_EEPROM         0x0010   // Forces EEPROM storage.
 #define FLAGS_RFU            0x0020   // Enables Wireless Adapter (via serial).
+#define FLAGS_SERIAL_POKE    0x0040   // Serial link cable (emulation mode).
 
 #include "gba_over.h"
 
@@ -1591,6 +1592,8 @@ static void load_game_config_over(const char *gamecode)
          serial_mode = SERIAL_MODE_RFU;
        if (gbaover[i].flags & FLAGS_GBA_PLAYER)
          serial_mode = SERIAL_MODE_GBP;
+       if (gbaover[i].flags & FLAGS_SERIAL_POKE)
+         serial_mode = SERIAL_MODE_SERIAL_POKE;
      }
 
      if (gbaover[i].translation_gate_target_1 != 0)

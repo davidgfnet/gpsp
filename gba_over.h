@@ -1050,7 +1050,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (U)
       "AXPE",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1059,7 +1059,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (J)
       "AXPJ",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1068,7 +1068,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (G)
       "AXPD",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1077,7 +1077,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (I)
       "AXPI",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1086,7 +1086,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (S)
       "AXPS",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1095,7 +1095,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (F)
       "AXPF",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1104,7 +1104,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (U)
       "AXVE",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1113,7 +1113,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (J)
       "AXVJ",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1122,7 +1122,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (G)
       "AXVD",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1131,7 +1131,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (I)
       "AXVI",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1140,7 +1140,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (S)
       "AXVS",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1149,7 +1149,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (F)
       "AXVF",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */

@@ -120,6 +120,7 @@ struct retro_core_option_definition option_defs_us[] = {
          { "auto",     "Automatic" },
          { "disabled", "Disabled" },
          { "rfu",      "GBA Wireless Adapter" },
+         { "mul_poke", "Link Cable - Pokemon Gen3 mode" },
          { NULL, NULL },
       },
       "auto"

@@ -427,7 +427,7 @@ static void video_run(void)
 
 // Netplay (Netpacket) interface
 
-static u32 num_clients;
+u32 netplay_num_clients = 0, netplay_client_id = 0;
 static retro_netpacket_send_t netpacket_send_fn_ptr = NULL;
 static retro_netpacket_poll_receive_t netpacket_pollrcv_fn_ptr = NULL;
 
@@ -445,7 +445,8 @@ void netpacket_send(uint16_t client_id, const void *buf, size_t len) {
 static void netpacket_start(uint16_t client_id, retro_netpacket_send_t send_fn, retro_netpacket_poll_receive_t poll_receive_fn) {
   netpacket_send_fn_ptr = send_fn;
   netpacket_pollrcv_fn_ptr = poll_receive_fn;
-  num_clients = 0;
+  netplay_num_clients = 0;
+  netplay_client_id = client_id;
 }
 
 // Netplay session ends.
@@ -459,22 +460,32 @@ static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
   case SERIAL_MODE_RFU:
     rfu_net_receive(buf, len, client_id);
     break;
+  case SERIAL_MODE_SERIAL_POKE:
+    serialpoke_net_receive(buf, len, client_id);
+    break;
   };
 }
 
 // Ensure we do not have too many clients for the type of connection used.
 static bool netpacket_connected(uint16_t client_id) {
-  u32 max_clients = serial_mode == SERIAL_MODE_RFU ? MAX_RFU_NETPLAYERS : 0;
+  const uint8_t maxpl[] = {
+     0,                        // SERIAL_MODE_DISABLED
+     MAX_RFU_NETPLAYERS,       // SERIAL_MODE_RFU
+     0,                        // SERIAL_MODE_GBP
+     MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_POKE
+     0,                        // SERIAL_MODE_AUTO
+  };
+  const u32 max_clients = maxpl[serial_mode] - 1U;
 
-  if (num_clients >= max_clients)
+  if (netplay_num_clients >= max_clients)
     return false;
 
-  num_clients++;
+  netplay_num_clients++;
   return true;
 }
 
 static void netpacket_disconnected(uint16_t client_id) {
-  num_clients--;
+  netplay_num_clients--;
 }
 
 const struct retro_netpacket_callback netpacket_iface = {
@@ -888,6 +899,8 @@ static void check_variables(bool started_from_load)
            serial_setting = SERIAL_MODE_DISABLED;
         else if (!strcmp(var.value, "rfu"))
            serial_setting = SERIAL_MODE_RFU;
+        else if (!strcmp(var.value, "mul_poke"))
+           serial_setting = SERIAL_MODE_SERIAL_POKE;
         else if (!strcmp(var.value, "gbp"))
            serial_setting = SERIAL_MODE_GBP;
         else

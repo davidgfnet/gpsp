@@ -165,7 +165,7 @@ static t_client_broadcast rfu_peer_bcst[MAX_RFU_PEERS];
 
 // Constants used for the network protocol.
 
-#define NET_RFU_HEADER          0x52465531
+#define NET_RFU_HEADER          0x52465531       // RFU1
 
 #define NET_RFU_BROADCAST       0x00    // Host to everyone broadcast packet
 #define NET_RFU_CONNECT_REQ     0x01    // Client connection request
@@ -866,7 +866,7 @@ void rfu_net_receive(const void* buf, size_t len, uint16_t client_id) {
 bool rfu_update(unsigned cycles) {
   if (rfu_comstate == RFU_COMSTATE_WAITEVENT) {
     // Force receive packets so that we can perhaps abort the wait
-    // This helps minimize latency (othweise we need to wait a full frame!)
+    // This helps minimize latency (otherwise we need to wait a full frame!)
     netpacket_poll_receive();
 
     // Check if we are running our of time to respond.

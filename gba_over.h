@@ -1284,7 +1284,7 @@ static const ini_t gbaover[] = {
       "POKEMON SAPP",              /* gamepak_title        */
       "AXPE",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1295,7 +1295,7 @@ static const ini_t gbaover[] = {
       "POKEMON SAPP",              /* gamepak_title        */
       "AXPJ",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1306,7 +1306,7 @@ static const ini_t gbaover[] = {
       "POKEMON SAPP",              /* gamepak_title        */
       "AXPD",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1317,7 +1317,7 @@ static const ini_t gbaover[] = {
       "POKEMON SAPP",              /* gamepak_title        */
       "AXPI",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1328,7 +1328,7 @@ static const ini_t gbaover[] = {
       "POKEMON SAPP",              /* gamepak_title        */
       "AXPS",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1339,7 +1339,7 @@ static const ini_t gbaover[] = {
       "POKEMON SAPP",              /* gamepak_title        */
       "AXPF",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1350,7 +1350,7 @@ static const ini_t gbaover[] = {
       "POKEMON RUBY",              /* gamepak_title        */
       "AXVE",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1361,7 +1361,7 @@ static const ini_t gbaover[] = {
       "POKEMON RUBY",              /* gamepak_title        */
       "AXVJ",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1372,7 +1372,7 @@ static const ini_t gbaover[] = {
       "POKEMON RUBY",              /* gamepak_title        */
       "AXVD",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1383,7 +1383,7 @@ static const ini_t gbaover[] = {
       "POKEMON RUBY",              /* gamepak_title        */
       "AXVI",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1394,7 +1394,7 @@ static const ini_t gbaover[] = {
       "POKEMON RUBY",              /* gamepak_title        */
       "AXVS",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1405,7 +1405,7 @@ static const ini_t gbaover[] = {
       "POKEMON RUBY",              /* gamepak_title        */
       "AXVF",                      /* gamepak_code         */
       "01",                        /* gamepak_maker        */
-      FLAGS_FLASH_128KB | FLAGS_RTC,  /* flags             */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */

@@ -42,6 +42,7 @@ void rfu_net_receive(const void* buf, size_t len, uint16_t client_id);
 
 // Serial implementations
 void serialpoke_reset(void);
+void serialpoke_frame_update(void);
 void serialpoke_master_send(void);
 void serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id);
 bool serialpoke_update(unsigned cycles);

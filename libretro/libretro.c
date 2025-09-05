@@ -1292,6 +1292,9 @@ void retro_run(void)
    case SERIAL_MODE_RFU:
      rfu_frame_update();
      break;
+   case SERIAL_MODE_SERIAL_POKE:
+     serialpoke_frame_update();
+     break;
    };
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)

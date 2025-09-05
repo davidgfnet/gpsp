@@ -52,6 +52,7 @@
 
 #define SEQ_HANDSHAKE_TOKENS   18
 #define SLAVE_IRQ_CYCLES       28672 // Aproximately every 1.7ms, ~9.5 per frame.
+#define MAX_FRAME_TIMEOUT     240    // After four seconds consider the peer gone.
 
 #define MAX_QPACK             128    // 1 packet per frame (~2 second buffer, maybe too big)
 
@@ -81,6 +82,7 @@ static struct {
     uint16_t state;
     uint8_t count;             // Number of queued packets
     uint8_t recvd;             // Whether we are sending any data
+    uint8_t timeout;           // Number of frames since last heard from.
   } peer[4];                   // One of them not used really
 
   uint16_t checksum;
@@ -206,6 +208,14 @@ void serialpoke_master_send(void) {
   }
 }
 
+void serialpoke_frame_update(void) {
+  u32 i;
+  for (i = 0; i <= 3; i++) {
+    if (i != netplay_client_id)
+      if (serialpoke_state.peer[i].timeout++ >= MAX_FRAME_TIMEOUT)
+        memset(&serialpoke_state.peer[i], 0, sizeof(serialpoke_state.peer[i]));
+  }
+}
 
 bool serialpoke_update(unsigned cycles) {
   u32 i;
@@ -334,6 +344,8 @@ void serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id) {
     const uint32_t *pkt = (uint32_t*)buf;
     const unsigned count = serialpoke_state.peer[client_id].count;
     const u32 flags = netorder32(pkt[1]);
+
+    serialpoke_state.peer[client_id].timeout = 0;
 
     serialpoke_state.peer[client_id].state = flags & 0xFFFF;
     SRPT_DEBUG_LOG("Received valid packet from client %d (state: %d)\n",

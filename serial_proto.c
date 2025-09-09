@@ -50,15 +50,17 @@
 #define STATE_HANDSHAKE      1
 #define STATE_CONNECTED      2
 
-#define SEQ_HANDSHAKE_TOKENS   18
-#define SLAVE_IRQ_CYCLES       28672 // Aproximately every 1.7ms, ~9.5 per frame.
-#define MAX_FRAME_TIMEOUT     240    // After four seconds consider the peer gone.
+#define SEQ_HANDSHAKE_TOKENS    18
+#define SLAVE_IRQ_CYCLES_C   28672   // Aproximately every 1.7ms, ~9.5 per frame.
+#define SLAVE_IRQ_CYCLES_H  280064   // Aproximately every frame (16.66ms).
+#define MAX_FRAME_TIMEOUT      240   // After four seconds consider the peer gone.
 
 #define MAX_QPACK             128    // 1 packet per frame (~2 second buffer, maybe too big)
 
 // Pokemon protocol constants
 #define MASTER_HANDSHAKE    0x8FFF
-#define SLAVE_HANDSHAKE     0xB9A0
+#define SLAVE_HANDSHAKE     0xB9A0   // Other games use 0xA6C0 or similar.
+
 
 void netpacket_send(uint16_t client_id, const void *buf, size_t len);
 
@@ -221,8 +223,13 @@ bool serialpoke_update(unsigned cycles) {
   u32 i;
   serialpoke_state.frcnt += cycles;
 
+  // During handshake we tipically receive one serial transaction per frame.
+  // During connection it's ~9 per frame.
+  const u32 ev_cycles = (serialpoke_state.peer[0].state == STATE_CONNECTED) ?
+                        SLAVE_IRQ_CYCLES_C : SLAVE_IRQ_CYCLES_H;
+
   // Raise an IRQ periodically to pretend there's a master.
-  if (netplay_client_id && serialpoke_state.frcnt > SLAVE_IRQ_CYCLES) {
+  if (netplay_client_id && serialpoke_state.frcnt > ev_cycles) {
     serialpoke_state.frcnt = 0;
 
     // We simply copy the send register to our reception register for consistency.
@@ -275,6 +282,7 @@ bool serialpoke_update(unsigned cycles) {
           serialpoke_state.hscnt = 0;
         else {
           if (++serialpoke_state.hscnt > SEQ_HANDSHAKE_TOKENS) {
+            SRPT_DEBUG_LOG("Detected handshake, switching state!\n");
             serialpoke_state.peer[netplay_client_id].state = STATE_HANDSHAKE;
             return false;
           }

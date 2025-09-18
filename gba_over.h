@@ -11,7 +11,7 @@ static const ini_t gbaover[] = {
    {
       // Advance Wars (E)
       "AWRP",                      /* gamepak_code         */
-      0,                           /* flags                */
+      FLAGS_SERIAL | FLAGS_SERIAL_AW1,     /* flags        */
       0x803880a,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -20,7 +20,7 @@ static const ini_t gbaover[] = {
    {
       // Advance Wars (U)
       "AWRE",                      /* gamepak_code         */
-      0,                           /* flags                */
+      FLAGS_SERIAL | FLAGS_SERIAL_AW1,     /* flags        */
       0x803880a,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -29,7 +29,7 @@ static const ini_t gbaover[] = {
    {
       // Advance Wars 2: Black Hole Rising (E)
       "AW2P",                      /* gamepak_code         */
-      0,                           /* flags                */
+      FLAGS_SERIAL | FLAGS_SERIAL_AW2,     /* flags        */
       0x8036e2a,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -38,7 +38,7 @@ static const ini_t gbaover[] = {
    {
       // Advance Wars 2: Black Hole Rising (U)
       "AW2E",                      /* gamepak_code         */
-      0,                           /* flags                */
+      FLAGS_SERIAL | FLAGS_SERIAL_AW2,     /* flags        */
       0x8036e2a,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -146,7 +146,7 @@ static const ini_t gbaover[] = {
    {
       // No No No Puzzle Chailien (J)
       "BKRJ",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags             */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -209,7 +209,7 @@ static const ini_t gbaover[] = {
    {
       // Digimon Racing (U)
       "BDGE",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -218,7 +218,7 @@ static const ini_t gbaover[] = {
    {
       // Digimon Racing (E)
       "BDGP",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -272,7 +272,7 @@ static const ini_t gbaover[] = {
    {
       // Dragon Ball Z - Buu's Fury (U)
       "BG3E",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -564,7 +564,7 @@ static const ini_t gbaover[] = {
    {
       // Mario & Luigi: Superstar Saga (E)
       "A88P",                      /* gamepak_code         */
-      FLAGS_GBA_PLAYER,            /* flags                */
+      FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -573,7 +573,7 @@ static const ini_t gbaover[] = {
    {
       // Mario & Luigi: Superstar Saga (U)
       "A88E",                      /* gamepak_code         */
-      FLAGS_GBA_PLAYER,            /* flags                */
+      FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -582,7 +582,7 @@ static const ini_t gbaover[] = {
    {
       // Mario & Luigi RPG (J)
       "A88J",                      /* gamepak_code         */
-      FLAGS_GBA_PLAYER,            /* flags                */
+      FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -591,7 +591,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Golf: Advance Tour (U)
       "BMGE",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x8014e0a,                   /* idle_loop_target_pc  */
       0x3000d00,                   /* translation_gate_target_1 */
       0x3000a30,                   /* translation_gate_target_2 */
@@ -600,7 +600,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Golf Advance (J)
       "BMGJ",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x8014e0a,                   /* idle_loop_target_pc  */
       0x3000d00,                   /* translation_gate_target_1 */
       0x3000a30,                   /* translation_gate_target_2 */
@@ -609,7 +609,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Golf: Advance Tour (E)
       "BMGP",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x8014e0a,                   /* idle_loop_target_pc  */
       0x3000d00,                   /* translation_gate_target_1 */
       0x3000a30,                   /* translation_gate_target_2 */
@@ -618,7 +618,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Golf: Advance Tour (S)
       "BMGS",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x8014e0a,                   /* idle_loop_target_pc  */
       0x3000d00,                   /* translation_gate_target_1 */
       0x3000a30,                   /* translation_gate_target_2 */
@@ -627,7 +627,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Golf: Advance Tour (F)
       "BMGF",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x8014e0a,                   /* idle_loop_target_pc  */
       0x3000d00,                   /* translation_gate_target_1 */
       0x3000a30,                   /* translation_gate_target_2 */
@@ -636,7 +636,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Golf: Advance Tour (I)
       "BMGI",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x8014e0a,                   /* idle_loop_target_pc  */
       0x3000d00,                   /* translation_gate_target_1 */
       0x3000a30,                   /* translation_gate_target_2 */
@@ -645,7 +645,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Golf: Advance Tour (G)
       "BMGD",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x8014e0a,                   /* idle_loop_target_pc  */
       0x3000d00,                   /* translation_gate_target_1 */
       0x3000a30,                   /* translation_gate_target_2 */
@@ -654,7 +654,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Golf: Advance Tour (A)
       "BMGU",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x8014e0a,                   /* idle_loop_target_pc  */
       0x3000d00,                   /* translation_gate_target_1 */
       0x3000a30,                   /* translation_gate_target_2 */
@@ -699,7 +699,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Power Tennis (E)
       "BTMP",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -708,7 +708,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Tennis Advance (J)
       "BTMJ",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -717,7 +717,7 @@ static const ini_t gbaover[] = {
    {
       // Mario Tennis: Power Tour (U/A)
       "BTME",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -798,7 +798,7 @@ static const ini_t gbaover[] = {
    {
       // Mega Man Battle Network 5 Team Protoman (U)
       "BRBE",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x80003ca,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -807,7 +807,7 @@ static const ini_t gbaover[] = {
    {
       // Mega Man Battle Network 5 Team Colonel (U)
       "BRKE",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x80003ca,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -816,7 +816,7 @@ static const ini_t gbaover[] = {
    {
       // Mega Man Battle Network 6 Cybeast Gregar (U)
       "BR5E",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x80003da,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -825,7 +825,7 @@ static const ini_t gbaover[] = {
    {
       // Mega Man Battle Network 6 Cybeast Falzar (U)
       "BR6E",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0x80003da,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -933,7 +933,7 @@ static const ini_t gbaover[] = {
    {
       // Narnia Chronicles (U)
       "B2WE",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -996,7 +996,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Emerald (E/U)
       "BPEE",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008ce,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1005,7 +1005,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Emerald (J)
       "BPEJ",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008ce,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1014,7 +1014,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Emerald (G)
       "BPED",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008ce,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1023,7 +1023,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Emerald (F)
       "BPEF",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008ce,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1032,7 +1032,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Emerald (S)
       "BPES",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008ce,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1041,7 +1041,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Emerald (I)
       "BPEI",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008ce,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1050,7 +1050,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (U)
       "AXPE",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1059,7 +1059,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (J)
       "AXPJ",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1068,7 +1068,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (G)
       "AXPD",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1077,7 +1077,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (I)
       "AXPI",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1086,7 +1086,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (S)
       "AXPS",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1095,7 +1095,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Sapphire (F)
       "AXPF",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1104,7 +1104,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (U)
       "AXVE",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1113,7 +1113,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (J)
       "AXVJ",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1122,7 +1122,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (G)
       "AXVD",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1131,7 +1131,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (I)
       "AXVI",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1140,7 +1140,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (S)
       "AXVS",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1149,7 +1149,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Ruby (F)
       "AXVF",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL_POKE,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_SERIAL_POKE,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1160,7 +1160,7 @@ static const ini_t gbaover[] = {
       // Added RTC even though it is not featured on the original game.
       // This helps emulating ROM hacks.
       "BPRJ",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b2,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1169,7 +1169,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Fire Red (E/U)
       "BPRE",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b2,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1178,7 +1178,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Fire Red (S)
       "BPRS",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b2,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1187,7 +1187,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Fire Red (G)
       "BPRD",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b2,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1196,7 +1196,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Fire Red (I)
       "BPRI",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b2,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1205,7 +1205,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Fire Red (F)
       "BPRF",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b2,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1215,7 +1215,7 @@ static const ini_t gbaover[] = {
       /* Hey, this one is the same as Fire Red, who'd have thought? :B */
       // Pokemon Leaf Green (E/U)
       "BPGE",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b2,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1224,7 +1224,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Leaf Green (S)
       "BPGS",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b6,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1233,7 +1233,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Leaf Green (G)
       "BPGD",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b6,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1242,7 +1242,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Leaf Green (I)
       "BPGI",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b6,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1251,7 +1251,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Leaf Green (F)
       "BPGF",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0x80008b6,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1260,7 +1260,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Leaf Green (J)
       "BPGJ",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_RFU,  /* flags */
+      FLAGS_FLASH_128KB | FLAGS_RTC | FLAGS_SERIAL | FLAGS_RFU,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1269,7 +1269,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Pinball: Ruby & Sapphire (U)
       "BPPE",                      /* gamepak_code         */
-      FLAGS_GBA_PLAYER,            /* flags                */
+      FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1278,7 +1278,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Pinball: Ruby & Sapphire (E)
       "BPPP",                      /* gamepak_code         */
-      FLAGS_GBA_PLAYER,            /* flags                */
+      FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1287,7 +1287,7 @@ static const ini_t gbaover[] = {
    {
       // Pokemon Pinball: Ruby & Sapphire (J)
       "BPPJ",                      /* gamepak_code         */
-      FLAGS_GBA_PLAYER,            /* flags                */
+      FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1546,7 +1546,7 @@ static const ini_t gbaover[] = {
    {
       // Super Mario Advance 4 (J)
       "AX4J",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_GBA_PLAYER,  /* flags      */
+      FLAGS_FLASH_128KB | FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0x8000732,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1555,7 +1555,7 @@ static const ini_t gbaover[] = {
    {
       // Super Mario Advance 4 (E)
       "AX4P",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_GBA_PLAYER,  /* flags      */
+      FLAGS_FLASH_128KB | FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0x8000732,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1564,7 +1564,7 @@ static const ini_t gbaover[] = {
    {
       // Super Mario Advance 4 (U)
       "AX4E",                      /* gamepak_code         */
-      FLAGS_FLASH_128KB | FLAGS_GBA_PLAYER,  /* flags      */
+      FLAGS_FLASH_128KB | FLAGS_SERIAL | FLAGS_GBA_PLAYER,
       0x8000732,                   /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1573,7 +1573,7 @@ static const ini_t gbaover[] = {
    {
       // Shrek Super Slam (U)
       "B4UE",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags      */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1582,7 +1582,7 @@ static const ini_t gbaover[] = {
    {
       // Shrek Super Slam (E)
       "B4UP",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags      */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1654,7 +1654,7 @@ static const ini_t gbaover[] = {
    {
       // Lord of the Rings: the third Age (U)
       "B3AE",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1672,7 +1672,7 @@ static const ini_t gbaover[] = {
    {
       // Tottoko Hamutaro Hamuhamu Sports (J/U)
       "B85A",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */
@@ -1681,7 +1681,7 @@ static const ini_t gbaover[] = {
    {
       // Hamtaro Ham Ham Games (E)
       "B85P",                      /* gamepak_code         */
-      FLAGS_RFU,                   /* flags                */
+      FLAGS_SERIAL | FLAGS_RFU,    /* flags                */
       0,                           /* idle_loop_target_pc  */
       0,                           /* translation_gate_target_1 */
       0,                           /* translation_gate_target_2 */

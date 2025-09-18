@@ -22,6 +22,7 @@
 // the other devices (GBAs) and using some fake data and real data
 // recreate some serial protocols.
 
+#include <assert.h>
 #include "common.h"
 
 // Debug print logic:
@@ -32,6 +33,68 @@
   #define SRPT_DEBUG_LOG(...)
 #endif
 
+#define MAX_QPACK             128    // 1 packet per frame (~2 second buffer, maybe too big)
+#define MAX_FPACK             512    // ~2 words per frame (can accumulate up to 256 words per frame)
+
+
+void netpacket_send(uint16_t client_id, const void *buf, size_t len);
+
+// Unpacks big endian integers used for signaling
+static inline u32 upack32(const u8 *ptr) {
+  return ptr[3] | (ptr[2] << 8) | (ptr[1] << 16) | (ptr[0] << 24);
+}
+
+static void pack16(u32 *buf, const u16 *data, size_t wcnt) {
+  u32 i;
+  for (i = 0; i < (wcnt+1)/2; i++)
+    buf[i] = netorder32((data[i*2] << 16) | (data[i*2+1]));
+}
+
+static void unpack16(u16 *buf, const u32 *data, size_t wcnt) {
+  u32 i;
+  for (i = 0; i < wcnt; i++)
+    buf[i] = (netorder32(data[i/2])) >> ((i & 1) ? 0 : 16);
+}
+
+int ismemzero(const void *ptr, size_t bytes) {
+  const uint8_t *p = (uint8_t*)ptr;
+  while (bytes--) {
+    if (*p++)
+      return 0;
+  }
+  return 1;
+}
+
+static union {
+  struct {
+    struct {
+      uint16_t data[MAX_QPACK][8];
+      uint16_t state;
+      uint8_t count;             // Number of queued packets
+      uint8_t recvd;             // Whether we are sending any data
+      uint8_t timeout;           // Number of frames since last heard from.
+    } peer[4];                   // One of them not used really
+
+    uint16_t checksum;
+    uint8_t offset;              // Current frame offset
+    uint8_t hscnt;               // Number of handshake tokens sent
+    unsigned frcnt;              // Frame counter for events.
+  } poke;
+
+  struct {
+    struct {
+      uint8_t state;             // Device status (packet vs sync)
+      uint8_t pstate;            // Parsing state (packet parsing FSM)
+      uint16_t data[MAX_FPACK];
+      uint16_t count;            // Number of queued bytes (full packets
+      uint8_t recvd;             // Whether we are sending any data
+      uint8_t timeout;           // Number of frames since last heard from.
+    } peer[4];                   // One of them not used really
+
+    uint16_t lastcmd;
+    unsigned frcnt;              // Frame counter for events.
+  } aw;
+} serstate;
 
 // Serial-Poke: emulates (via fakes) the pokemon serial protocol.
 //
@@ -55,58 +118,25 @@
 #define SLAVE_IRQ_CYCLES_H  280064   // Aproximately every frame (16.66ms).
 #define MAX_FRAME_TIMEOUT      240   // After four seconds consider the peer gone.
 
-#define MAX_QPACK             128    // 1 packet per frame (~2 second buffer, maybe too big)
-
 // Pokemon protocol constants
 #define MASTER_HANDSHAKE    0x8FFF
 #define SLAVE_HANDSHAKE     0xB9A0   // Other games use 0xA6C0 or similar.
 
 
-void netpacket_send(uint16_t client_id, const void *buf, size_t len);
-
-// Unpacks big endian integers used for signaling
-static inline u32 upack32(const u8 *ptr) {
-  return ptr[3] | (ptr[2] << 8) | (ptr[1] << 16) | (ptr[0] << 24);
-}
-
-int ismemzero(const void *ptr, size_t bytes) {
-  const uint8_t *p = (uint8_t*)ptr;
-  while (bytes--) {
-    if (*p++)
-      return 0;
-  }
-  return 1;
-}
-
-static struct {
-  struct {
-    uint16_t data[MAX_QPACK][8];
-    uint16_t state;
-    uint8_t count;             // Number of queued packets
-    uint8_t recvd;             // Whether we are sending any data
-    uint8_t timeout;           // Number of frames since last heard from.
-  } peer[4];                   // One of them not used really
-
-  uint16_t checksum;
-  uint8_t offset;              // Current frame offset
-  uint8_t hscnt;               // Number of handshake tokens sent
-  unsigned frcnt;              // Frame counter for events.
-} serialpoke_state;
-
-void serialpoke_reset(void) {
-  SRPT_DEBUG_LOG("Reset serial-poke state\n");
-  memset(&serialpoke_state, 0, sizeof(serialpoke_state));
+void serialproto_reset(void) {
+  SRPT_DEBUG_LOG("Reset serial-proto state\n");
+  memset(&serstate, 0, sizeof(serstate));
 }
 
 static void serialpoke_senddata(uint16_t state, const uint16_t *packet) {
-  u32 i;
   uint32_t flags = state | (packet ? 0x80000000 : 0);
-  u32 pkt[10] = {
+  u32 pkt[6] = {
     netorder32(NET_SERPOKE_HEADER),  // Header magic
     netorder32(flags),               // Current device state
+    0, 0, 0, 0
   };
-  for (i = 0; i < 8; i++)
-    pkt[i+2] = packet ? netorder32(packet[i]) : 0;
+  if (packet)
+    pack16(&pkt[2], packet, 8);
 
   netpacket_send(RETRO_NETPACKET_BROADCAST, pkt, sizeof(pkt));
 }
@@ -118,90 +148,90 @@ void serialpoke_master_send(void) {
 
   write_ioreg(REG_SIOMULTI0, mvalue);   // echo sent value
 
-  if (serialpoke_state.peer[0].state == STATE_PREINIT) {
+  if (serstate.poke.peer[0].state == STATE_PREINIT) {
     if (mvalue == SLAVE_HANDSHAKE) {
       // Move to state handshake. Signal that to peers.
-      serialpoke_state.peer[0].state = STATE_HANDSHAKE;
+      serstate.poke.peer[0].state = STATE_HANDSHAKE;
       for (i = 1; i <= 3; i++)
         write_ioreg(REG_SIOMULTI0 + i, 0);
       // Send new state to peers.
-      serialpoke_senddata(serialpoke_state.peer[0].state, NULL);
+      serialpoke_senddata(serstate.poke.peer[0].state, NULL);
     }
   }
-  else if (serialpoke_state.peer[0].state == STATE_HANDSHAKE) {
+  else if (serstate.poke.peer[0].state == STATE_HANDSHAKE) {
     // Check if our peers are ready.
     for (i = 1; i <= 3; i++)
       write_ioreg(REG_SIOMULTI0 + i,
-        serialpoke_state.peer[i].state == STATE_HANDSHAKE ? SLAVE_HANDSHAKE : 0xFFFF);
+        serstate.poke.peer[i].state == STATE_HANDSHAKE ? SLAVE_HANDSHAKE : 0xFFFF);
 
     // Move to connection state.
     if (mvalue == MASTER_HANDSHAKE) {
       SRPT_DEBUG_LOG("Master handshake detected, moving to connected mode!\n");
-      serialpoke_state.peer[0].state = STATE_CONNECTED;
-      serialpoke_state.checksum = 0;
-      serialpoke_state.offset = 0;
-      serialpoke_state.hscnt = 0;
+      serstate.poke.peer[0].state = STATE_CONNECTED;
+      serstate.poke.checksum = 0;
+      serstate.poke.offset = 0;
+      serstate.poke.hscnt = 0;
       for (i = 1; i <= 3; i++)
-        serialpoke_state.peer[i].count = 0;    // Drop data packets
+        serstate.poke.peer[i].count = 0;    // Drop data packets
     }
 
     // Keeps sending updates really.
-    serialpoke_senddata(serialpoke_state.peer[0].state, NULL);
+    serialpoke_senddata(serstate.poke.peer[0].state, NULL);
   } else {
     // Detect if we are trying to re-start a handshake, a bit rough.
     if (mvalue != SLAVE_HANDSHAKE)
-      serialpoke_state.hscnt = 0;
+      serstate.poke.hscnt = 0;
     else {
-      if (++serialpoke_state.hscnt > SEQ_HANDSHAKE_TOKENS) {
+      if (++serstate.poke.hscnt > SEQ_HANDSHAKE_TOKENS) {
         SRPT_DEBUG_LOG("Detected handshake, switching state!\n");
-        serialpoke_state.peer[0].state = STATE_HANDSHAKE;
+        serstate.poke.peer[0].state = STATE_HANDSHAKE;
         return;
       }
     }
 
     // 1 checksum word, then 8 data words.
-    if (serialpoke_state.offset == 0) {
+    if (serstate.poke.offset == 0) {
       for (i = 1; i <= 3; i++) {
-        write_ioreg(REG_SIOMULTI0 + i, serialpoke_state.checksum);
+        write_ioreg(REG_SIOMULTI0 + i, serstate.poke.checksum);
         // Check whether there's a packet ready to be transferred.
-        serialpoke_state.peer[i].recvd = serialpoke_state.peer[i].count > 0;
+        serstate.poke.peer[i].recvd = serstate.poke.peer[i].count > 0;
       }
-      serialpoke_state.offset++;
-      serialpoke_state.checksum = 0;
+      serstate.poke.offset++;
+      serstate.poke.checksum = 0;
     }
     else {
-      serialpoke_state.peer[0].data[0][serialpoke_state.offset-1] = mvalue;
-      serialpoke_state.checksum += mvalue;
+      serstate.poke.peer[0].data[0][serstate.poke.offset-1] = mvalue;
+      serstate.poke.checksum += mvalue;
 
       for (i = 1; i <= 3; i++) {
-        if (serialpoke_state.peer[i].recvd) {
-          u16 w = serialpoke_state.peer[i].data[0][serialpoke_state.offset-1];
-          serialpoke_state.checksum += w;
+        if (serstate.poke.peer[i].recvd) {
+          u16 w = serstate.poke.peer[i].data[0][serstate.poke.offset-1];
+          serstate.poke.checksum += w;
           write_ioreg(REG_SIOMULTI0 + i, w);
         }
         else
           write_ioreg(REG_SIOMULTI0 + i, 0);
       }
 
-      if (serialpoke_state.offset++ >= 8) {
+      if (serstate.poke.offset++ >= 8) {
         // Send packet data
-        if (ismemzero(serialpoke_state.peer[0].data[0], sizeof(serialpoke_state.peer[0].data[0]))) {
+        if (ismemzero(serstate.poke.peer[0].data[0], sizeof(serstate.poke.peer[0].data[0]))) {
           SRPT_DEBUG_LOG("Skip empty frame, just sending status instead.\n");
           serialpoke_senddata(STATE_CONNECTED, NULL);
         } else {
           SRPT_DEBUG_LOG("Sending packet as master [%04x, %04x, ...]\n",
-                         serialpoke_state.peer[0].data[0][0], serialpoke_state.peer[0].data[0][1]);
-          serialpoke_senddata(STATE_CONNECTED, serialpoke_state.peer[0].data[0]);
+                         serstate.poke.peer[0].data[0][0], serstate.poke.peer[0].data[0][1]);
+          serialpoke_senddata(STATE_CONNECTED, serstate.poke.peer[0].data[0]);
         }
 
-        serialpoke_state.offset = 0;
+        serstate.poke.offset = 0;
         // Consume data packet.
         for (i = 1; i <= 3; i++) {
-          if (serialpoke_state.peer[i].recvd) {
-            if (--serialpoke_state.peer[i].count) {
-              memmove(serialpoke_state.peer[i].data[0],
-                      serialpoke_state.peer[i].data[1],
-                      serialpoke_state.peer[i].count * 8 * sizeof(uint16_t));
+          if (serstate.poke.peer[i].recvd) {
+            if (--serstate.poke.peer[i].count) {
+              memmove(serstate.poke.peer[i].data[0],
+                      serstate.poke.peer[i].data[1],
+                      serstate.poke.peer[i].count * 8 * sizeof(uint16_t));
             }
           }
         }
@@ -214,126 +244,126 @@ void serialpoke_frame_update(void) {
   u32 i;
   for (i = 0; i <= 3; i++) {
     if (i != netplay_client_id)
-      if (serialpoke_state.peer[i].timeout++ >= MAX_FRAME_TIMEOUT)
-        memset(&serialpoke_state.peer[i], 0, sizeof(serialpoke_state.peer[i]));
+      if (serstate.poke.peer[i].timeout++ >= MAX_FRAME_TIMEOUT)
+        memset(&serstate.poke.peer[i], 0, sizeof(serstate.poke.peer[i]));
   }
 }
 
 bool serialpoke_update(unsigned cycles) {
   u32 i;
-  serialpoke_state.frcnt += cycles;
+  serstate.poke.frcnt += cycles;
 
   // During handshake we tipically receive one serial transaction per frame.
   // During connection it's ~9 per frame.
-  const u32 ev_cycles = (serialpoke_state.peer[0].state == STATE_CONNECTED) ?
+  const u32 ev_cycles = (serstate.poke.peer[0].state == STATE_CONNECTED) ?
                         SLAVE_IRQ_CYCLES_C : SLAVE_IRQ_CYCLES_H;
 
   // Raise an IRQ periodically to pretend there's a master.
-  if (netplay_client_id && serialpoke_state.frcnt > ev_cycles) {
-    serialpoke_state.frcnt = 0;
+  if (netplay_client_id && serstate.poke.frcnt > ev_cycles) {
+    serstate.poke.frcnt = 0;
 
     // We simply copy the send register to our reception register for consistency.
     write_ioreg(REG_SIOMULTI0 + netplay_client_id, read_ioreg(REG_SIOMLT_SEND));
 
     // Check which state the master is in and try to act accordingly.
-    if (serialpoke_state.peer[0].state == STATE_PREINIT)
+    if (serstate.poke.peer[0].state == STATE_PREINIT)
       return false; // Does nothing, no data will be sent.
 
-    else if (serialpoke_state.peer[0].state == STATE_HANDSHAKE) {
+    else if (serstate.poke.peer[0].state == STATE_HANDSHAKE) {
       // Move the client to the PREINIT state, then to HANDSHAKE if it replies correctly.
-      serialpoke_state.peer[netplay_client_id].state = STATE_PREINIT;
+      serstate.poke.peer[netplay_client_id].state = STATE_PREINIT;
       // Check if the client wants to send a handshake.
       if (read_ioreg(REG_SIOMLT_SEND) == SLAVE_HANDSHAKE)
         // Move the HANDSHAKE state!
-        serialpoke_state.peer[netplay_client_id].state = STATE_HANDSHAKE;
+        serstate.poke.peer[netplay_client_id].state = STATE_HANDSHAKE;
 
       // Emulate other values (either handshake or zero should do it).
       for (i = 0; i <= 3; i++)
         if (i != netplay_client_id)
           write_ioreg(REG_SIOMULTI0 + i,
-            serialpoke_state.peer[i].state == STATE_HANDSHAKE ? SLAVE_HANDSHAKE : 0xFFFF);
+            serstate.poke.peer[i].state == STATE_HANDSHAKE ? SLAVE_HANDSHAKE : 0xFFFF);
 
       // Simply send updates periodically to inform about our state.
-      serialpoke_senddata(serialpoke_state.peer[netplay_client_id].state, NULL);
+      serialpoke_senddata(serstate.poke.peer[netplay_client_id].state, NULL);
       return true;
     }
     else {
       // Connected mode, if we are still in handshake, simulate a MASTER sync
-      if (serialpoke_state.peer[netplay_client_id].state == STATE_HANDSHAKE) {
+      if (serstate.poke.peer[netplay_client_id].state == STATE_HANDSHAKE) {
         SRPT_DEBUG_LOG("Triggering IRQ for master handshake (handshake->connected).\n");
-        serialpoke_state.peer[netplay_client_id].state = STATE_CONNECTED;
-        serialpoke_state.checksum = 0;
-        serialpoke_state.offset = 0;
-        serialpoke_state.hscnt = 0;
+        serstate.poke.peer[netplay_client_id].state = STATE_CONNECTED;
+        serstate.poke.checksum = 0;
+        serstate.poke.offset = 0;
+        serstate.poke.hscnt = 0;
 
         write_ioreg(REG_SIOMULTI0, MASTER_HANDSHAKE);
         for (i = 1; i <= 3; i++)
           if (i != netplay_client_id)
             write_ioreg(REG_SIOMULTI0 + i,
-              serialpoke_state.peer[i].state == STATE_HANDSHAKE ? SLAVE_HANDSHAKE : 0xFFFF);
+              serstate.poke.peer[i].state == STATE_HANDSHAKE ? SLAVE_HANDSHAKE : 0xFFFF);
 
-        serialpoke_senddata(serialpoke_state.peer[netplay_client_id].state, NULL);
+        serialpoke_senddata(serstate.poke.peer[netplay_client_id].state, NULL);
         return true;
       }
-      else if (serialpoke_state.peer[netplay_client_id].state == STATE_CONNECTED) {
+      else if (serstate.poke.peer[netplay_client_id].state == STATE_CONNECTED) {
         u16 nw = read_ioreg(REG_SIOMLT_SEND);
 
         if (nw != SLAVE_HANDSHAKE)
-          serialpoke_state.hscnt = 0;
+          serstate.poke.hscnt = 0;
         else {
-          if (++serialpoke_state.hscnt > SEQ_HANDSHAKE_TOKENS) {
+          if (++serstate.poke.hscnt > SEQ_HANDSHAKE_TOKENS) {
             SRPT_DEBUG_LOG("Detected handshake, switching state!\n");
-            serialpoke_state.peer[netplay_client_id].state = STATE_HANDSHAKE;
+            serstate.poke.peer[netplay_client_id].state = STATE_HANDSHAKE;
             return false;
           }
         }
 
-        if (serialpoke_state.offset == 0) {
+        if (serstate.poke.offset == 0) {
           for (i = 0; i <= 3; i++) {
             if (i == netplay_client_id)
-              serialpoke_state.peer[i].count = 1;
+              serstate.poke.peer[i].count = 1;
 
-            write_ioreg(REG_SIOMULTI0 + i, serialpoke_state.checksum);
+            write_ioreg(REG_SIOMULTI0 + i, serstate.poke.checksum);
             // Check whether there's a packet ready to be transferred.
-            serialpoke_state.peer[i].recvd = serialpoke_state.peer[i].count > 0;
-            SRPT_DEBUG_LOG("Client %d has %d pending packets\n", i, serialpoke_state.peer[i].count);
+            serstate.poke.peer[i].recvd = serstate.poke.peer[i].count > 0;
+            SRPT_DEBUG_LOG("Client %d has %d pending packets\n", i, serstate.poke.peer[i].count);
           }
-          serialpoke_state.checksum = 0;
-          serialpoke_state.offset++;
+          serstate.poke.checksum = 0;
+          serstate.poke.offset++;
         }
         else {
-          serialpoke_state.peer[netplay_client_id].data[0][serialpoke_state.offset-1] = nw;
+          serstate.poke.peer[netplay_client_id].data[0][serstate.poke.offset-1] = nw;
 
           for (i = 0; i <= 3; i++) {
-            if (serialpoke_state.peer[i].recvd) {
-              u16 w = serialpoke_state.peer[i].data[0][serialpoke_state.offset-1];
+            if (serstate.poke.peer[i].recvd) {
+              u16 w = serstate.poke.peer[i].data[0][serstate.poke.offset-1];
               write_ioreg(REG_SIOMULTI0 + i, w);
-              serialpoke_state.checksum += w;
+              serstate.poke.checksum += w;
             }
             else
               write_ioreg(REG_SIOMULTI0 + i, 0);
           }
 
-          if (serialpoke_state.offset++ >= 8) {
+          if (serstate.poke.offset++ >= 8) {
             // Send packet data
-            if (ismemzero(serialpoke_state.peer[netplay_client_id].data[0],
-                          sizeof(serialpoke_state.peer[netplay_client_id].data[0]))) {
+            if (ismemzero(serstate.poke.peer[netplay_client_id].data[0],
+                          sizeof(serstate.poke.peer[netplay_client_id].data[0]))) {
               SRPT_DEBUG_LOG("Skip empty frame, just sending status instead.\n");
               serialpoke_senddata(STATE_CONNECTED, NULL);
             } else {
               SRPT_DEBUG_LOG("Sending packet as slave [%04x, %04x, ...]\n",
-                             serialpoke_state.peer[netplay_client_id].data[0][0],
-                             serialpoke_state.peer[netplay_client_id].data[0][1]);
-              serialpoke_senddata(STATE_CONNECTED, serialpoke_state.peer[netplay_client_id].data[0]);
+                             serstate.poke.peer[netplay_client_id].data[0][0],
+                             serstate.poke.peer[netplay_client_id].data[0][1]);
+              serialpoke_senddata(STATE_CONNECTED, serstate.poke.peer[netplay_client_id].data[0]);
             }
 
-            serialpoke_state.offset = 0;
+            serstate.poke.offset = 0;
             for (i = 0; i <= 3; i++) {
-              if (serialpoke_state.peer[i].recvd) {
-                if (--serialpoke_state.peer[i].count)
-                  memmove(serialpoke_state.peer[i].data[0],
-                          serialpoke_state.peer[i].data[1],
-                          serialpoke_state.peer[i].count * 8 * sizeof(uint16_t));
+              if (serstate.poke.peer[i].recvd) {
+                if (--serstate.poke.peer[i].count)
+                  memmove(serstate.poke.peer[i].data[0],
+                          serstate.poke.peer[i].data[1],
+                          serstate.poke.peer[i].count * 8 * sizeof(uint16_t));
               }
             }
           }
@@ -347,25 +377,356 @@ bool serialpoke_update(unsigned cycles) {
 
 void serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id) {
   // MPK1 header, sanity checking.
-  u32 i;
-  if (len == 40 && upack32((const u8*)buf) == NET_SERPOKE_HEADER) {
+  if (len == 24 && upack32((const u8*)buf) == NET_SERPOKE_HEADER) {
     const uint32_t *pkt = (uint32_t*)buf;
-    const unsigned count = serialpoke_state.peer[client_id].count;
+    const unsigned count = serstate.poke.peer[client_id].count;
     const u32 flags = netorder32(pkt[1]);
 
-    serialpoke_state.peer[client_id].timeout = 0;
+    serstate.poke.peer[client_id].timeout = 0;
 
-    serialpoke_state.peer[client_id].state = flags & 0xFFFF;
+    serstate.poke.peer[client_id].state = flags & 0xFFFF;
     SRPT_DEBUG_LOG("Received valid packet from client %d (state: %d)\n",
-                   client_id, serialpoke_state.peer[client_id].state);
+                   client_id, serstate.poke.peer[client_id].state);
 
     if ((flags & 0x80000000) && count < MAX_QPACK) {
-      for (i = 0; i < 8; i++)
-        serialpoke_state.peer[client_id].data[count][i] = netorder32(pkt[i+2]);
-      serialpoke_state.peer[client_id].count++;
+      unpack16(serstate.poke.peer[client_id].data[count], &pkt[2], 8);
+      serstate.poke.peer[client_id].count++;
     }
     else if ((flags & 0x80000000)) {
       SRPT_DEBUG_LOG("Packet dropped!\n");
+    }
+  }
+}
+
+// Serial-AdvWrs: emulates (via fakes) the advance-wars serial protocol.
+//
+// The protocol uses some commands and has some packets (variable length)
+
+#define NET_SERADWR_HEADER          0x4d415731   // MAW1 (Multiplayer AdvWar)
+
+#define STATE_PACKETXG        0        // Packet processing mode
+#define STATE_SYNC            1        // Sync mode (waiting for other clients)
+#define STATE_INTERSYNC       2        // Sync transmission mode ("real time" key exchange)
+
+#define PSTATE_COMMANDS       0
+#define PSTATE_PACKET_HDR     1
+#define PSTATE_PACKET_BODY    2
+
+#define SLAVE_IRQ_CYCLES_2P   139264   // Aproximately every 8.3ms, twice per frame.
+
+#define CMD_NONE       0x7FFF
+#define CMD_NOP        0x5FFF
+
+#define CMD_SYNC       (serial_mode == SERIAL_MODE_SERIAL_AW1 ? 0x5678 : 0x9ABC)
+#define PACK_TAIL_SZ   (serial_mode == SERIAL_MODE_SERIAL_AW1 ? 1 : 2)
+
+// #define CMD_SYNC       0x5678  // Advance Wars
+// #define PACK_TAIL_SZ        1
+// #define CMD_SYNC       0x9ABC  // Advance Wars 2
+// #define PACK_TAIL_SZ        2
+
+static void serialaw_senddata(uint16_t cmd, uint8_t state, const uint16_t *packet, size_t wcnt) {
+  uint32_t flags = (cmd << 16) | (state << 8) | wcnt;
+  u32 pkt[2 + 128] = {
+    netorder32(NET_SERADWR_HEADER),  // Header magic
+    netorder32(flags),               // Current device state
+  };
+  pack16(&pkt[2], packet, wcnt);
+
+  netpacket_send(RETRO_NETPACKET_BROADCAST, pkt, 8 + wcnt * 2);
+}
+
+static bool empty_awpeers() {
+  u32 i;
+  for (i = 0; i <= 3; i++)
+    if (i != netplay_client_id)
+      if (serstate.aw.peer[i].count)
+        return false;
+  return true;
+}
+
+static u16 process_awpeer_val(u32 i) {
+  // Send pending or ongoing frames.
+  if (!serstate.aw.peer[i].recvd && serstate.aw.peer[i].count)
+    serstate.aw.peer[i].recvd = 1;     // Start sending next frame
+
+  if (serstate.aw.peer[i].recvd) {
+    // Buffer contains: Packet-Size + payload (cmd, internal-size, word0, word1... wordN-1, wordN)
+
+    const uint16_t numw = serstate.aw.peer[i].data[0];
+    if (serstate.aw.peer[i].recvd >= numw) {
+      u16 ret = serstate.aw.peer[i].data[serstate.aw.peer[i].recvd];
+      serstate.aw.peer[i].recvd = 0;
+      serstate.aw.peer[i].count -= (numw+1);
+      memmove(&serstate.aw.peer[i].data[0], &serstate.aw.peer[i].data[numw+1],
+              serstate.aw.peer[i].count * sizeof(uint16_t));
+      return ret;
+    }
+    else
+      return serstate.aw.peer[i].data[serstate.aw.peer[i].recvd++];
+  }
+
+  return 0;
+}
+
+static u16 process_awpeer(u32 i) {
+  // Send pending or ongoing frames.
+  if (!serstate.aw.peer[i].recvd && serstate.aw.peer[i].count)
+    serstate.aw.peer[i].recvd = 1;     // Start sending next frame
+
+  if (serstate.aw.peer[i].recvd) {
+    // Buffer contains: Packet-Size + payload (cmd, internal-size, word0, word1... wordN-1, wordN)
+
+    const uint16_t numw = serstate.aw.peer[i].data[0];
+    if (serstate.aw.peer[i].recvd > numw) {
+      serstate.aw.peer[i].recvd = 0;
+      serstate.aw.peer[i].count -= (numw+1);
+      memmove(&serstate.aw.peer[i].data[0], &serstate.aw.peer[i].data[numw+1],
+              serstate.aw.peer[i].count * sizeof(uint16_t));
+      return CMD_NONE;
+    }
+    else
+      return serstate.aw.peer[i].data[serstate.aw.peer[i].recvd++];
+  }
+  else
+    return (serstate.aw.peer[0].pstate == PSTATE_COMMANDS &&
+            serstate.aw.peer[i].state == STATE_SYNC) ? CMD_SYNC : CMD_NONE;
+}
+
+void serialaw_master_send(void) {
+  u32 i;
+  u16 mvalue = read_ioreg(REG_SIOMLT_SEND);
+
+  write_ioreg(REG_SIOMULTI0, mvalue);   // echo sent value
+
+  if (serstate.aw.peer[0].state == STATE_SYNC) {
+    if (mvalue == CMD_NONE)
+      serstate.aw.peer[0].state = STATE_PACKETXG;
+    else {
+      // We wait for all other peers to be in SYNC state, return dummy words otherwise
+      for (i = 1; i <= 3; i++)
+        write_ioreg(REG_SIOMULTI0 + i, serstate.aw.peer[i].state >= STATE_SYNC ? CMD_SYNC : CMD_NONE);
+
+      if (mvalue != CMD_SYNC && mvalue != CMD_NOP) {
+        serstate.aw.peer[0].state = STATE_INTERSYNC;
+        serstate.aw.peer[0].count = 0;
+        SRPT_DEBUG_LOG("Changing to INTERSYNC state\n");
+      }
+
+      serialaw_senddata(0, serstate.aw.peer[0].state, NULL, 0);
+    }
+  } else if (serstate.aw.peer[0].state == STATE_INTERSYNC) {
+    if (mvalue >= 0x8000 && mvalue <= 0x9F00) {
+      for (i = 1; i <= 3; i++)
+        write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (mvalue & 0xFF00));
+      if (mvalue & 0xFF)
+        serstate.aw.peer[0].data[serstate.aw.peer[0].count++] = mvalue;
+      else {
+        serialaw_senddata(serstate.aw.lastcmd, STATE_INTERSYNC, serstate.aw.peer[0].data, serstate.aw.peer[0].count);
+        serstate.aw.peer[0].count = 0;
+      }
+      serstate.aw.lastcmd = mvalue;
+    }
+    else if (mvalue == CMD_NOP) {
+      for (i = 1; i <= 3; i++)
+        write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (serstate.aw.lastcmd & 0xFF00));
+    }
+    else if (mvalue != CMD_NOP)
+      serstate.aw.peer[0].state = STATE_PACKETXG;
+  } else {
+    if (serstate.aw.peer[0].pstate == PSTATE_COMMANDS) {
+      if ((mvalue >> 8) == 0x4f)
+        serstate.aw.peer[0].pstate = PSTATE_PACKET_HDR;
+      else if (mvalue == CMD_SYNC && empty_awpeers()) {
+        serstate.aw.peer[0].state = STATE_SYNC;
+        SRPT_DEBUG_LOG("Moving to SYNC state\n");
+      }
+      else {
+        SRPT_DEBUG_LOG("Sending update as master %04x\n", mvalue);
+        serialaw_senddata(mvalue, STATE_PACKETXG, NULL, 0);
+      }
+    }
+    else if (serstate.aw.peer[0].pstate == PSTATE_PACKET_HDR) {
+      // Receives the first word, contains the packet size.
+      serstate.aw.peer[0].data[0] = mvalue & 0xFF;
+      serstate.aw.peer[0].count = 1;
+      serstate.aw.peer[0].pstate = PSTATE_PACKET_BODY;
+    }
+    else {
+      // We send the N+2 words (not sure why 2 extra words are sent though).
+      unsigned pktlen = serstate.aw.peer[0].data[0] + PACK_TAIL_SZ;
+      serstate.aw.peer[0].data[serstate.aw.peer[0].count++] = mvalue;
+      if (serstate.aw.peer[0].count == pktlen + 1) {
+        // Full packet received, send it to the clients.
+        serstate.aw.peer[0].pstate = PSTATE_COMMANDS;
+        serialaw_senddata(0x4fff, STATE_PACKETXG, serstate.aw.peer[0].data, serstate.aw.peer[0].count);
+        SRPT_DEBUG_LOG("Sending packet as master [%04x, %04x, %04x, %04x, ...] %d words\n",
+                       serstate.aw.peer[0].data[0], serstate.aw.peer[0].data[1],
+                       serstate.aw.peer[0].data[2], serstate.aw.peer[0].data[3], serstate.aw.peer[0].count);
+      }
+    }
+
+    for (i = 1; i <= 3; i++)
+      write_ioreg(REG_SIOMULTI0 + i, process_awpeer(i));
+  }
+
+  serstate.aw.lastcmd = mvalue;
+
+  SRPT_DEBUG_LOG("Return words %04x %04x %04x %04x\n",
+    read_ioreg(REG_SIOMULTI0), read_ioreg(REG_SIOMULTI1),
+    read_ioreg(REG_SIOMULTI2), read_ioreg(REG_SIOMULTI3));
+}
+
+bool serialaw_update(unsigned cycles) {
+  u32 i;
+  serstate.aw.frcnt += cycles;
+
+  // During sync it's one per frame, otherwise ~2 per frame.
+  const u32 ev_cycles = (serstate.aw.peer[netplay_client_id].state >= STATE_SYNC) ?
+                        SLAVE_IRQ_CYCLES_H : SLAVE_IRQ_CYCLES_2P;
+
+  // Raise an IRQ periodically to pretend there's a master.
+  if (netplay_client_id && serstate.aw.frcnt > ev_cycles) {
+    u16 mdata = read_ioreg(REG_SIOMLT_SEND);
+    serstate.aw.frcnt = 0;
+
+    // We simply copy the send register to our reception register for consistency.
+    write_ioreg(REG_SIOMULTI0 + netplay_client_id, mdata);
+
+    if (serstate.aw.peer[netplay_client_id].state == STATE_SYNC) {
+      if (mdata == CMD_NONE)
+        serstate.aw.peer[netplay_client_id].state = STATE_PACKETXG;
+      else {
+        // We wait for all other peers to be in SYNC state, return dummy words otherwise
+        if (mdata == CMD_SYNC || mdata == CMD_NOP) {
+          for (i = 0; i <= 3; i++)
+            if (i != netplay_client_id)
+              write_ioreg(REG_SIOMULTI0 + i, serstate.aw.peer[i].state >= STATE_SYNC ? CMD_SYNC : CMD_NONE);
+        }
+        else {
+          SRPT_DEBUG_LOG("Changing to INTERSYNC state\n");
+          serstate.aw.peer[netplay_client_id].state = STATE_INTERSYNC;
+          serstate.aw.peer[netplay_client_id].count = 0;
+        }
+        serialaw_senddata(0, serstate.aw.peer[netplay_client_id].state, NULL, 0);
+      }
+    }
+
+    // Re-evaluate state again (in case we moved to another state.
+    if (serstate.aw.peer[netplay_client_id].state == STATE_INTERSYNC) {
+      if (mdata >= 0x8000 && mdata <= 0x9F00) {
+        for (i = 0; i <= 3; i++)
+          if (i != netplay_client_id)
+            write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (mdata & 0xFF00));
+        if (mdata & 0xFF)
+          serstate.aw.peer[netplay_client_id].data[serstate.aw.peer[netplay_client_id].count++] = mdata;
+        else {
+          serialaw_senddata(serstate.aw.lastcmd, STATE_INTERSYNC,
+                            serstate.aw.peer[netplay_client_id].data, serstate.aw.peer[netplay_client_id].count);
+          serstate.aw.peer[netplay_client_id].count = 0;
+        }
+        serstate.aw.lastcmd = mdata;
+      }
+      else if (mdata == CMD_NOP) {
+        for (i = 0; i <= 3; i++)
+          if (i != netplay_client_id)
+            write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (serstate.aw.lastcmd & 0xFF00));
+      }
+      else
+        serstate.aw.peer[netplay_client_id].state = STATE_PACKETXG;
+
+    }
+    else if (serstate.aw.peer[netplay_client_id].state == STATE_PACKETXG) {
+      if (serstate.aw.peer[netplay_client_id].pstate == PSTATE_COMMANDS) {
+        if ((mdata >> 8) == 0x4f)
+          serstate.aw.peer[netplay_client_id].pstate = PSTATE_PACKET_HDR;
+        else if (mdata == CMD_SYNC && empty_awpeers()) {
+          serstate.aw.peer[netplay_client_id].state = STATE_SYNC;
+          SRPT_DEBUG_LOG("Moving to SYNC state\n");
+        }
+        else {
+          SRPT_DEBUG_LOG("Sending update as client %04x\n", mdata);
+          serialaw_senddata(mdata, STATE_PACKETXG, NULL, 0);
+        }
+      }
+      else if (serstate.aw.peer[netplay_client_id].pstate == PSTATE_PACKET_HDR) {
+        // Receives the first word, contains the packet size.
+        serstate.aw.peer[netplay_client_id].data[0] = mdata & 0xFF;
+        serstate.aw.peer[netplay_client_id].count = 1;
+        serstate.aw.peer[netplay_client_id].pstate = PSTATE_PACKET_BODY;
+      }
+      else {
+        // We send the N+2 words (not sure why 2 extra words are sent though).
+        unsigned pktlen = serstate.aw.peer[netplay_client_id].data[0] + PACK_TAIL_SZ;
+        serstate.aw.peer[netplay_client_id].data[serstate.aw.peer[netplay_client_id].count++] = mdata;
+        if (serstate.aw.peer[netplay_client_id].count == pktlen + 1) {
+          // Full packet received, send it to the clients.
+          serstate.aw.peer[netplay_client_id].pstate = PSTATE_COMMANDS;
+          serialaw_senddata(0x4fff, STATE_PACKETXG, serstate.aw.peer[netplay_client_id].data, serstate.aw.peer[netplay_client_id].count);
+          SRPT_DEBUG_LOG("Sending packet as client [%04x, %04x, %04x, %04x, ...] %d words\n",
+                         serstate.aw.peer[netplay_client_id].data[0], serstate.aw.peer[netplay_client_id].data[1],
+                         serstate.aw.peer[netplay_client_id].data[2], serstate.aw.peer[netplay_client_id].data[3],
+                         serstate.aw.peer[netplay_client_id].count);
+
+        }
+      }
+
+      for (i = 0; i <= 3; i++)
+        if (i != netplay_client_id)
+          write_ioreg(REG_SIOMULTI0 + i, process_awpeer(i));
+    }
+
+    SRPT_DEBUG_LOG("Fake receive serial %04x %04x %04x %04x\n",
+      read_ioreg(REG_SIOMULTI0), read_ioreg(REG_SIOMULTI1),
+      read_ioreg(REG_SIOMULTI2), read_ioreg(REG_SIOMULTI3));
+
+    return true;
+  }
+
+  return false;
+}
+
+void serialaw_net_receive(const void* buf, size_t len, uint16_t client_id) {
+  // MAW1 header, sanity checking.
+  if (len >= 8 && upack32((const u8*)buf) == NET_SERADWR_HEADER) {
+    const uint32_t *pkt = (uint32_t*)buf;
+    const u32 flags = netorder32(pkt[1]);
+    const u16 cmd = flags >> 16;
+    const u16 ste = (flags >> 8) & 0xff;    // Peer state.
+    const u16 cnt = flags & 0x00ff;         // Number of words to follow.
+
+    serstate.aw.peer[client_id].timeout = 0;
+    serstate.aw.peer[client_id].state = ste;
+
+    SRPT_DEBUG_LOG("Got packet with state %d cmd %04x and size %d.\n", ste, cmd, cnt);
+
+    if (ste == STATE_INTERSYNC) {
+      if (cnt >= 2 && len == cnt * 2 + 8) {
+        if (serstate.aw.peer[client_id].count + cnt + 1 < MAX_FPACK) {
+          serstate.aw.peer[client_id].data[serstate.aw.peer[client_id].count++] = cnt;
+          unpack16(&serstate.aw.peer[client_id].data[serstate.aw.peer[client_id].count], &pkt[2], cnt);
+          serstate.aw.peer[client_id].count += cnt;
+
+          SRPT_DEBUG_LOG("Received valid sync command client %d: %04x\n", client_id, cmd);
+        }
+      }
+    }
+    else if (ste == STATE_PACKETXG) {
+      if (cnt >= 2 && len == cnt * 2 + 8) {
+        if (serstate.aw.peer[client_id].count + cnt + 2 < MAX_FPACK) {
+          // We insert this in the queue, adding a header for length.
+          // Also the command value (should be 0x4FFF) is inserted too.
+          serstate.aw.peer[client_id].data[serstate.aw.peer[client_id].count++] = cnt + 1;  // Packet + command
+          serstate.aw.peer[client_id].data[serstate.aw.peer[client_id].count++] = cmd;
+          unpack16(&serstate.aw.peer[client_id].data[serstate.aw.peer[client_id].count], &pkt[2], cnt);
+          serstate.aw.peer[client_id].count += cnt;
+
+          SRPT_DEBUG_LOG("Received valid packet from client %d (with %d words)\n",
+                         client_id, cnt);
+        }
+        else
+          SRPT_DEBUG_LOG("Packet dropped!\n");
+      }
     }
   }
 }

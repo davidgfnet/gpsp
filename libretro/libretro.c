@@ -463,6 +463,10 @@ static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
   case SERIAL_MODE_SERIAL_POKE:
     serialpoke_net_receive(buf, len, client_id);
     break;
+  case SERIAL_MODE_SERIAL_AW1:
+  case SERIAL_MODE_SERIAL_AW2:
+    serialaw_net_receive(buf, len, client_id);
+    break;
   };
 }
 
@@ -470,9 +474,11 @@ static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
 static bool netpacket_connected(uint16_t client_id) {
   const uint8_t maxpl[] = {
      0,                        // SERIAL_MODE_DISABLED
-     MAX_RFU_NETPLAYERS,       // SERIAL_MODE_RFU
      0,                        // SERIAL_MODE_GBP
+     MAX_RFU_NETPLAYERS,       // SERIAL_MODE_RFU
      MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_POKE
+     MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_AW1
+     MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_AW2
      0,                        // SERIAL_MODE_AUTO
   };
   const u32 max_clients = maxpl[serial_mode] - 1U;
@@ -901,6 +907,10 @@ static void check_variables(bool started_from_load)
            serial_setting = SERIAL_MODE_RFU;
         else if (!strcmp(var.value, "mul_poke"))
            serial_setting = SERIAL_MODE_SERIAL_POKE;
+        else if (!strcmp(var.value, "mul_aw1"))
+           serial_setting = SERIAL_MODE_SERIAL_AW1;
+        else if (!strcmp(var.value, "mul_aw2"))
+           serial_setting = SERIAL_MODE_SERIAL_AW2;
         else if (!strcmp(var.value, "gbp"))
            serial_setting = SERIAL_MODE_GBP;
         else

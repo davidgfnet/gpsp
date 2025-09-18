@@ -18,10 +18,12 @@
  */
 
 #define SERIAL_MODE_DISABLED      0
-#define SERIAL_MODE_RFU           1  // Wifi Adapter
-#define SERIAL_MODE_GBP           2  // Connected to the GB Player
+#define SERIAL_MODE_GBP           1  // Connected to the GB Player
+#define SERIAL_MODE_RFU           2  // Wifi Adapter
 #define SERIAL_MODE_SERIAL_POKE   3  // Connected to serial cable (Pokemon emulation mode)
-#define SERIAL_MODE_AUTO          4  // Choose best fit automatically
+#define SERIAL_MODE_SERIAL_AW1    4  // Connected to serial cable (AdvWars emulation mode)
+#define SERIAL_MODE_SERIAL_AW2    5  // Connected to serial cable (AdvWars emulation mode)
+#define SERIAL_MODE_AUTO          6  // Choose best fit automatically
 
 extern int serial_mode;
 
@@ -41,11 +43,17 @@ void rfu_frame_update(void);
 void rfu_net_receive(const void* buf, size_t len, uint16_t client_id);
 
 // Serial implementations
-void serialpoke_reset(void);
+void serialproto_reset(void);
+
 void serialpoke_frame_update(void);
 void serialpoke_master_send(void);
-void serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id);
 bool serialpoke_update(unsigned cycles);
+void serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id);
+
+void serialaw_frame_update(void);
+void serialaw_master_send(void);
+bool serialaw_update(unsigned cycles);
+void serialaw_net_receive(const void* buf, size_t len, uint16_t client_id);
 
 // GBP interface
 u32 gbp_transfer(u32 value);

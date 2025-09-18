@@ -1549,13 +1549,19 @@ typedef struct
    u32 translation_gate_target_3;
 } ini_t;
 
-#define FLAGS_FLASH_128KB    0x0001   // Forces 128KB flash.
-#define FLAGS_RUMBLE         0x0002   // Enables GPIO3 rumble support.
-#define FLAGS_GBA_PLAYER     0x0004   // Enables GBA Player rumble support.
-#define FLAGS_RTC            0x0008   // Enables RTC support by default.
-#define FLAGS_EEPROM         0x0010   // Forces EEPROM storage.
-#define FLAGS_RFU            0x0020   // Enables Wireless Adapter (via serial).
-#define FLAGS_SERIAL_POKE    0x0040   // Serial link cable (emulation mode).
+#define FLAGS_FLASH_128KB    0x0100   // Forces 128KB flash.
+#define FLAGS_RUMBLE         0x0200   // Enables GPIO3 rumble support.
+#define FLAGS_RTC            0x0400   // Enables RTC support by default.
+#define FLAGS_EEPROM         0x0800   // Forces EEPROM storage.
+
+#define FLAGS_SERIAL         0x8000   // Configure a serial mode by default.
+#define FLAGS_SERIAL_MASK    0x00FF
+
+#define FLAGS_GBA_PLAYER     0x0000   // Enables GBA Player rumble support.
+#define FLAGS_RFU            0x0001   // Enables Wireless Adapter (via serial).
+#define FLAGS_SERIAL_POKE    0x0002   // Serial link cable (emulation mode).
+#define FLAGS_SERIAL_AW1     0x0003
+#define FLAGS_SERIAL_AW2     0x0004
 
 #include "gba_over.h"
 
@@ -1587,13 +1593,10 @@ static void load_game_config_over(const char *gamecode)
      if (gbaover[i].flags & FLAGS_EEPROM)
        backup_type_reset = BACKUP_EEPROM;
 
-     if (serial_mode == SERIAL_MODE_AUTO) {
-       if (gbaover[i].flags & FLAGS_RFU)
-         serial_mode = SERIAL_MODE_RFU;
-       if (gbaover[i].flags & FLAGS_GBA_PLAYER)
-         serial_mode = SERIAL_MODE_GBP;
-       if (gbaover[i].flags & FLAGS_SERIAL_POKE)
-         serial_mode = SERIAL_MODE_SERIAL_POKE;
+     if (serial_mode == SERIAL_MODE_AUTO && (gbaover[i].flags & FLAGS_SERIAL))
+     {
+       u32 m = gbaover[i].flags & FLAGS_SERIAL_MASK;
+       serial_mode = m + 1;   // Maintain the serial mode list consistently.
      }
 
      if (gbaover[i].translation_gate_target_1 != 0)

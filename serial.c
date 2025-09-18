@@ -83,7 +83,7 @@ cpu_alert_type write_rcnt(u16 value) {
 
   case SERIAL_MODE_MULTI:
     if (pvmode != nwmode)
-      serialpoke_reset();   // Reset multiplayer emulation states.
+      serialproto_reset();   // Reset multiplayer emulation states.
 
     // Update SI/SD/ID/Error fields
     write_ioreg(REG_SIOCNT, (read_ioreg(REG_SIOCNT) & 0xFF83) | serial_mul_siocnt());
@@ -154,7 +154,7 @@ cpu_alert_type write_siocnt(u16 value) {
 
   case SERIAL_MODE_MULTI:
     if (pvmode != nwmode)
-      serialpoke_reset();   // Reset multiplayer emulation states.
+      serialproto_reset();   // Reset multiplayer emulation states.
 
     // Update SI/SD/ID/Error fields
     newval = (newval & 0xFF83) | serial_mul_siocnt();
@@ -168,6 +168,8 @@ cpu_alert_type write_siocnt(u16 value) {
 
       if (serial_mode == SERIAL_MODE_SERIAL_POKE)
         serialpoke_master_send();
+      else if (serial_mode == SERIAL_MODE_SERIAL_AW1 || serial_mode == SERIAL_MODE_SERIAL_AW2)
+        serialaw_master_send();
     }
 
     break;
@@ -196,6 +198,11 @@ bool update_serial(unsigned cycles) {
     break;
   case SERIAL_MODE_SERIAL_POKE:
     if (serialpoke_update(cycles))
+      return true;
+    break;
+  case SERIAL_MODE_SERIAL_AW1:
+  case SERIAL_MODE_SERIAL_AW2:
+    if (serialaw_update(cycles))
       return true;
     break;
   };

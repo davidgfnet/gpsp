@@ -925,7 +925,7 @@ u32 supercard_readreg_read_hi() {
   else if (type == 32 && supercard_sdcard && ((address & 0x1FFFF00) == 0x1100000 || (address & 0x1FFFF00) == 0x1000000) )    \
     { value = supercard_readreg_read(); value |= (supercard_readreg_read() << 16);  }                \
   else if (supercard_sdcard && ((address & 0x1FFFFFF) >= 0x1000000 ) )    \
-    { value = 0xDEADBEEF;  /* Simulate unmapping of the HI mem */  }                \
+    { value = 0xDEADDA7A;  /* Simulate unmapping of the HI mem */  }                \
   else {                                                                             \
     if(!map)                                                                    \
       map = load_gamepak_page(gamepak_index & 0x3FF);                           \
@@ -1070,6 +1070,7 @@ u32 function_cc read_eeprom(void)
       else                                                                    \
       {                                                                       \
         read_memory_gamepak(type);                                            \
+/*    printf("Read gamepak %x : %x type %d\n", address, value, type);*/  \
       }                                                                       \
       break;                                                                  \
                                                                               \
@@ -1799,7 +1800,7 @@ void function_cc write_gpio(u32 address, u32 value) {
     supercard_mode(value);                                                    \
   if (supercard_we && (address >> 24) >= 0x8 && (address >> 24) <= 0xC) {     \
     u32 addr = (address) & 0x7FFFFFF & (~((type)/8-1));                        \
-    /*printf("Write to ROM %x : %x type %d\n", addr, value, type);*/ \
+    /*printf("Write to ROM %x : %x type %d\n", addr, value, type);*/  \
     if (gamepak_map_sdram) {                                                  \
       u8 *rombuf = memory_map_read[address >> 15];                            \
       if (type == 8) {                                                        \

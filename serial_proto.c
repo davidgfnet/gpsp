@@ -518,8 +518,8 @@ void serialaw_master_send(void) {
   } else if (serstate.aw.peer[0].state == STATE_INTERSYNC) {
     if (mvalue >= 0x8000 && mvalue <= 0x9F00) {
       for (i = 1; i <= 3; i++)
-        write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (mvalue & 0xFF00));
-      if (mvalue & 0xFF)
+        write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (mvalue & 0xFC00));
+      if (mvalue & 0x3FF)
         serstate.aw.peer[0].data[serstate.aw.peer[0].count++] = mvalue;
       else {
         serialaw_senddata(serstate.aw.lastcmd, STATE_INTERSYNC, serstate.aw.peer[0].data, serstate.aw.peer[0].count);
@@ -529,7 +529,7 @@ void serialaw_master_send(void) {
     }
     else if (mvalue == CMD_NOP) {
       for (i = 1; i <= 3; i++)
-        write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (serstate.aw.lastcmd & 0xFF00));
+        write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (serstate.aw.lastcmd & 0xFC00));
     }
     else if (mvalue != CMD_NOP)
       serstate.aw.peer[0].state = STATE_PACKETXG;
@@ -617,8 +617,8 @@ bool serialaw_update(unsigned cycles) {
       if (mdata >= 0x8000 && mdata <= 0x9F00) {
         for (i = 0; i <= 3; i++)
           if (i != netplay_client_id)
-            write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (mdata & 0xFF00));
-        if (mdata & 0xFF)
+            write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (mdata & 0xFC00));
+        if (mdata & 0x3FF)
           serstate.aw.peer[netplay_client_id].data[serstate.aw.peer[netplay_client_id].count++] = mdata;
         else {
           serialaw_senddata(serstate.aw.lastcmd, STATE_INTERSYNC,
@@ -630,7 +630,7 @@ bool serialaw_update(unsigned cycles) {
       else if (mdata == CMD_NOP) {
         for (i = 0; i <= 3; i++)
           if (i != netplay_client_id)
-            write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (serstate.aw.lastcmd & 0xFF00));
+            write_ioreg(REG_SIOMULTI0 + i, process_awpeer_val(i) ?: (serstate.aw.lastcmd & 0xFC00));
       }
       else
         serstate.aw.peer[netplay_client_id].state = STATE_PACKETXG;

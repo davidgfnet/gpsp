@@ -39,17 +39,11 @@
 
 void netpacket_send(uint16_t client_id, const void *buf, size_t len);
 
-// Unpacks big endian integers used for signaling
-static inline u32 upack32(const u8 *ptr) {
-  return ptr[3] | (ptr[2] << 8) | (ptr[1] << 16) | (ptr[0] << 24);
-}
-
 static void pack16(u32 *buf, const u16 *data, size_t wcnt) {
   u32 i;
   for (i = 0; i < (wcnt+1)/2; i++)
     buf[i] = netorder32((data[i*2] << 16) | (data[i*2+1]));
 }
-
 static void unpack16(u16 *buf, const u32 *data, size_t wcnt) {
   u32 i;
   for (i = 0; i < wcnt; i++)
@@ -377,8 +371,8 @@ bool serialpoke_update(unsigned cycles) {
 
 void serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id) {
   // MPK1 header, sanity checking.
-  if (len == 24 && upack32((const u8*)buf) == NET_SERPOKE_HEADER) {
-    const uint32_t *pkt = (uint32_t*)buf;
+  const uint32_t *pkt = (uint32_t*)buf;
+  if (len == 24 && netorder32(pkt[0]) == NET_SERPOKE_HEADER) {
     const unsigned count = serstate.poke.peer[client_id].count;
     const u32 flags = netorder32(pkt[1]);
 
@@ -401,6 +395,7 @@ void serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id) {
 // Serial-AdvWrs: emulates (via fakes) the advance-wars serial protocol.
 //
 // The protocol uses some commands and has some packets (variable length)
+// Tricky phase is the intersync phase where real keystrokes are sent.
 
 #define NET_SERADWR_HEADER          0x4d415731   // MAW1 (Multiplayer AdvWar)
 
@@ -419,11 +414,6 @@ void serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id) {
 
 #define CMD_SYNC       (serial_mode == SERIAL_MODE_SERIAL_AW1 ? 0x5678 : 0x9ABC)
 #define PACK_TAIL_SZ   (serial_mode == SERIAL_MODE_SERIAL_AW1 ? 1 : 2)
-
-// #define CMD_SYNC       0x5678  // Advance Wars
-// #define PACK_TAIL_SZ        1
-// #define CMD_SYNC       0x9ABC  // Advance Wars 2
-// #define PACK_TAIL_SZ        2
 
 static void serialaw_senddata(uint16_t cmd, uint8_t state, const uint16_t *packet, size_t wcnt) {
   uint32_t flags = (cmd << 16) | (state << 8) | wcnt;
@@ -688,8 +678,8 @@ bool serialaw_update(unsigned cycles) {
 
 void serialaw_net_receive(const void* buf, size_t len, uint16_t client_id) {
   // MAW1 header, sanity checking.
-  if (len >= 8 && upack32((const u8*)buf) == NET_SERADWR_HEADER) {
-    const uint32_t *pkt = (uint32_t*)buf;
+  const uint32_t *pkt = (uint32_t*)buf;
+  if (len >= 8 && netorder32(pkt[0]) == NET_SERADWR_HEADER) {
     const u32 flags = netorder32(pkt[1]);
     const u16 cmd = flags >> 16;
     const u16 ste = (flags >> 8) & 0xff;    // Peer state.

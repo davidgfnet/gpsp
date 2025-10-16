@@ -25,7 +25,7 @@
 #include "common.h"
 #include "streams/file_stream.h"
 
-extern bool supercard_we;
+extern u32 supercard_srambank;
 
 uint8_t *sdcardmap = NULL;
 uint64_t sdcardsize;
@@ -361,7 +361,8 @@ dma_transfer_type dma[4];
 
 //u8 *gamepak_buffers[32];    /* Pointers to malloc'ed blocks */
 u8 gamepak_buffer_SDRAM[32*1024*1024];
-u8 gamepak_buffer_FLASH[32*1024*1024];
+u8 gamepak_buffer_FLASH[128*1024*1024];  // Simulate 128MiB
+u8 gamepak_buffer_flash_mapping[8];
 bool gamepak_map_sdram = false;
 
 
@@ -445,7 +446,7 @@ u8 read_backup(u32 address)
     backup_type = BACKUP_SRAM;
 
   if(backup_type == BACKUP_SRAM)
-    value = gamepak_backup[address + (supercard_we ? 64*1024 : 0)];
+    value = gamepak_backup[address + (supercard_srambank * 64*1024)];
   else if(flash_mode == FLASH_ID_MODE)
   {
     if (flash_bank_cnt == FLASH_SIZE_128KB)
@@ -608,24 +609,189 @@ void remap_gamepak();
 
 bool supercard_we = false;
 bool supercard_sdcard = false;
-u16 modeq[4] = {0};
+u32 supercard_srambank = 0;
+u16 modeq[3] = {0};
 void supercard_mode(u16 data) {
-  for (unsigned i = 0; i < 3; i++)
+  for (unsigned i = 0; i < 2; i++)
     modeq[i] = modeq[i+1];
-  modeq[3] = data;
+  modeq[2] = data;
 
-  if (modeq[0] == 0xA55A && modeq[1] == 0xA55A && modeq[2] == modeq[3]) {
-    supercard_we = data & 0x4;
-    supercard_sdcard = data & 2;
-    // Map flash vs SDRAM
-    gamepak_map_sdram = data & 1;
+  if (modeq[0] == 0xA55A && modeq[1] == 0xA55A) {
+    switch (data >> 8) {
+    case 0:   // Regular supercard mode
+      supercard_we = data & 0x4;
+      supercard_sdcard = data & 2;
+      // Map flash vs SDRAM
+      gamepak_map_sdram = data & 1;
 
-    //printf("Supercard new mode: WE %d SD %d MAP %s\n", supercard_we, supercard_sdcard, 
-    //   gamepak_map_sdram ? "SDRAM" : "FLASH");
-
+      //printf("Supercard new mode: WE %d SD %d MAP %s\n", supercard_we, supercard_sdcard, 
+      //   gamepak_map_sdram ? "SDRAM" : "FLASH");
+      break;
+    case 1:
+      supercard_srambank = data & 1;   // SRAM banking
+      printf("Switch to SRAM bank %d\n", supercard_srambank);
+      break;
+    case 2:
+      // nor mapping reg
+      for (int i = 0; i < 7; i++)
+        gamepak_buffer_flash_mapping[i] = gamepak_buffer_flash_mapping[i+1];
+      gamepak_buffer_flash_mapping[7] = data & 0x1f;
+      printf("Mapping update: %d %d %d %d %d %d %d %d\n",
+        gamepak_buffer_flash_mapping[0],
+        gamepak_buffer_flash_mapping[1],
+        gamepak_buffer_flash_mapping[2],
+        gamepak_buffer_flash_mapping[3],
+        gamepak_buffer_flash_mapping[4],
+        gamepak_buffer_flash_mapping[5],
+        gamepak_buffer_flash_mapping[6],
+        gamepak_buffer_flash_mapping[7]);
+      break;
+    };
+    // Remap stuff to their right address.
     remap_gamepak();
   }
 }
+
+enum FlashState {
+  FlashIdle = 0,
+  FlashCFI,
+  FlashUnlock1,
+  FlashUnlock2,
+  FlashErase1,
+  FlashErase2,
+  FlashErase3,
+  FlashProgram,
+  FlashProgramBufferSize,
+  FlashProgramBuffer,
+  FlashProgramBufferConfirm,
+  FlashID,
+};
+enum FlashState flst = FlashIdle;
+uint32_t flbaddr = 0, flpaddr = 0, flwbsz = 0, flwbof = 0;
+uint16_t flwrbuf[128];
+
+void supercard_flash_write(u32 addr, u16 value) {
+  //printf("Flash write %08x = %04x\n", addr, value);
+
+  if (addr & 1)
+    return;
+  u32 addr16 = addr >> 1;
+
+  if (flst == FlashIdle) {
+    if (addr16 == 0x555 && value == 0xAA)
+      flst = FlashUnlock1;
+    else if (addr16 == 0x555 && value == 0x98)
+      flst = FlashCFI;
+  }
+  else if (flst == FlashUnlock1) {
+    if (addr16 == 0x2AA && value == 0x55)
+      flst = FlashUnlock2;
+    else if (addr16 == 0x555 && value == 0xAA)
+      flst = FlashUnlock1;
+    else
+      flst = FlashIdle;
+  }
+  else if (flst == FlashUnlock2) {
+    if (addr16 == 0x555 && value == 0x90)
+      flst = FlashID;
+    else if (addr16 == 0x555 && value == 0x80)
+      flst = FlashErase1;
+    else if (addr16 == 0x555 && value == 0xA0)
+      flst = FlashProgram;
+    else if (value == 0x25)
+      flst = FlashProgramBufferSize;
+    else
+      flst = FlashIdle;
+  }
+  else if (flst == FlashProgram) {
+    u32 intaddr = 0x08000000 | addr;
+    u8 *rombuf = memory_map_read[intaddr >> 15];
+    address16(rombuf, (intaddr & 0x7FFF)) = eswap16(value);
+    flst = FlashIdle;
+  }
+  else if (flst == FlashProgramBufferSize) {
+    flwbsz = value + 1;
+    flwbof = 0;
+    if (flwbsz > 256 / 2)
+      flst = FlashIdle;
+    else
+      flst = FlashProgramBuffer;
+  }
+  else if (flst == FlashProgramBuffer) {
+    if (!flwbof)
+      flbaddr = flpaddr = addr;
+    else {
+      if (flpaddr+2 != addr)
+        flst = FlashIdle;        // Invalid sequencing! Abort
+      flpaddr = addr;
+    }
+
+    flwrbuf[flwbof++] = value;
+
+    if (flwbof == flwbsz)
+      flst = FlashProgramBufferConfirm;
+  }
+  else if (flst == FlashProgramBufferConfirm) {
+    if (value == 0x29) {
+      printf("Program buffer %08x (%d)\n", flbaddr, flwbsz);
+      // GO ahead and write the buffer to the base addr.
+      for (unsigned i = 0; i < flwbsz; i++) {
+        u32 intaddr = 0x08000000 | (flbaddr + i*2);
+        u8 *rombuf = memory_map_read[intaddr >> 15];
+        address16(rombuf, (intaddr & 0x7FFF)) = flwrbuf[i];
+      }
+    }
+    flst = FlashIdle;
+  }
+  else if (flst == FlashErase1) {
+    if (addr16 == 0x555 && value == 0xAA)
+      flst = FlashErase2;
+    else
+      flst = FlashIdle;
+  }
+  else if (flst == FlashErase2) {
+    if (addr16 == 0x2AA && value == 0x55)
+      flst = FlashErase3;
+    else
+      flst = FlashIdle;
+  }
+  else if (flst == FlashErase3) {
+    if (value == 0x30) {
+      // Round address to the nearest sector
+      addr &= ~0xFFFF;   // 64KiB blocks
+      printf("Erase sector %08x\n", addr);
+      for (unsigned i = 0; i < 64*1024; i++) {
+        u32 intaddr = 0x08000000 | (addr + i);
+        u8 *rombuf = memory_map_read[intaddr >> 15];
+        address8(rombuf, (intaddr & 0x7FFF)) = 0xff;
+      }
+      flst = FlashIdle;
+    }
+    else if (addr16 == 0x555 && value == 0x10) {
+      // Full chip erase, now!
+      memset(gamepak_buffer_FLASH, 0xff, sizeof(gamepak_buffer_FLASH));
+      flst = FlashIdle;
+    }
+    else
+      flst = FlashIdle;
+  }
+  else {
+    flst = FlashIdle;
+  }
+}
+
+const uint16_t flash_cfi[64] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0x51, 0x52, 0x59, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // QRY
+  0, 0, 0, 0, 0, 0, 0,
+  0x1B, 0, 0,
+  0x8, 0x0,  // Multi byte write (256 byte writes)
+  0x1,       // Uniform device
+  0xFF, 0x07,   // Region 1: 2048 blocks
+  0x00, 0x01,   //           256*256 = 64KiB blocks
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // Region 2-3
+  0, 0, 0,
+};
 
 void supercard_cmd_write_16(u16 value) {
   //printf("Write CMD bit %d\n", value);
@@ -926,6 +1092,10 @@ u32 supercard_readreg_read_hi() {
     { value = supercard_readreg_read(); value |= (supercard_readreg_read() << 16);  }                \
   else if (supercard_sdcard && ((address & 0x1FFFFFF) >= 0x1000000 ) )    \
     { value = 0xDEADDA7A;  /* Simulate unmapping of the HI mem */  }                \
+  else if (!gamepak_map_sdram && flst == FlashID)   \
+    value = (address & 2) ? 0xc48d : 0xdead; \
+  else if (!gamepak_map_sdram && flst == FlashCFI)   \
+    value = flash_cfi[(address >> 1) & 63]; \
   else {                                                                             \
     if(!map)                                                                    \
       map = load_gamepak_page(gamepak_index & 0x3FF);                           \
@@ -1495,7 +1665,7 @@ void function_cc write_backup(u32 address, u32 value)
       flash_command_position = 0;
     }
     if(backup_type == BACKUP_SRAM)
-      gamepak_backup[0x5555 + (supercard_we ? 64*1024 : 0)] = value;
+      gamepak_backup[0x5555 + (supercard_srambank * 64*1024)] = value;
   }
   else
 
@@ -1536,7 +1706,7 @@ void function_cc write_backup(u32 address, u32 value)
     if(backup_type == BACKUP_SRAM)
     {
       // Write value to SRAM
-      gamepak_backup[address + (supercard_we ? 64*1024 : 0)] = value;
+      gamepak_backup[address + (supercard_srambank * 64*1024)] = value;
     }
   }
 }
@@ -1798,7 +1968,15 @@ void function_cc write_gpio(u32 address, u32 value) {
 #define write_memory(type)                                                    \
   if (address == 0x09FFFFFE && type == 16)                                    \
     supercard_mode(value);                                                    \
-  if (supercard_we && (address >> 24) >= 0x8 && (address >> 24) <= 0xC) {     \
+  if (supercard_sdcard && ((address >> 24) == 0x9 || (address >> 24) == 0xB)) { \
+    u32 addr = (address) & 0x0FFFFF00;  /* Ignore LSB */                      \
+    switch (addr) {                                                           \
+    case 0x09800000: case 0x0B800000: supercard_cmd_write(type, value); break;       \
+    case 0x09100000: case 0x0B100000: supercard_readreg_write(type, value); break;   \
+    case 0x09000000: case 0x0B000000: supercard_writereg_write(value); break;        \
+    }; \
+  }                                                                           \
+  else if (supercard_we && (address >> 24) >= 0x8 && (address >> 24) <= 0xC) {     \
     u32 addr = (address) & 0x7FFFFFF & (~((type)/8-1));                        \
     /*printf("Write to ROM %x : %x type %d\n", addr, value, type);*/  \
     if (gamepak_map_sdram) {                                                  \
@@ -1809,14 +1987,8 @@ void function_cc write_gpio(u32 address, u32 value) {
         address##type(rombuf, (addr & 0x7FFF)) = eswap##type(value);          \
       }                                                                       \
     } \
-  }                                                                           \
-  if (supercard_sdcard && (address >> 24) >= 0x8 && (address >> 24) <= 0xC) { \
-    u32 addr = (address) & 0x0FFFFF00;  /* Ignore LSB */                      \
-    switch (addr) {                                                           \
-    case 0x09800000: case 0x0B800000: supercard_cmd_write(type, value); break;                       \
-    case 0x09100000: case 0x0B100000: supercard_readreg_write(type, value); break;                   \
-    case 0x09000000: case 0x0B000000: supercard_writereg_write(value); break;                  \
-    }; \
+    else if (type == 16)                                                      \
+      supercard_flash_write(addr, value);                                     \
   }                                                                           \
   switch(address >> 24)                                                       \
   {                                                                           \
@@ -2733,6 +2905,7 @@ void init_memory(void)
   gamepak_map_sdram = false;
   supercard_we = false;
   supercard_sdcard = false;
+  supercard_srambank = 0;
   remap_gamepak();
 }
 
@@ -2933,16 +3106,16 @@ unsigned memory_write_savestate(u8 *dst)
 void remap_gamepak() {
   //printf("Remapping ROM space to %s!\n", gamepak_map_sdram ? "SDRAM" : "FLASH");
 
-  u8 *ptr = gamepak_map_sdram ? gamepak_buffer_SDRAM : gamepak_buffer_FLASH;
+  for (unsigned i = 0; i < 1024; i++ ) {
+     u32 blk4m = i / 128;
+     u32 offset = gamepak_buffer_flash_mapping[blk4m] * 4*1024*1024;
+     u8 *ptr = gamepak_map_sdram ? &gamepak_buffer_SDRAM[blk4m * 4*1024*1024] : &gamepak_buffer_FLASH[offset];
 
-    for (unsigned i = 0; i < 1024; i++ ) {
-       memory_map_read[(0x8000000 / (32 * 1024)) + i] = &ptr[32*1024*i];
-       memory_map_read[(0xA000000 / (32 * 1024)) + i] = &ptr[32*1024*i];
-    }
-    for (unsigned i = 0; i < 512; i++ ) {
-       memory_map_read[(0xC000000 / (32 * 1024)) + i] = &ptr[32*1024*i];
-    }
-
+     memory_map_read[(0x8000000 / (32 * 1024)) + i] = &ptr[32*1024*(i&127)];
+     memory_map_read[(0xA000000 / (32 * 1024)) + i] = &ptr[32*1024*(i&127)];
+     if (i < 512)
+       memory_map_read[(0xC000000 / (32 * 1024)) + i] = &ptr[32*1024*(i&127)];
+  }
 }
 
 static s32 load_gamepak_raw(const char *name)
@@ -2967,15 +3140,12 @@ static s32 load_gamepak_raw(const char *name)
 
     // Proceed to read the whole ROM or as much as possible.
     memset(gamepak_buffer_FLASH, 0, sizeof(gamepak_buffer_FLASH));
+    memset(gamepak_buffer_flash_mapping, 0, sizeof(gamepak_buffer_flash_mapping));
 
     for (unsigned i = 0; i < sizeof(gamepak_buffer_SDRAM); i++)
       gamepak_buffer_SDRAM[i] = (uint8_t)rand();
 
     filestream_read(gamepak_file_large, gamepak_buffer_FLASH, sizeof(gamepak_buffer_FLASH));
-
-    // Copy the flash into 512KB mirrors
-    for (unsigned i = 1; i < 64; i++)
-      memcpy(&gamepak_buffer_FLASH[i*512*1024], gamepak_buffer_FLASH, 512*1024);
 
     remap_gamepak();
 

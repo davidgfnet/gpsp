@@ -619,19 +619,25 @@ void supercard_mode(u16 data) {
   if (modeq[0] == 0xA55A && modeq[1] == 0xA55A) {
     switch (data >> 8) {
     case 0:   // Regular supercard mode
-      supercard_we = data & 0x4;
-      supercard_sdcard = data & 2;
-      // Map flash vs SDRAM
-      gamepak_map_sdram = data & 1;
+      // Higher 4MSB contain the disable write bits.
 
-      //printf("Supercard new mode: WE %d SD %d MAP %s\n", supercard_we, supercard_sdcard, 
-      //   gamepak_map_sdram ? "SDRAM" : "FLASH");
+      // SRAM bank
+      if (!(data & 0x80))
+        supercard_srambank = (data & 0x8) ? 1 : 0;
+      // Write enable for SDRAM
+      if (!(data & 0x40))
+        supercard_we = data & 0x4;
+      // SD card driver enable
+      if (!(data & 0x20))
+        supercard_sdcard = data & 0x2;
+      // Map flash vs SDRAM
+      if (!(data & 0x10))
+        gamepak_map_sdram = data & 0x1;
+
+      printf("Supercard new mode: WE %d SD %d MAP %s (bank %d)\n", supercard_we, supercard_sdcard, 
+         gamepak_map_sdram ? "SDRAM" : "FLASH", supercard_srambank);
       break;
     case 1:
-      supercard_srambank = data & 1;   // SRAM banking
-      printf("Switch to SRAM bank %d\n", supercard_srambank);
-      break;
-    case 2:
       // nor mapping reg
       for (int i = 0; i < 7; i++)
         gamepak_buffer_flash_mapping[i] = gamepak_buffer_flash_mapping[i+1];
@@ -2826,7 +2832,7 @@ void init_gamepak_buffer(void)
   int sdfd = open("sdcard.img", O_RDWR);
   assert(sdfd >= 0);
   fstat(sdfd, &st);
-  printf("Maping SD card file (size %d bytes)\n", st.st_size);
+  printf("Maping SD card file (size %lu bytes)\n", st.st_size);
   sdcardmap = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, sdfd, 0);
   assert(sdcardmap != NULL);
   sdcardsize = st.st_size;
@@ -3109,6 +3115,7 @@ void remap_gamepak() {
   for (unsigned i = 0; i < 1024; i++ ) {
      u32 blk4m = i / 128;
      u32 offset = gamepak_buffer_flash_mapping[blk4m] * 4*1024*1024;
+     // Flash mapping can be overriden using this extra reg.
      u8 *ptr = gamepak_map_sdram ? &gamepak_buffer_SDRAM[blk4m * 4*1024*1024] : &gamepak_buffer_FLASH[offset];
 
      memory_map_read[(0x8000000 / (32 * 1024)) + i] = &ptr[32*1024*(i&127)];

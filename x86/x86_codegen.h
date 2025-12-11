@@ -258,6 +258,9 @@ typedef enum
 #define x86_emit_add_reg_mem(dst, base, offset)                               \
   x86_emit_opcode_1b_mem(add_reg_rm, dst, base, offset);                      \
 
+#define x86_emit_sub_reg_mem(dst, base, offset)                               \
+  x86_emit_opcode_1b_mem(sub_reg_rm, dst, base, offset);                      \
+
 #define x86_emit_or_reg_mem(dst, base, offset)                                \
   x86_emit_opcode_1b_mem(or_reg_rm, dst, base, offset);                       \
 
@@ -285,6 +288,14 @@ typedef enum
 
 #define x86_emit_and_mem_imm(imm, base, offset)                               \
   x86_emit_opcode_1b_ext_mem(and_rm_imm, base, offset);                       \
+  x86_emit_dword(imm)                                                         \
+
+#define x86_emit_add_mem_imm(imm, base, offset)                               \
+  x86_emit_opcode_1b_ext_mem(add_rm_imm, base, offset);                       \
+  x86_emit_dword(imm)                                                         \
+
+#define x86_emit_sub_mem_imm(imm, base, offset)                               \
+  x86_emit_opcode_1b_ext_mem(sub_rm_imm, base, offset);                       \
   x86_emit_dword(imm)                                                         \
 
 #define x86_emit_shl_reg_imm(dest, imm)                                       \
@@ -504,6 +515,12 @@ typedef enum
 #define generate_and_mem(imm, ireg_base, offset)                              \
   x86_emit_and_mem_imm(imm, reg_##ireg_base, (offset))                        \
 
+#define generate_add_mem(imm, ireg_base, offset)                              \
+  x86_emit_add_mem_imm(imm, reg_##ireg_base, (offset))                        \
+
+#define generate_sub_mem(imm, ireg_base, offset)                              \
+  x86_emit_sub_mem_imm(imm, reg_##ireg_base, (offset))                        \
+
 #define generate_and(ireg_dest, ireg_src)                                     \
   x86_emit_and_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
 
@@ -512,9 +529,6 @@ typedef enum
 
 #define generate_adc(ireg_dest, ireg_src)                                     \
   x86_emit_adc_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
-
-#define generate_add_memreg(ireg_dest, arm_reg_src)                           \
-  x86_emit_add_reg_mem(reg_##ireg_dest, reg_base, arm_reg_src * 4)            \
 
 #define generate_sub(ireg_dest, ireg_src)                                     \
   x86_emit_sub_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \

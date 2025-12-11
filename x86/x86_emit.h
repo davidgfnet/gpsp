@@ -132,6 +132,9 @@ extern "C" {
 #define generate_and_mem(imm, ireg_base, offset)                              \
   x86_emit_and_mem_imm(imm, reg_##ireg_base, (offset))                        \
 
+#define generate_add_mem(imm, ireg_base, offset)                              \
+  x86_emit_add_mem_imm(imm, reg_##ireg_base, (offset))                        \
+
 #define generate_and(ireg_dest, ireg_src)                                     \
   x86_emit_and_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
 
@@ -143,6 +146,9 @@ extern "C" {
 
 #define generate_add_memreg(ireg_dest, arm_reg_src)                           \
   x86_emit_add_reg_mem(reg_##ireg_dest, reg_base, arm_reg_src * 4)            \
+
+#define generate_sub_memreg(ireg_dest, arm_reg_src)                           \
+  x86_emit_sub_reg_mem(reg_##ireg_dest, reg_base, arm_reg_src * 4)            \
 
 #define generate_sub(ireg_dest, ireg_src)                                     \
   x86_emit_sub_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
@@ -1162,121 +1168,6 @@ u32 execute_store_cpsr_body()
 #define thumb_load_pc_pool_const(reg_rd, value)                               \
   generate_store_reg_i32(value, reg_rd)                                       \
 
-#define thumb_block_address_preadjust_up()                                    \
-  generate_add_imm(a0, (bit_count[reg_list] * 4))                             \
-
-#define thumb_block_address_preadjust_down()                                  \
-  generate_sub_imm(a0, (bit_count[reg_list] * 4))                             \
-
-#define thumb_block_address_preadjust_push_lr()                               \
-  generate_sub_imm(a0, ((bit_count[reg_list] + 1) * 4))                       \
-
-#define thumb_block_address_preadjust_no()                                    \
-
-#define thumb_block_address_postadjust_no(base_reg)                           \
-  generate_store_reg(a0, base_reg)                                            \
-
-#define thumb_block_address_postadjust_up(base_reg)                           \
-  generate_add_imm(a0, (bit_count[reg_list] * 4));                            \
-  generate_store_reg(a0, base_reg)                                            \
-
-#define thumb_block_address_postadjust_down(base_reg)                         \
-  generate_sub_imm(a0, (bit_count[reg_list] * 4));                            \
-  generate_store_reg(a0, base_reg)                                            \
-
-#define thumb_block_address_postadjust_pop_pc(base_reg)                       \
-  generate_add_imm(a0, ((bit_count[reg_list] + 1) * 4));                      \
-  generate_store_reg(a0, base_reg)                                            \
-
-#define thumb_block_address_postadjust_push_lr(base_reg)                      \
-  generate_store_reg(a0, base_reg)                                            \
-
-#define thumb_block_memory_extra_no()                                         \
-
-#define thumb_block_memory_extra_up()                                         \
-
-#define thumb_block_memory_extra_down()                                       \
-
-#define thumb_block_memory_extra_pop_pc()                                     \
-  generate_load_reg(a0, REG_SAVE3);                                           \
-  generate_add_imm(a0, (bit_count[reg_list] * 4));                            \
-  generate_load_pc(a1, pc);                                                   \
-  generate_function_call(execute_load_u32);                                   \
-  generate_store_reg(rv, REG_PC);                                             \
-  generate_indirect_branch_cycle_update(thumb)                                \
-
-#define thumb_block_memory_extra_push_lr(base_reg)                            \
-  generate_load_reg(a0, REG_SAVE3);                                           \
-  generate_add_imm(a0, (bit_count[reg_list] * 4));                            \
-  generate_load_reg(a1, REG_LR);                                              \
-  generate_function_call(execute_store_aligned_u32)                           \
-
-#define thumb_block_memory_load()                                             \
-  generate_load_pc(a1, pc);                                                   \
-  generate_function_call(execute_load_u32);                                   \
-  generate_store_reg(rv, i)                                                   \
-
-#define thumb_block_memory_store()                                            \
-  generate_load_reg(a1, i);                                                   \
-  generate_function_call(execute_store_aligned_u32)                           \
-
-#define thumb_block_memory_final_load()                                       \
-  thumb_block_memory_load()                                                   \
-
-#define thumb_block_memory_final_store()                                      \
-  generate_load_reg(a1, i);                                                   \
-  generate_store_reg_i32(pc + 2, REG_PC);                                     \
-  generate_function_call(execute_store_u32)                                   \
-
-#define thumb_block_memory_final_no(access_type)                              \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_up(access_type)                              \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_down(access_type)                            \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_push_lr(access_type)                         \
-  thumb_block_memory_##access_type()                                          \
-
-#define thumb_block_memory_final_pop_pc(access_type)                          \
-  thumb_block_memory_##access_type()                                          \
-
-#define thumb_block_memory(access_type, pre_op, post_op, base_reg)            \
-{                                                                             \
-  thumb_decode_rlist();                                                       \
-  u32 i;                                                                      \
-  u32 offset = 0;                                                             \
-                                                                              \
-  generate_load_reg(a0, base_reg);                                            \
-  generate_and_imm(a0, ~0x03);                                                \
-  thumb_block_address_preadjust_##pre_op();                                   \
-  generate_store_reg(a0, REG_SAVE3);                                          \
-  thumb_block_address_postadjust_##post_op(base_reg);                         \
-                                                                              \
-  for(i = 0; i < 8; i++)                                                      \
-  {                                                                           \
-    if((reg_list >> i) & 0x01)                                                \
-    {                                                                         \
-      cycle_count++;                                                          \
-      generate_load_reg(a0, REG_SAVE3);                                       \
-      generate_add_imm(a0, offset)                                            \
-      if(reg_list & ~((2 << i) - 1))                                          \
-      {                                                                       \
-        thumb_block_memory_##access_type();                                   \
-        offset += 4;                                                          \
-      }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        thumb_block_memory_final_##post_op(access_type);                      \
-      }                                                                       \
-    }                                                                         \
-  }                                                                           \
-                                                                              \
-  thumb_block_memory_extra_##post_op();                                       \
-}                                                                             \
-
 
 #define thumb_conditional_branch(condition)                                   \
 {                                                                             \
@@ -1501,7 +1392,7 @@ public:
    : CodeEmitterBase(emit_ptr, emit_end) {}
 
   template <FlagOperation flgmode>
-  inline void upd_nz_flags(const InstFlagInfo & it) {
+  inline void upd_nz_flags(const BaseInst & it) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
       if (it.gen_flag_z()) {
@@ -1527,7 +1418,7 @@ public:
   }
 
   template <FlagOperation flgmode>
-  inline void upd_nzcv_add_flags(const InstFlagInfo & it) {
+  inline void upd_nzcv_add_flags(const BaseInst & it) {
     upd_nz_flags<flgmode>(it);
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
@@ -1541,7 +1432,7 @@ public:
   }
 
   template <FlagOperation flgmode>
-  inline void upd_nzcv_sub_flags(const InstFlagInfo & it) {
+  inline void upd_nzcv_sub_flags(const BaseInst & it) {
     upd_nz_flags<flgmode>(it);
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
@@ -1657,16 +1548,12 @@ public:
       generate_store_reg_i32(0, REG_N_FLAG);
       break;
     case OpAdd:
-      generate_load_reg(a0, it.rd8());
-      x86_emit_add_reg_imm(reg_a0, it.imm8());
+      generate_add_mem(it.imm8(), base, it.rd8() * 4);
       upd_nzcv_add_flags<SetFlags>(it);
-      generate_store_reg(a0, it.rd8());
       break;
     case OpSub:
-      generate_load_reg(a0, it.rd8());
-      x86_emit_sub_reg_imm(reg_a0, it.imm8());
+      generate_sub_mem(it.imm8(), base, it.rd8() * 4);
       upd_nzcv_sub_flags<SetFlags>(it);
-      generate_store_reg(a0, it.rd8());
       break;
     case OpCmp:
       generate_load_reg(a1, it.rd8());
@@ -1700,15 +1587,14 @@ public:
   inline void thumb_aluop3(const ThumbInst & it) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     generate_load_reg(a0, it.rs());
-    generate_load_reg(a1, it.rn());
 
     switch (aluop) {
     case OpAdd:
-      generate_add(a0, a1);
+      generate_add_memreg(a0, it.rn());
       upd_nzcv_add_flags<SetFlags>(it);
       break;
     case OpSub:
-      generate_sub(a0, a1);
+      generate_sub_memreg(a0, it.rn());
       upd_nzcv_sub_flags<SetFlags>(it);
       break;
     };
@@ -1752,9 +1638,7 @@ public:
 
   inline void thumb_spadj(s8 offset) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    generate_load_reg(a0, REG_SP);
-    generate_add_imm(a0, offset * 4);
-    generate_store_reg(a0, REG_SP);
+    generate_add_mem((offset * 4), base, REG_SP * 4);
   }
 
   // ======== Memory instructions ===================================
@@ -1799,6 +1683,77 @@ public:
     emit_load_reg_pc(a1, regd, 12);
     generate_store_reg_i32(it.pc + 2, REG_PC);
     generate_function_call(call_str_handler<memtype>());
+  }
+
+
+  template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
+  inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
+    const u32 numops_lo = bit_count[rlist & 0xFF];   // TODO: For cycle compatibility with previous changes
+    cycle_count += numops_lo;    // TODO: Use proper cycle accounting.
+
+    const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
+    const s32 endoff = stpoff * numops;
+    const s32 inioff = (addrmode == AddrPreInc)  ? 4 :
+                       (addrmode == AddrPostInc) ? 0 :
+                       (addrmode == AddrPreDec)  ? endoff :
+                                                   endoff + 4;
+
+    generate_load_reg(a0, basereg);  // Load base reg and word-align it.
+    generate_and_imm(a0, ~0x03);
+    generate_store_reg(a0, REG_SAVE3);
+
+    // If base is in the reglist and writeback is enabled, the value of the
+    // written register depends on the write cycle (ARM7TDM manual 4.11.6).
+    // If the register is the first, the written value is the original value,
+    // otherwise the update base register is written. For LDM loaded data
+    // takes always precendence.
+    bool wrbck_base = (1 << basereg) & rlist;
+    bool base_first = (((1 << basereg) - 1) & rlist) == 0;
+    bool writeback_first = (amode == AccLoad) || !(wrbck_base && base_first);
+
+    // This is the most common case by far.
+    if (writeback && writeback_first) {
+      generate_add_mem(endoff, base, basereg * 4);
+    }
+
+    u32 aoff = 0;
+    for (u32 i = 0; i < 16; i++) {
+      if (rlist & (1 << i)) {
+        generate_load_reg(a0, REG_SAVE3);
+        generate_add_imm(a0, (aoff + inioff));
+        if (amode == AccLoad) {
+          generate_load_pc(a1, it.pc);
+          generate_function_call(execute_load_u32);
+          generate_store_reg(rv, i);
+        } else {
+          emit_load_reg_pc(a1, i, 4);
+
+          // Update the base register right after the first read if necessary
+          if (writeback && !writeback_first) {
+            generate_add_mem(endoff, base, basereg * 4);
+            writeback_first = true;
+          }
+
+          if (rlist >> (i + 1)) {
+            generate_function_call(execute_store_aligned_u32);
+          } else {
+            // Only the last store can produce side-effects
+            // TODO: Evaluate if this is enough or we should improve it.
+            generate_store_reg_i32(it.pc + 2, REG_PC);
+            generate_function_call(execute_store_u32);
+          }
+        }
+        aoff += 4;
+      }
+    }
+
+    // Load PC requires an indirect branch
+    if (amode == AccLoad && (rlist & (1 << REG_PC))) {
+      // TODO: allow thumb/arm modes here!
+      generate_indirect_branch_cycle_update(thumb);
+    }
   }
 
   // ======== ARM instructions ======================================

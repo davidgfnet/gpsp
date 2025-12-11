@@ -1206,160 +1206,6 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address)
 }                                                                             \
 
 
-#define thumb_block_address_preadjust_no(base_reg)                            \
-  mips_emit_addu(reg_a2, arm_to_mips_reg[base_reg], reg_zero)                 \
-
-#define thumb_block_address_preadjust_down(base_reg)                          \
-  mips_emit_addiu(reg_a2, arm_to_mips_reg[base_reg],                          \
-   -(bit_count[reg_list] * 4));                                               \
-  mips_emit_addu(arm_to_mips_reg[base_reg], reg_a2, reg_zero)                 \
-
-#define thumb_block_address_preadjust_push_lr(base_reg)                       \
-  mips_emit_addiu(reg_a2, arm_to_mips_reg[base_reg],                          \
-   -((bit_count[reg_list] + 1) * 4));                                         \
-  mips_emit_addu(arm_to_mips_reg[base_reg], reg_a2, reg_zero)                 \
-
-#define thumb_block_address_postadjust_no(base_reg)                           \
-
-#define thumb_block_address_postadjust_up(base_reg)                           \
-  mips_emit_addiu(arm_to_mips_reg[base_reg], reg_a2,                          \
-   (bit_count[reg_list] * 4))                                                 \
-
-#define thumb_block_address_postadjust_pop_pc(base_reg)                       \
-  mips_emit_addiu(arm_to_mips_reg[base_reg], reg_a2,                          \
-   ((bit_count[reg_list] * 4) + 4))                                           \
-
-#define thumb_block_address_postadjust_push_lr(base_reg)                      \
-
-#define thumb_block_memory_load()                                             \
-  generate_function_call_swap_delay(execute_aligned_load32);                  \
-  generate_store_reg(reg_rv, i)                                               \
-
-#define thumb_block_memory_store()                                            \
-  mips_emit_jal(mips_absolute_offset(execute_aligned_store32));               \
-  generate_load_reg(reg_a1, i)                                                \
-
-#define thumb_block_memory_final_load()                                       \
-  thumb_block_memory_load()                                                   \
-
-#define thumb_block_memory_final_store()                                      \
-  generate_load_pc(reg_a2, (pc + 2));                                         \
-  mips_emit_jal(mips_absolute_offset(execute_store_u32));                     \
-  generate_load_reg(reg_a1, i)                                                \
-
-#define thumb_block_memory_final_no(access_type)                              \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_up(access_type)                              \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_down(access_type)                            \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_push_lr(access_type)                         \
-  thumb_block_memory_##access_type()                                          \
-
-#define thumb_block_memory_final_pop_pc(access_type)                          \
-  thumb_block_memory_##access_type()                                          \
-
-#define thumb_block_memory_extra_no()                                         \
-
-#define thumb_block_memory_extra_up()                                         \
-
-#define thumb_block_memory_extra_down()                                       \
-
-#define thumb_block_memory_extra_push_lr()                                    \
-  mips_emit_addiu(reg_a0, reg_a2, (bit_count[reg_list] * 4));                 \
-  mips_emit_jal(mips_absolute_offset(execute_aligned_store32));               \
-  generate_load_reg(reg_a1, REG_LR)                                           \
-
-#define thumb_block_memory_extra_pop_pc()                                     \
-  mips_emit_jal(mips_absolute_offset(execute_aligned_load32));                \
-  mips_emit_addiu(reg_a0, reg_a2, (bit_count[reg_list] * 4));                 \
-  generate_mov(reg_a0, reg_rv);                                               \
-  generate_indirect_branch_cycle_update(thumb)                                \
-
-#define thumb_block_memory_sp_load()                                          \
-  mips_emit_lw(arm_to_mips_reg[i], reg_a1, offset)                            \
-
-#define thumb_block_memory_sp_store()                                         \
-  mips_emit_sw(arm_to_mips_reg[i], reg_a1, offset)                            \
-
-#define thumb_block_memory_sp_extra_no()                                      \
-
-#define thumb_block_memory_sp_extra_up()                                      \
-
-#define thumb_block_memory_sp_extra_down()                                    \
-
-#define thumb_block_memory_sp_extra_pop_pc()                                  \
-  mips_emit_lw(reg_a0, reg_a1, offset);                                       \
-  generate_indirect_branch_cycle_update(thumb)                                \
-
-#define thumb_block_memory_sp_extra_push_lr()                                 \
-  mips_emit_sw(reg_r14, reg_a1, offset)                                       \
-
-#define thumb_block_memory(access_type, pre_op, post_op, base_reg)            \
-{                                                                             \
-  thumb_decode_rlist();                                                       \
-  u32 i;                                                                      \
-  u32 offset = 0;                                                             \
-                                                                              \
-  thumb_block_address_preadjust_##pre_op(base_reg);                           \
-  thumb_block_address_postadjust_##post_op(base_reg);                         \
-                                                                              \
-  if(base_reg == REG_SP)                                                      \
-  {                                                                           \
-    /* Assume IWRAM, the most common path by far */                           \
-    mips_emit_andi(reg_a1, reg_a2, 0x7FFC);                                   \
-    /* Check the 23rd bit to differenciate IW/EW RAMs */                      \
-    mips_emit_srl(reg_temp, reg_a2, 24);                                      \
-    mips_emit_sll(reg_temp, reg_temp, 31);                                    \
-    mips_emit_bgezal(reg_temp,                                                \
-                mips_relative_offset(translation_ptr, spaccess_trampoline));  \
-    /* Delay slot, will be overwritten anyway */                              \
-    mips_emit_lui(reg_a0, ((u32)(iwram + 0x8000 + 0x8000) >> 16));            \
-    mips_emit_addu(reg_a1, reg_a1, reg_a0);                                   \
-    offset = (u32)(iwram + 0x8000) & 0xFFFF;                                  \
-                                                                              \
-    for(i = 0; i < 8; i++)                                                    \
-    {                                                                         \
-      if((reg_list >> i) & 0x01)                                              \
-      {                                                                       \
-        cycle_count++;                                                        \
-        thumb_block_memory_sp_##access_type();                                \
-        offset += 4;                                                          \
-      }                                                                       \
-    }                                                                         \
-                                                                              \
-    thumb_block_memory_sp_extra_##post_op();                                  \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    emit_align_reg(reg_a2, 2);                                                \
-                                                                              \
-    for(i = 0; i < 8; i++)                                                    \
-    {                                                                         \
-      if((reg_list >> i) & 0x01)                                              \
-      {                                                                       \
-        cycle_count++;                                                        \
-        mips_emit_addiu(reg_a0, reg_a2, offset);                              \
-        if(reg_list & ~((2 << i) - 1))                                        \
-        {                                                                     \
-          thumb_block_memory_##access_type();                                 \
-          offset += 4;                                                        \
-        }                                                                     \
-        else                                                                  \
-        {                                                                     \
-          thumb_block_memory_final_##post_op(access_type);                    \
-          break;                                                              \
-        }                                                                     \
-      }                                                                       \
-    }                                                                         \
-                                                                              \
-    thumb_block_memory_extra_##post_op();                                     \
-  }                                                                           \
-}
-
 #define thumb_conditional_branch(condition)                                   \
 {                                                                             \
   generate_condition_##condition();                                           \
@@ -1805,6 +1651,82 @@ public:
     generate_load_pc(reg_a2, (it.pc + 2));
     generate_function_call_swap_delay(call_str_handler<memtype>());
   }
+
+
+  template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
+  inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+
+    const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
+    const u32 numops_lo = bit_count[rlist & 0xFF];   // TODO: For cycle compatibility with previous changes
+    cycle_count += numops_lo;    // TODO: Use proper cycle accounting.
+
+    const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
+    const s32 endoff = stpoff * numops;
+    const s32 inioff = (addrmode == AddrPreInc)  ? 4 :
+                       (addrmode == AddrPostInc) ? 0 :
+                       (addrmode == AddrPreDec)  ? endoff :
+                                                   endoff + 4;
+
+    // Load base register, clearing the lowest 2 bits (align)
+    mips_emit_addiu(reg_a2, arm_to_mips_reg[basereg], 0);     // TODO: Improve using one less move?
+    emit_align_reg(reg_a2, 2);
+    // TODO: Implement SP-relative accessing? TODO
+
+    // If base is in the reglist and writeback is enabled, the value of the
+    // written register depends on the write cycle (ARM7TDM manual 4.11.6).
+    // If the register is the first, the written value is the original value,
+    // otherwise the update base register is written. For LDM loaded data
+    // takes always precendence.
+    bool wrbck_base = (1 << basereg) & rlist;
+    bool base_first = (((1 << basereg) - 1) & rlist) == 0;
+    bool writeback_first = (amode == AccLoad) || !(wrbck_base && base_first);
+
+    // This is the most common case by far.
+    if (writeback && writeback_first) {
+      mips_emit_addiu(arm_to_mips_reg[basereg], arm_to_mips_reg[basereg], endoff);
+    }
+
+    u32 aoff = 0;
+    for (u32 i = 0; i < 16; i++) {
+      if (rlist & (1 << i)) {
+        mips_emit_addiu(reg_a0, reg_a2, (aoff + inioff));
+        if (amode == AccLoad) {
+          generate_function_call_swap_delay(execute_aligned_load32);
+          generate_store_reg(reg_rv, i);
+        } else {
+          generate_load_reg(reg_a1, i);  // TODO fix for arm mode
+
+          // Update the base register right after the first read if necessary
+          if (writeback && !writeback_first) {
+            mips_emit_addiu(arm_to_mips_reg[basereg], arm_to_mips_reg[basereg], endoff);
+            writeback_first = true;
+          }
+
+          if (rlist >> (i + 1)) {
+            generate_function_call_swap_delay(execute_aligned_store32);
+          } else {
+            // Only the last store can produce side-effects
+            // TODO: Evaluate if this is enough or we should improve it.
+            generate_load_pc(reg_a2, (it.pc + 2));
+            generate_function_call_swap_delay(execute_store_u32);
+          }
+        }
+        aoff += 4;
+      }
+    }
+
+    // Load PC requires an indirect branch
+    if (amode == AccLoad && (rlist & (1 << REG_PC))) {
+      // Move ret load value to arg0
+      generate_mov(reg_a0, reg_rv);
+
+      // TODO: allow thumb/arm modes here!
+      generate_indirect_branch_cycle_update(thumb);
+    }
+  }
+
 
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>

@@ -23,33 +23,32 @@
 
 #include "decoder.h"
 
-class InstFlagInfo {
+class BaseInst {
 public:
-  InstFlagInfo(u16 flgst)
-   : flag_status(flgst) {}
+  BaseInst(u32 pc, u16 flgst)
+   : pc(pc), flag_status(flgst) {}
 
   bool gen_flag_n() const { return flag_status & 0x8; }
   bool gen_flag_z() const { return flag_status & 0x4; }
   bool gen_flag_c() const { return flag_status & 0x2; }
   bool gen_flag_v() const { return flag_status & 0x1; }
 
+  u32 pc;
   u16 flag_status;
 };
 
-class ThumbInst : public ThumbInstDec, public InstFlagInfo {
+class ThumbInst : public ThumbInstDec, public BaseInst {
 public:
   ThumbInst(u32 pc, u16 opcode, u16 flag_status)
-   : ThumbInstDec(opcode), InstFlagInfo(flag_status), pc(pc) {}
+   : ThumbInstDec(opcode), BaseInst(pc, flag_status) {}
 
-  u32 pc;
 };
 
-class ARMInst : public ARMInstDec, public InstFlagInfo {
+class ARMInst : public ARMInstDec, public BaseInst {
 public:
   ARMInst(u32 pc, u32 opcode, u16 flag_status)
-   : ARMInstDec(opcode), InstFlagInfo(flag_status), pc(pc) {}
+   : ARMInstDec(opcode), BaseInst(pc, flag_status) {}
 
-  u32 pc;
 };
 
 class CodeEmitterBase {

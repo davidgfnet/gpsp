@@ -209,6 +209,16 @@ const u32 arm_to_a64_reg[] =
   aa64_emit_movhi(ireg, ((new_pc) >> 16));                                    \
 }
 
+#define generate_addsubi(dreg, sreg, imm)                                     \
+{                                                                             \
+  if ((s32)(imm) >= 0) {                                                      \
+    aa64_emit_addi(dreg, sreg, (imm));                                        \
+  } else {                                                                    \
+    aa64_emit_subi(dreg, sreg, -(imm));                                       \
+  }                                                                           \
+}                                                                             \
+
+
 #define generate_load_pc(ireg, new_pc)                                        \
 {                                                                             \
   s32 pc_delta = (new_pc) - (stored_pc);                                      \
@@ -1133,111 +1143,6 @@ u32 execute_store_cpsr_body(u32 _cpsr, u32 address, u32 store_mask)
   generate_op_logic_flags(arm_to_a64_reg[rd]);                                \
 }                                                                             \
 
-// Operation types: imm, mem_reg, mem_imm
-
-#define thumb_block_address_preadjust_no(base_reg)                            \
-  aa64_emit_addi(reg_save0, base_reg, 0)                                      \
-
-#define thumb_block_address_preadjust_down(base_reg)                          \
-  aa64_emit_subi(reg_save0, base_reg, (bit_count[reg_list] * 4));             \
-  aa64_emit_addi(base_reg, reg_save0, 0);                                     \
-
-#define thumb_block_address_preadjust_push_lr(base_reg)                       \
-  aa64_emit_subi(reg_save0, base_reg, ((bit_count[reg_list] + 1) * 4));       \
-  aa64_emit_addi(base_reg, reg_save0, 0);                                     \
-
-#define thumb_block_address_postadjust_no(base_reg)                           \
-
-#define thumb_block_address_postadjust_up(base_reg)                           \
-  aa64_emit_addi(base_reg, reg_save0, (bit_count[reg_list] * 4));             \
-
-#define thumb_block_address_postadjust_pop_pc(base_reg)                       \
-  aa64_emit_addi(base_reg, reg_save0, ((bit_count[reg_list] + 1) * 4));       \
-
-#define thumb_block_address_postadjust_push_lr(base_reg)                      \
-
-#define thumb_block_memory_load()                                             \
-  generate_function_call(execute_aligned_load32);                             \
-  generate_store_reg(reg_res, i)                                              \
-
-#define thumb_block_memory_store()                                            \
-  generate_load_reg(reg_a1, i)                                                \
-  generate_function_call(execute_aligned_store32);                            \
-
-#define thumb_block_memory_final_load()                                       \
-  thumb_block_memory_load()                                                   \
-
-#define thumb_block_memory_final_store()                                      \
-  generate_load_pc(reg_a2, (pc + 2));                                         \
-  generate_load_reg(reg_a1, i)                                                \
-  generate_function_call(execute_store_u32);                                  \
-
-#define thumb_block_memory_final_no(access_type)                              \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_up(access_type)                              \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_down(access_type)                            \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_push_lr(access_type)                         \
-  thumb_block_memory_##access_type()                                          \
-
-#define thumb_block_memory_final_pop_pc(access_type)                          \
-  thumb_block_memory_##access_type()                                          \
-
-#define thumb_block_memory_extra_no()                                         \
-
-#define thumb_block_memory_extra_up()                                         \
-
-#define thumb_block_memory_extra_down()                                       \
-
-#define thumb_block_memory_extra_push_lr()                                    \
-  aa64_emit_addi(reg_a0, reg_save0, (bit_count[reg_list] * 4));               \
-  generate_load_reg(reg_a1, REG_LR)                                           \
-  generate_function_call(execute_aligned_store32);                            \
-
-#define thumb_block_memory_extra_pop_pc()                                     \
-  aa64_emit_addi(reg_a0, reg_save0, (bit_count[reg_list] * 4));               \
-  generate_function_call(execute_aligned_load32);                             \
-  generate_indirect_branch_cycle_update(thumb)                                \
-
-#define thumb_block_memory(access_type, pre_op, post_op, arm_base_reg)        \
-{                                                                             \
-  thumb_decode_rlist();                                                       \
-  u32 i;                                                                      \
-  u32 offset = 0;                                                             \
-  u32 base_reg = arm_to_a64_reg[arm_base_reg];                                \
-                                                                              \
-  thumb_block_address_preadjust_##pre_op(base_reg);                           \
-  thumb_block_address_postadjust_##post_op(base_reg);                         \
-                                                                              \
-  {                                                                           \
-    aa64_emit_andi(reg_save0, reg_save0, 30, 29);  /* clear 2 LSB */          \
-                                                                              \
-    for(i = 0; i < 8; i++)                                                    \
-    {                                                                         \
-      if((reg_list >> i) & 0x01)                                              \
-      {                                                                       \
-        cycle_count++;                                                        \
-        aa64_emit_addi(reg_a0, reg_save0, offset);                            \
-        if(reg_list & ~((2 << i) - 1))                                        \
-        {                                                                     \
-          thumb_block_memory_##access_type();                                 \
-          offset += 4;                                                        \
-        }                                                                     \
-        else                                                                  \
-        {                                                                     \
-          thumb_block_memory_final_##post_op(access_type);                    \
-          break;                                                              \
-        }                                                                     \
-      }                                                                       \
-    }                                                                         \
-                                                                              \
-    thumb_block_memory_extra_##post_op();                                     \
-  }                                                                           \
-}
 
 #define generate_branch_filler(condition_code, writeback_location)            \
   (writeback_location) = translation_ptr;                                     \
@@ -1313,7 +1218,7 @@ public:
   }
 
   template <FlagOperation flgmode>
-  inline void update_nz_flags(const InstFlagInfo & it, u32 reg) {
+  inline void update_nz_flags(const BaseInst & it, u32 reg) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
       if (it.gen_flag_n()) {
@@ -1327,7 +1232,7 @@ public:
   }
 
   template <FlagOperation flgmode>
-  inline void update_nzcv_arith_flags(const InstFlagInfo & it) {
+  inline void update_nzcv_arith_flags(const BaseInst & it) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
       if (it.gen_flag_c()) {
@@ -1604,6 +1509,76 @@ public:
     generate_load_pc(reg_a2, (it.pc + 2));
     generate_function_call(call_str_handler<memtype>());
   }
+
+  template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
+  inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+
+    const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
+    const u32 numops_lo = bit_count[rlist & 0xFF];   // TODO: For cycle compatibility with previous changes
+    cycle_count += numops_lo;    // TODO: Use proper cycle accounting.
+
+    const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
+    const s32 endoff = stpoff * numops;
+    const s32 inioff = (addrmode == AddrPreInc)  ? 4 :
+                       (addrmode == AddrPostInc) ? 0 :
+                       (addrmode == AddrPreDec)  ? endoff :
+                                                   endoff + 4;
+
+    // Load base register, clearing the lowest 2 bits (align)
+    aa64_emit_andi(reg_save0, arm_to_a64_reg[basereg], 30, 29);  /* clear 2 LSB */
+
+    // If base is in the reglist and writeback is enabled, the value of the
+    // written register depends on the write cycle (ARM7TDM manual 4.11.6).
+    // If the register is the first, the written value is the original value,
+    // otherwise the update base register is written. For LDM loaded data
+    // takes always precendence.
+    bool wrbck_base = (1 << basereg) & rlist;
+    bool base_first = (((1 << basereg) - 1) & rlist) == 0;
+    bool writeback_first = (amode == AccLoad) || !(wrbck_base && base_first);
+
+    // This is the most common case by far.
+    if (writeback && writeback_first) {
+      generate_addsubi(arm_to_a64_reg[basereg], arm_to_a64_reg[basereg], endoff);
+    }
+
+    u32 aoff = 0;
+    for (u32 i = 0; i < 16; i++) {
+      if (rlist & (1 << i)) {
+        generate_addsubi(reg_a0, reg_save0, (aoff + inioff));
+        if (amode == AccLoad) {
+          generate_function_call(execute_aligned_load32);
+          generate_store_reg(reg_res, i);
+        } else {
+          force_load_reg(i, reg_a1, it.pc + 4);
+
+          // Update the base register right after the first read if necessary
+          if (writeback && !writeback_first) {
+            generate_addsubi(arm_to_a64_reg[basereg], arm_to_a64_reg[basereg], endoff);
+            writeback_first = true;
+          }
+
+          if (rlist >> (i + 1)) {
+            generate_function_call(execute_aligned_store32);
+          } else {
+            // Only the last store can produce side-effects
+            // TODO: Evaluate if this is enough or we should improve it.
+            generate_load_pc(reg_a2, (it.pc + 2));
+            generate_function_call(execute_store_u32);
+          }
+        }
+        aoff += 4;
+      }
+    }
+
+    // Load PC requires an indirect branch
+    if (amode == AccLoad && (rlist & (1 << REG_PC))) {
+      // TODO: allow thumb/arm modes here!
+      generate_indirect_branch_cycle_update(thumb);
+    }
+  }
+
 
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>

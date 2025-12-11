@@ -56,6 +56,7 @@ template <typename memtype> inline uintptr_t str_handler_offset();
 template <> inline u32 str_handler_offset<u8>()  { return 0; }
 template <> inline u32 str_handler_offset<u16>() { return 1; }
 template <> inline u32 str_handler_offset<u32>() { return 2; }
+inline u32 safe_str_handler_offset() { return 3; }
 
 template <> inline u32 ldr_handler_offset<u8>()  { return 4; }
 template <> inline u32 ldr_handler_offset<s8>()  { return 5; }
@@ -387,6 +388,13 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 
 #define generate_add_imm(ireg, imm, imm_ror)                                  \
   ARM_ADD_REG_IMM(0, ireg, ireg, imm, imm_ror)                                \
+
+#define generate_addsubi(dreg, sreg, imm255)                                  \
+  if ((s32)(imm255) >= 0) {                                                   \
+    ARM_ADD_REG_IMM(0, (dreg), (sreg), (imm255), 0);                          \
+  } else {                                                                    \
+    ARM_SUB_REG_IMM(0, (dreg), (sreg), (-(imm255)), 0);                       \
+  }                                                                           \
 
 #define generate_sub_imm(ireg, imm, imm_ror)                                  \
   ARM_SUB_REG_IMM(0, ireg, ireg, imm, imm_ror)                                \
@@ -1515,115 +1523,6 @@ static void trace_instruction(u32 pc, u32 mode)
 
 /* TODO: Make these use cached registers. Implement iwram_stack_optimize. */
 
-#define thumb_block_address_preadjust_down()                                  \
-  generate_sub_imm(reg_s0, (bit_count[reg_list] * 4), 0)                      \
-
-#define thumb_block_address_preadjust_push_lr()                               \
-  generate_sub_imm(reg_s0, ((bit_count[reg_list] + 1) * 4), 0)                \
-
-#define thumb_block_address_preadjust_no()                                    \
-
-#define thumb_block_address_postadjust_no(base_reg)                           \
-  thumb_generate_store_reg(reg_s0, base_reg)                                  \
-
-#define thumb_block_address_postadjust_up(base_reg)                           \
-  generate_add_reg_reg_imm(reg_a0, reg_s0, (bit_count[reg_list] * 4), 0);     \
-  thumb_generate_store_reg(reg_a0, base_reg)                                  \
-
-#define thumb_block_address_postadjust_pop_pc(base_reg)                       \
-  generate_add_reg_reg_imm(reg_a0, reg_s0,                                    \
-   ((bit_count[reg_list] + 1) * 4), 0);                                       \
-  thumb_generate_store_reg(reg_a0, base_reg)                                  \
-
-#define thumb_block_address_postadjust_push_lr(base_reg)                      \
-  thumb_generate_store_reg(reg_s0, base_reg)                                  \
-
-#define thumb_block_memory_extra_no()                                         \
-
-#define thumb_block_memory_extra_up()                                         \
-
-#define thumb_block_memory_extra_down()                                       \
-
-#define thumb_block_memory_extra_pop_pc()                                     \
-  thumb_generate_load_reg(reg_s0, REG_SAVE);                                  \
-  generate_add_reg_reg_imm(reg_a0, reg_s0, (bit_count[reg_list] * 4), 0);     \
-  generate_load_call_u32();                                                   \
-  write32((pc + 4));                                                          \
-  generate_indirect_branch_cycle_update(thumb)                                \
-
-#define thumb_block_memory_extra_push_lr(base_reg)                            \
-  thumb_generate_load_reg(reg_s0, REG_SAVE);                                  \
-  generate_add_reg_reg_imm(reg_a0, reg_s0, (bit_count[reg_list] * 4), 0);     \
-  thumb_generate_load_reg(reg_a1, REG_LR);                                    \
-  generate_store_call_u32_safe()
-
-#define thumb_block_memory_load()                                             \
-  generate_load_call_u32();                                                   \
-  write32((pc + 4));                                                          \
-  thumb_generate_store_reg(reg_rv, i)                                         \
-
-#define thumb_block_memory_store()                                            \
-  thumb_generate_load_reg(reg_a1, i);                                         \
-  generate_store_call_u32_safe()
-
-#define thumb_block_memory_final_load()                                       \
-  thumb_block_memory_load()                                                   \
-
-#define thumb_block_memory_final_store()                                      \
-  thumb_generate_load_reg(reg_a1, i);                                         \
-  generate_store_call_u32();                                                  \
-  write32((pc + 2))                                                           \
-
-#define thumb_block_memory_final_no(access_type)                              \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_up(access_type)                              \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_down(access_type)                            \
-  thumb_block_memory_final_##access_type()                                    \
-
-#define thumb_block_memory_final_push_lr(access_type)                         \
-  thumb_block_memory_##access_type()                                          \
-
-#define thumb_block_memory_final_pop_pc(access_type)                          \
-  thumb_block_memory_##access_type()                                          \
-
-#define thumb_block_memory(access_type, pre_op, post_op, base_reg)            \
-{                                                                             \
-  thumb_decode_rlist();                                                       \
-  u32 i;                                                                      \
-  u32 offset = 0;                                                             \
-                                                                              \
-  thumb_generate_load_reg(reg_s0, base_reg);                                  \
-  ARM_BIC_REG_IMM(0, reg_s0, reg_s0, 0x03, 0);                                \
-  thumb_block_address_preadjust_##pre_op();                                   \
-  thumb_block_address_postadjust_##post_op(base_reg);                         \
-  thumb_generate_store_reg(reg_s0, REG_SAVE);                                 \
-                                                                              \
-  for(i = 0; i < 8; i++)                                                      \
-  {                                                                           \
-    if((reg_list >> i) & 0x01)                                                \
-    {                                                                         \
-      cycle_count++;                                                          \
-      thumb_generate_load_reg(reg_s0, REG_SAVE);                              \
-      generate_add_reg_reg_imm(reg_a0, reg_s0, offset, 0);                    \
-      if(reg_list & ~((2 << i) - 1))                                          \
-      {                                                                       \
-        thumb_block_memory_##access_type();                                   \
-        offset += 4;                                                          \
-      }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        thumb_block_memory_final_##post_op(access_type);                      \
-        break;                                                                \
-      }                                                                       \
-    }                                                                         \
-  }                                                                           \
-                                                                              \
-  thumb_block_memory_extra_##post_op();                                       \
-}                                                                             \
-
 #define thumb_conditional_branch(condition)                                   \
 {                                                                             \
   generate_cycle_update();                                                    \
@@ -1913,6 +1812,87 @@ public:
     ARM_BLX(0, reg_a2);
     write32((it.pc + 2));
   }
+
+
+  template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
+  inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
+    const u32 numops_lo = bit_count[rlist & 0xFF];   // TODO: For cycle compatibility with previous changes
+    cycle_count += numops_lo;    // TODO: Use proper cycle accounting.
+
+    const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
+    const s32 endoff = stpoff * numops;
+    const s32 inioff = (addrmode == AddrPreInc)  ? 4 :
+                       (addrmode == AddrPostInc) ? 0 :
+                       (addrmode == AddrPreDec)  ? endoff :
+                                                   endoff + 4;
+
+    // Load base register, clear its lower bits.
+    // TODO make this compatible with ARM mode as well
+    u32 nreg = thumb_prepare_load_reg_pc(reg_a1, basereg, it.pc + 4);
+    ARM_BIC_REG_IMM(0, reg_a0, nreg, 0x03, 0);
+    arm_generate_store_reg(reg_a0, REG_SAVE);
+
+    // If base is in the reglist and writeback is enabled, the value of the
+    // written register depends on the write cycle (ARM7TDM manual 4.11.6).
+    // If the register is the first, the written value is the original value,
+    // otherwise the update base register is written. For LDM loaded data
+    // takes always precendence.
+    bool wrbck_base = (1 << basereg) & rlist;
+    bool base_first = (((1 << basereg) - 1) & rlist) == 0;
+    bool writeback_first = (amode == AccLoad) || !(wrbck_base && base_first);
+
+    // This is the most common case by far.
+    if (writeback && writeback_first) {
+      u32 scratch = thumb_prepare_store_reg(reg_a2, basereg);
+      generate_addsubi(scratch, nreg, endoff);
+      thumb_generate_store_reg(scratch, basereg);
+    }
+
+    u32 aoff = 0;
+    for (u32 i = 0; i < 16; i++) {
+      if (rlist & (1 << i)) {
+        thumb_generate_load_reg(reg_a0, REG_SAVE);
+        generate_addsubi(reg_a0, reg_a0, (aoff + inioff));
+        if (amode == AccLoad) {
+          u32 ldtype = ldr_handler_offset<u32>();
+          mem_calc_region(0);
+          generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
+          ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);
+          ARM_BLX(0, reg_a2);
+          write32(it.pc + 2);   // TODO FIX for ARM MODE?
+          thumb_generate_store_reg(reg_rv, i);
+        } else {
+          thumb_generate_load_reg(reg_a1, i);   // TODO Make this ARM compat (use PC variant too!)
+
+          // Update the base register right after the first read if necessary
+          if (writeback && !writeback_first) {
+            u32 scratch = thumb_prepare_store_reg(reg_a2, basereg);
+            generate_addsubi(scratch, nreg, endoff);
+            thumb_generate_store_reg(scratch, basereg);
+            writeback_first = true;
+          }
+
+          if (rlist >> (i + 1)) {
+            generate_store_call_u32_safe();
+          } else {
+            generate_store_call_u32();
+            write32(it.pc + 2);
+          }
+        }
+        aoff += 4;
+      }
+    }
+
+    // Load PC requires an indirect branch
+    if (amode == AccLoad && (rlist & (1 << REG_PC))) {
+      // TODO: allow thumb/arm modes here!
+      generate_indirect_branch_cycle_update(thumb);
+    }
+  }
+
 
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>

@@ -110,6 +110,14 @@ typedef enum {
   OffReg, OffPC, OffImm5, OffImm8
 } ThumbMemOffset;
 
+typedef enum {
+  AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec
+} AddrMode;
+
+typedef enum {
+  AccLoad, AccStore
+} AccMode;
+
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
 
@@ -1825,103 +1833,71 @@ void translate_icache_sync() {
       ce.thumb_spadj(inst.imm71());                                           \
       break;                                                                  \
                                                                               \
-    case 0xB4:                                                                \
-      /* PUSH rlist */                                                        \
-      thumb_block_memory(store, down, no, 13);                                \
+    case 0xB4:               /* PUSH rlist */                                 \
+      ce.mem_multi<AccStore, AddrPreDec, true, false>(                        \
+        inst, REG_SP, inst.rlist(), cycle_count);                             \
+      break;                                                                  \
+    case 0xB5:               /* PUSH rlist, lr */                             \
+      ce.mem_multi<AccStore, AddrPreDec, true, false>(                        \
+        inst, REG_SP, inst.rlist() | (1 << REG_LR), cycle_count);             \
+      break;                                                                  \
+    case 0xBC:               /* POP rlist */                                  \
+      ce.mem_multi<AccLoad, AddrPostInc, true, false>(                        \
+        inst, REG_SP, inst.rlist(), cycle_count);                             \
+      break;                                                                  \
+    case 0xBD:               /* POP rlist, pc */                              \
+      ce.mem_multi<AccLoad, AddrPostInc, true, false>(                        \
+        inst, REG_SP, inst.rlist() | (1 << REG_PC), cycle_count);             \
+      break;                                                                  \
+    case 0xC0 ... 0xC7:      /* STMIA r0-7!, rlist */                         \
+      ce.mem_multi<AccStore, AddrPostInc, true, false>(                       \
+        inst, inst.rptr(), inst.rlist(), cycle_count);                        \
+      break;                                                                  \
+    case 0xC8 ... 0xCF:      /* LDMIA r0-7!, rlist */                         \
+      ce.mem_multi<AccLoad, AddrPostInc, true, false>(                        \
+        inst, inst.rptr(), inst.rlist(), cycle_count);                        \
       break;                                                                  \
                                                                               \
-    case 0xB5:                                                                \
-      /* PUSH rlist, lr */                                                    \
-      thumb_block_memory(store, push_lr, push_lr, 13);                        \
-      break;                                                                  \
-                                                                              \
-    case 0xBC:                                                                \
-      /* POP rlist */                                                         \
-      thumb_block_memory(load, no, up, 13);                                   \
-      break;                                                                  \
-                                                                              \
-    case 0xBD:                                                                \
-      /* POP rlist, pc */                                                     \
-      thumb_block_memory(load, no, pop_pc, 13);                               \
-      break;                                                                  \
-                                                                              \
-    case 0xC0 ... 0xC7:                                                       \
-      /* STMIA r0-7!, rlist */                                                \
-      thumb_block_memory(store, no, up, inst.rptr());                         \
-      break;                                                                  \
-                                                                              \
-    case 0xC8 ... 0xCF:                                                       \
-      /* LDMIA r0-7!, rlist */                                                \
-      thumb_block_memory(load, no, up, inst.rptr());                          \
-      break;                                                                  \
-                                                                              \
-    case 0xD0:                                                                \
-      /* BEQ label */                                                         \
+    case 0xD0:     /* BEQ label */                                            \
       thumb_conditional_branch(eq);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD1:                                                                \
-      /* BNE label */                                                         \
+    case 0xD1:     /* BNE label */                                            \
       thumb_conditional_branch(ne);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD2:                                                                \
-      /* BCS label */                                                         \
+    case 0xD2:     /* BCS label */                                            \
       thumb_conditional_branch(cs);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD3:                                                                \
-      /* BCC label */                                                         \
+    case 0xD3:     /* BCC label */                                            \
       thumb_conditional_branch(cc);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD4:                                                                \
-      /* BMI label */                                                         \
+    case 0xD4:     /* BMI label */                                            \
       thumb_conditional_branch(mi);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD5:                                                                \
-      /* BPL label */                                                         \
+    case 0xD5:     /* BPL label */                                            \
       thumb_conditional_branch(pl);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD6:                                                                \
-      /* BVS label */                                                         \
+    case 0xD6:     /* BVS label */                                            \
       thumb_conditional_branch(vs);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD7:                                                                \
-      /* BVC label */                                                         \
+    case 0xD7:     /* BVC label */                                            \
       thumb_conditional_branch(vc);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD8:                                                                \
-      /* BHI label */                                                         \
+    case 0xD8:     /* BHI label */                                            \
       thumb_conditional_branch(hi);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xD9:                                                                \
-      /* BLS label */                                                         \
+    case 0xD9:     /* BLS label */                                            \
       thumb_conditional_branch(ls);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xDA:                                                                \
-      /* BGE label */                                                         \
+    case 0xDA:     /* BGE label */                                            \
       thumb_conditional_branch(ge);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xDB:                                                                \
-      /* BLT label */                                                         \
+    case 0xDB:     /* BLT label */                                            \
       thumb_conditional_branch(lt);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xDC:                                                                \
-      /* BGT label */                                                         \
+    case 0xDC:     /* BGT label */                                            \
       thumb_conditional_branch(gt);                                           \
       break;                                                                  \
-                                                                              \
-    case 0xDD:                                                                \
-      /* BLE label */                                                         \
+    case 0xDD:     /* BLE label */                                            \
       thumb_conditional_branch(le);                                           \
       break;                                                                  \
                                                                               \

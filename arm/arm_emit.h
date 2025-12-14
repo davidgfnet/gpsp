@@ -1009,69 +1009,6 @@ u32 execute_spsr_restore_body(u32 pc)
   arm_generate_op_##type(name, yes, yes, flags_op);                           \
 }                                                                             \
 
-
-#define arm_multiply_add_no_flags_no()                                        \
-  ARM_MUL(0, _rd, _rm, _rs)                                                   \
-
-#define arm_multiply_add_yes_flags_no()                                       \
-  u32 _rn = arm_prepare_load_reg(translation_ptr, reg_a2, rn);                \
-  ARM_MLA(0, _rd, _rm, _rs, _rn)                                              \
-
-#define arm_multiply_add_no_flags_yes()                                       \
-  ARM_MULS(0, _rd, _rm, _rs)                                                  \
-
-#define arm_multiply_add_yes_flags_yes()                                      \
-  u32 _rn = arm_prepare_load_reg(translation_ptr, reg_a2, rn);                \
-  ARM_MLAS(0, _rd, _rm, _rs, _rn);                                            \
-
-
-#define arm_multiply(add_op, flags)                                           \
-{                                                                             \
-  arm_decode_multiply();                                                      \
-  u32 _rm = arm_prepare_load_reg(translation_ptr, reg_a0, rm);                \
-  u32 _rs = arm_prepare_load_reg(translation_ptr, reg_a1, rs);                \
-  u32 _rd = arm_prepare_store_reg(reg_a0, rd);                                \
-  arm_multiply_add_##add_op##_flags_##flags();                                \
-  arm_complete_store_reg(_rd, rd);                                            \
-}                                                                             \
-
-
-#define arm_multiply_long_name_s64     SMULL
-#define arm_multiply_long_name_u64     UMULL
-#define arm_multiply_long_name_s64_add SMLAL
-#define arm_multiply_long_name_u64_add UMLAL
-
-
-#define arm_multiply_long_flags_no(name)                                      \
-  ARM_##name(0, _rdlo, _rdhi, _rm, _rs)                                       \
-
-#define arm_multiply_long_flags_yes(name)                                     \
-  ARM_##name##S(0, _rdlo, _rdhi, _rm, _rs);                                   \
-
-
-#define arm_multiply_long_add_no(name)                                        \
-
-#define arm_multiply_long_add_yes(name)                                       \
-  arm_prepare_load_reg(translation_ptr, reg_a0, rdlo);                        \
-  arm_prepare_load_reg(translation_ptr, reg_a1, rdhi)                         \
-
-
-#define arm_multiply_long_op(flags, name)                                     \
-  arm_multiply_long_flags_##flags(name)                                       \
-
-#define arm_multiply_long(name, add_op, flags)                                \
-{                                                                             \
-  arm_decode_multiply_long();                                                 \
-  u32 _rm = arm_prepare_load_reg(translation_ptr, reg_a2, rm);                \
-  u32 _rs = arm_prepare_load_reg(translation_ptr, reg_rs, rs);                \
-  u32 _rdlo = (rdlo == rdhi) ? reg_a0 : arm_prepare_store_reg(reg_a0, rdlo);  \
-  u32 _rdhi = arm_prepare_store_reg(reg_a1, rdhi);                            \
-  arm_multiply_long_add_##add_op(name);                                       \
-  arm_multiply_long_op(flags, arm_multiply_long_name_##name);                 \
-  arm_complete_store_reg(_rdlo, rdlo);                                        \
-  arm_complete_store_reg(_rdhi, rdhi);                                        \
-}                                                                             \
-
 #define arm_psr_read_cpsr()                                                   \
 {                                                                             \
   u32 _rd = arm_prepare_store_reg(reg_a0, rd);                                \
@@ -2309,6 +2246,79 @@ public:
          break;
       };
     }
+  }
+
+  // Performs 32 bit multiplications (rd and rn are swapped)
+  template<FlagOperation flg, MulMode mm>
+  inline void arm_mul32(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
+    u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 8);
+    u32 rd = arm_prepare_store_reg(reg_a2, it.rn());
+
+    if (mm == MulAdd) {
+      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rd(), it.pc + 8);
+      if (flg == SetFlags) {
+        ARM_MLAS(0, rd, rm, rs, rn);
+      } else {
+        ARM_MLA(0, rd, rm, rs, rn);
+      }
+    } else {
+      if (flg == SetFlags) {
+        ARM_MULS(0, rd, rm, rs);
+      } else {
+        ARM_MUL(0, rd, rm, rs);
+      }
+    }
+
+    arm_complete_store_reg(rd, it.rn());
+  }
+
+  // Performs 64 bit multiplications
+  template<FlagOperation flg, MulMode mm, bool signmul>
+  inline void arm_mul64(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
+    u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 8);
+    u32 rdlo = (mm == MulAdd) ? arm_prepare_load_reg_pc(reg_a1, it.rdlo(), it.pc + 8)
+                              : arm_prepare_store_reg(reg_a1, it.rdlo());
+    u32 rdhi = (mm == MulAdd) ? arm_prepare_load_reg_pc(reg_a2, it.rdhi(), it.pc + 8)
+                              : arm_prepare_store_reg(reg_a2, it.rdhi());
+
+    if (signmul) {
+      if (mm == MulAdd) {
+        if (flg == SetFlags) {
+          ARM_SMLALS(0, rdlo, rdhi, rm, rs);
+        } else {
+          ARM_SMLAL(0, rdlo, rdhi, rm, rs);
+        }
+      } else {
+        if (flg == SetFlags) {
+          ARM_SMULLS(0, rdlo, rdhi, rm, rs);
+        } else {
+          ARM_SMULL(0, rdlo, rdhi, rm, rs);
+        }
+      }
+    } else {
+      if (mm == MulAdd) {
+        if (flg == SetFlags) {
+          ARM_UMLALS(0, rdlo, rdhi, rm, rs);
+        } else {
+          ARM_UMLAL(0, rdlo, rdhi, rm, rs);
+        }
+      } else {
+        if (flg == SetFlags) {
+          ARM_UMULLS(0, rdlo, rdhi, rm, rs);
+        } else {
+          ARM_UMULL(0, rdlo, rdhi, rm, rs);
+        }
+      }
+    }
+
+    arm_complete_store_reg(rdlo, it.rdlo());
+    arm_complete_store_reg(rdhi, it.rdhi());
   }
 
 };

@@ -205,16 +205,6 @@ extern "C" {
 #define generate_multiply_u64(ireg)                                           \
   x86_emit_mul_eax_reg(reg_##ireg)                                            \
 
-#define generate_multiply_s64_add(ireg_src, ireg_lo, ireg_hi)                 \
-  x86_emit_imul_eax_reg(reg_##ireg_src);                                      \
-  x86_emit_add_reg_reg(reg_a0, reg_##ireg_lo);                                \
-  x86_emit_adc_reg_reg(reg_a1, reg_##ireg_hi)                                 \
-
-#define generate_multiply_u64_add(ireg_src, ireg_lo, ireg_hi)                 \
-  x86_emit_mul_eax_reg(reg_##ireg_src);                                       \
-  x86_emit_add_reg_reg(reg_a0, reg_##ireg_lo);                                \
-  x86_emit_adc_reg_reg(reg_a1, reg_##ireg_hi)                                 \
-
 
 #define generate_function_call(function_location)                             \
   x86_emit_call_offset(x86_relative_offset(translation_ptr,                   \
@@ -772,58 +762,6 @@ u32 function_cc execute_spsr_restore(u32 address)
   block_exit_position++;                                                      \
 }                                                                             \
 
-#define arm_multiply_flags_yes()                                              \
-  generate_and(a0, a0);                                                       \
-  generate_update_flag(z, REG_Z_FLAG)                                         \
-  generate_update_flag(s, REG_N_FLAG)
-
-#define arm_multiply_flags_no(_dest)                                          \
-
-#define arm_multiply_add_no()                                                 \
-
-#define arm_multiply_add_yes()                                                \
-  generate_load_reg(a1, rn);                                                  \
-  generate_add(a0, a1)                                                        \
-
-#define arm_multiply(add_op, flags)                                           \
-{                                                                             \
-  arm_decode_multiply();                                                      \
-  generate_load_reg(a0, rm);                                                  \
-  generate_load_reg(a1, rs);                                                  \
-  generate_multiply(a1);                                                      \
-  arm_multiply_add_##add_op();                                                \
-  arm_multiply_flags_##flags();                                               \
-  generate_store_reg(a0, rd);                                                 \
-}                                                                             \
-
-#define arm_multiply_long_flags_yes()                                         \
-  generate_mov(t0, a1);                                                       \
-  generate_and(t0, t0);                                                       \
-  generate_update_flag(s, REG_N_FLAG)                                         \
-  generate_or(t0, a0);                                                        \
-  generate_update_flag(z, REG_Z_FLAG)                                         \
-
-#define arm_multiply_long_flags_no(_dest)                                     \
-
-#define arm_multiply_long_add_yes(name)                                       \
-  generate_load_reg(a2, rdlo);                                                \
-  generate_load_reg(t0, rdhi);                                                \
-  generate_multiply_##name(a1, a2, t0)                                        \
-
-#define arm_multiply_long_add_no(name)                                        \
-  generate_multiply_##name(a1)                                                \
-
-#define arm_multiply_long(name, add_op, flags)                                \
-{                                                                             \
-  arm_decode_multiply_long();                                                 \
-  generate_load_reg(a0, rm);                                                  \
-  generate_load_reg(a1, rs);                                                  \
-  arm_multiply_long_add_##add_op(name);                                       \
-  generate_store_reg(a0, rdlo);                                               \
-  generate_store_reg(a1, rdhi);                                               \
-  arm_multiply_long_flags_##flags();                                          \
-}                                                                             \
-
 #define execute_read_cpsr(oreg)                                               \
   collapse_flags(oreg, a2)
 
@@ -1208,44 +1146,7 @@ u32 execute_store_cpsr_body()
     generate_update_flag(o, REG_V_FLAG)                                       \
   }                                                                           \
 
-#define arm_data_proc_add(rd, storefnc)                                       \
-  generate_add(a0, a1);                                                       \
-  storefnc(a0, rd);
-
-#define arm_data_proc_adds(rd, storefnc)                                      \
-  generate_add(a0, a1);                                                       \
-  update_add_flags();                                                         \
-  storefnc(a0, rd);
-
-// Argument ordering is inverted between arm and x86
-#define arm_data_proc_sub(rd, storefnc)                                       \
-  generate_sub(a1, a0);                                                       \
-  storefnc(a1, rd);
-
-#define arm_data_proc_rsb(rd, storefnc)                                       \
-  generate_sub(a0, a1);                                                       \
-  storefnc(a0, rd);
-
 // Borrow flag in ARM is opposite to carry flag in x86
-#define arm_data_proc_subs(rd, storefnc)                                      \
-  generate_sub(a1, a0);                                                       \
-  update_sub_flags();                                                         \
-  storefnc(a1, rd);
-
-#define arm_data_proc_rsbs(rd, storefnc)                                      \
-  generate_sub(a0, a1);                                                       \
-  update_sub_flags();                                                         \
-  storefnc(a0, rd);
-
-#define arm_data_proc_mul(rd, storefnc)                                       \
-  generate_multiply(a1);                                                      \
-  storefnc(a0, rd);
-
-#define arm_data_proc_muls(rd, storefnc)                                      \
-  generate_multiply(a1);                                                      \
-  generate_and(a0, a0);                                                       \
-  update_logical_flags();                                                     \
-  storefnc(a0, rd);
 
 #define load_c_flag(tmpreg)                                                   \
   /* Loads the flag to the right value by adding it to ~0 causing carry */    \
@@ -2194,6 +2095,60 @@ public:
        break;
     };
   }
+
+  // Performs 32 bit multiplications (rd and rn are swapped)
+  template<FlagOperation flg, MulMode mm>
+  inline void arm_mul32(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    emit_load_reg_pc(a0, it.rm(), 8);
+    emit_load_reg_pc(a1, it.rs(), 8);
+    generate_multiply(a1);
+
+    if (mm == MulAdd) {
+      emit_load_reg_pc(a1, it.rd(), 8);
+      generate_add(a0, a1);
+    } else if (flg == SetFlags) {
+      generate_and(a0, a0);
+    }
+
+    upd_nz_flags<flg>(it);
+    generate_store_reg(a0, it.rn());
+  }
+
+  // Performs 64 bit multiplications
+  template<FlagOperation flg, MulMode mm, bool signmul>
+  inline void arm_mul64(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    emit_load_reg_pc(a0, it.rm(), 8);
+    emit_load_reg_pc(a1, it.rs(), 8);
+
+    if (signmul) {
+      generate_multiply_s64(a1);
+    } else {
+      generate_multiply_u64(a1);
+    }
+
+    if (mm == MulAdd) {
+      generate_load_reg(a2, it.rdlo());
+      generate_load_reg(t0, it.rdhi());
+      generate_add(a0, a2);
+      generate_adc(a1, t0);
+    }
+
+    if (flg == SetFlags) {
+      generate_mov(t0, a1);
+      generate_and(t0, t0);
+      generate_update_flag(s, REG_N_FLAG);
+      generate_or(t0, a0);
+      generate_update_flag(z, REG_Z_FLAG);
+    }
+
+    generate_store_reg(a0, it.rdlo());
+    generate_store_reg(a1, it.rdhi());
+  }
+
 };
 
 

@@ -785,70 +785,6 @@ u32 execute_spsr_restore_body(u32 address)
   aa64_emit_movne(reg_temp, 0);                                               \
   aa64_emit_adds(reg_temp, reg_temp, reg_c_cache);                            \
 
-// Muls instruction
-#define generate_op_muls_reg(_rd, _rn, _rm)                                   \
-  aa64_emit_mul(_rd, _rn, _rm);                                               \
-  generate_op_logic_flags(_rd)                                                \
-
-// 32 bit multiplication
-
-#define arm_multiply_flags_yes(_rd)                                           \
-  generate_op_logic_flags(_rd)                                                \
-
-#define arm_multiply_flags_no(_rd)                                            \
-
-#define arm_multiply_add_no()                                                 \
-  aa64_emit_mul(arm_to_a64_reg[rd], arm_to_a64_reg[rm], arm_to_a64_reg[rs]);  \
-
-#define arm_multiply_add_yes()                                                \
-  aa64_emit_madd(arm_to_a64_reg[rd], arm_to_a64_reg[rn],                      \
-                 arm_to_a64_reg[rm], arm_to_a64_reg[rs]);                     \
-
-#define arm_multiply(add_op, flags)                                           \
-{                                                                             \
-  arm_decode_multiply();                                                      \
-  arm_multiply_add_##add_op();                                                \
-  arm_multiply_flags_##flags(arm_to_a64_reg[rd]);                             \
-}                                                                             \
-
-// 32x32 -> 64 multiplication (long mul/muladd)
-
-#define generate_multiply_s64()                                               \
-  aa64_emit_smaddl(reg_temp, reg_zero, arm_to_a64_reg[rm], arm_to_a64_reg[rs])
-
-#define generate_multiply_u64()                                               \
-  aa64_emit_umaddl(reg_temp, reg_zero, arm_to_a64_reg[rm], arm_to_a64_reg[rs])
-
-#define generate_multiply_s64_add()                                           \
-  aa64_emit_smaddl(reg_temp, reg_temp, arm_to_a64_reg[rm], arm_to_a64_reg[rs])
-
-#define generate_multiply_u64_add()                                           \
-  aa64_emit_umaddl(reg_temp, reg_temp, arm_to_a64_reg[rm], arm_to_a64_reg[rs])
-
-#define arm_multiply_long_flags_yes(_rdlo, _rdhi)                             \
-  aa64_emit_orr(reg_z_cache, _rdlo, _rdhi);                                   \
-  aa64_emit_cmpi(reg_z_cache, 0);                                             \
-  aa64_emit_cset(reg_z_cache, ccode_eq);                                      \
-  aa64_emit_lsr(reg_n_cache, _rdhi, 31);                                      \
-
-#define arm_multiply_long_flags_no(_rdlo, _rdhi)                              \
-
-#define arm_multiply_long_add_yes(name)                                       \
-  aa64_emit_merge_regs(reg_temp, arm_to_a64_reg[rdhi], arm_to_a64_reg[rdlo]); \
-  generate_multiply_##name()                                                  \
-
-#define arm_multiply_long_add_no(name)                                        \
-  generate_multiply_##name()                                                  \
-
-#define arm_multiply_long(name, add_op, flags)                                \
-{                                                                             \
-  arm_decode_multiply_long();                                                 \
-  arm_multiply_long_add_##add_op(name);                                       \
-  aa64_emit_andi64(arm_to_a64_reg[rdlo], reg_temp, 0, 31);                    \
-  aa64_emit_lsr64(arm_to_a64_reg[rdhi], reg_temp, 32);                        \
-  arm_multiply_long_flags_##flags(arm_to_a64_reg[rdlo], arm_to_a64_reg[rdhi]);\
-}                                                                             \
-
 #define arm_psr_read(op_type, psr_reg)                                        \
   generate_function_call(execute_read_##psr_reg);                             \
   generate_store_reg(reg_res, rd)                                             \
@@ -2059,6 +1995,64 @@ public:
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     };
+  }
+
+  // Performs 32 bit multiplications (rd and rn are swapped)
+  template<FlagOperation flg, MulMode mm>
+  inline void arm_mul32(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
+    u32 rd = store_alloc_reg(it.rn(), reg_a2);
+
+    if (mm == MulAdd) {
+      u32 rn = load_alloc_reg(it.rd(), reg_temp, it.pc + 8);
+      aa64_emit_madd(rd, rn, rm, rs);
+    } else {
+      aa64_emit_mul(rd, rm, rs);
+    }
+
+    update_nz_flags<flg>(it, rd);
+    // Writing PC is not really defined.
+  }
+
+  // Performs 64 bit multiplications
+  template<FlagOperation flg, MulMode mm, bool signmul>
+  inline void arm_mul64(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
+    u32 rdlo = (mm == MulAdd) ? load_alloc_reg(it.rdlo(), reg_temp, it.pc + 8)
+                              : store_alloc_reg(it.rdlo(), reg_temp);
+    u32 rdhi = (mm == MulAdd) ? load_alloc_reg(it.rdhi(), reg_temp2, it.pc + 8)
+                              : store_alloc_reg(it.rdhi(), reg_temp2);
+
+    if (mm == MulAdd) {
+      aa64_emit_merge_regs(reg_a2, rdhi, rdlo);
+      if (signmul) {
+        aa64_emit_smaddl(reg_a2, reg_a2, rm, rs);
+      } else {
+        aa64_emit_umaddl(reg_a2, reg_a2, rm, rs);
+      }
+    } else {
+      if (signmul) {
+        aa64_emit_smaddl(reg_a2, reg_zero, rm, rs);
+      } else {
+        aa64_emit_umaddl(reg_a2, reg_zero, rm, rs);
+      }
+    }
+
+    aa64_emit_andi64(rdlo, reg_a2, 0, 31);
+    aa64_emit_lsr64(rdhi, reg_a2, 32);
+
+    if (flg == SetFlags) {
+      aa64_emit_orr(reg_z_cache, rdlo, rdhi);
+      aa64_emit_cmpi(reg_z_cache, 0);  // TODO: perform the check on 64 bits to save 1 inst.
+      aa64_emit_cset(reg_z_cache, ccode_eq);
+      aa64_emit_lsr(reg_n_cache, rdhi, 31);
+    }
   }
 
 };

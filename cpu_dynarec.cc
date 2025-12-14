@@ -94,6 +94,10 @@ typedef struct
 } block_exit_type;
 
 typedef enum {
+  MulOnly, MulAdd
+} MulMode;
+
+typedef enum {
   OpAnd, OpOrr, OpXor, OpBic,
   OpAdd, OpAdc, OpSub, OpSbc,
   OpRsb, OpRsc,
@@ -136,20 +140,6 @@ typedef enum {
 
 #define arm_decode_branchx(opcode)                                            \
   u32 rn = opcode & 0x0F                                                      \
-
-#define arm_decode_multiply()                                                 \
-  u32 rd = (opcode >> 16) & 0x0F;                                             \
-  u32 rn = (opcode >> 12) & 0x0F;                                             \
-  u32 rs = (opcode >> 8) & 0x0F;                                              \
-  u32 rm = opcode & 0x0F;                                                     \
-  (void)rn;                                                                   \
-  (void)rd;
-
-#define arm_decode_multiply_long()                                            \
-  u32 rdhi = (opcode >> 16) & 0x0F;                                           \
-  u32 rdlo = (opcode >> 12) & 0x0F;                                           \
-  u32 rs = (opcode >> 8) & 0x0F;                                              \
-  u32 rm = opcode & 0x0F                                                      \
 
 #define arm_decode_swap()                                                     \
   u32 rn = (opcode >> 16) & 0x0F;                                             \
@@ -200,9 +190,6 @@ typedef enum {
   u32 rs = (opcode >> 3) & 0x0F;                                              \
   u32 rd = ((opcode >> 4) & 0x08) | (opcode & 0x07);                          \
   (void)rd;
-
-#define thumb_decode_rlist()                                                  \
-  u32 reg_list = opcode & 0xFF                                                \
 
 #define thumb_decode_branch_cond()                                            \
   s32 offset = (s8)(opcode & 0xFF)                                            \
@@ -314,7 +301,7 @@ void translate_icache_sync() {
         else                                                                  \
         {                                                                     \
           /* MUL rd, rm, rs */                                                \
-          arm_multiply(no, no);                                               \
+          ce.arm_mul32<NoFlags, MulOnly>(inst);                               \
           cycle_count += 2;  /* variable 1..4, pick 2 as an aprox. */         \
         }                                                                     \
       }                                                                       \
@@ -330,7 +317,7 @@ void translate_icache_sync() {
         {                                                                     \
           case 0:                                                             \
             /* MULS rd, rm, rs */                                             \
-            arm_multiply(no, yes);                                            \
+            ce.arm_mul32<SetFlags, MulOnly>(inst);                            \
             cycle_count += 2;  /* variable 1..4, pick 2 as an aprox. */       \
             break;                                                            \
                                                                               \
@@ -366,7 +353,7 @@ void translate_icache_sync() {
         else                                                                  \
         {                                                                     \
           /* MLA rd, rm, rs, rn */                                            \
-          arm_multiply(yes, no);                                              \
+          ce.arm_mul32<NoFlags, MulAdd>(inst);                                \
           cycle_count += 3;  /* variable 2..5, pick 3 as an aprox. */         \
         }                                                                     \
       }                                                                       \
@@ -382,7 +369,7 @@ void translate_icache_sync() {
         {                                                                     \
           case 0:                                                             \
             /* MLAS rd, rm, rs, rn */                                         \
-            arm_multiply(yes, yes);                                           \
+            ce.arm_mul32<SetFlags, MulAdd>(inst);                             \
             cycle_count += 3;  /* variable 2..5, pick 3 as an aprox. */       \
             break;                                                            \
                                                                               \
@@ -492,7 +479,7 @@ void translate_icache_sync() {
         else                                                                  \
         {                                                                     \
           /* UMULL rd, rm, rs */                                              \
-          arm_multiply_long(u64, no, no);                                     \
+          ce.arm_mul64<NoFlags, MulOnly, false>(inst);                        \
           cycle_count += 3;  /* this is an aproximation :P */                 \
         }                                                                     \
       }                                                                       \
@@ -508,7 +495,7 @@ void translate_icache_sync() {
         {                                                                     \
           case 0:                                                             \
             /* UMULLS rdlo, rdhi, rm, rs */                                   \
-            arm_multiply_long(u64, no, yes);                                  \
+            ce.arm_mul64<SetFlags, MulOnly, false>(inst);                     \
             cycle_count += 3;  /* this is an aproximation :P */               \
             break;                                                            \
                                                                               \
@@ -544,7 +531,7 @@ void translate_icache_sync() {
         else                                                                  \
         {                                                                     \
           /* UMLAL rd, rm, rs */                                              \
-          arm_multiply_long(u64_add, yes, no);                                \
+          ce.arm_mul64<NoFlags, MulAdd, false>(inst);                         \
           cycle_count += 3;  /* Between 2 and 5 cycles? */                    \
         }                                                                     \
       }                                                                       \
@@ -560,7 +547,7 @@ void translate_icache_sync() {
         {                                                                     \
           case 0:                                                             \
             /* UMLALS rdlo, rdhi, rm, rs */                                   \
-            arm_multiply_long(u64_add, yes, yes);                             \
+            ce.arm_mul64<SetFlags, MulAdd, false>(inst);                      \
             cycle_count += 3;  /* Between 2 and 5 cycles? */                  \
             break;                                                            \
                                                                               \
@@ -596,7 +583,7 @@ void translate_icache_sync() {
         else                                                                  \
         {                                                                     \
           /* SMULL rd, rm, rs */                                              \
-          arm_multiply_long(s64, no, no);                                     \
+          ce.arm_mul64<NoFlags, MulOnly, true>(inst);                         \
           cycle_count += 2;  /* Between 1 and 4 cycles? */                    \
         }                                                                     \
       }                                                                       \
@@ -612,7 +599,7 @@ void translate_icache_sync() {
         {                                                                     \
           case 0:                                                             \
             /* SMULLS rdlo, rdhi, rm, rs */                                   \
-            arm_multiply_long(s64, no, yes);                                  \
+            ce.arm_mul64<SetFlags, MulOnly, true>(inst);                      \
             cycle_count += 2;  /* Between 1 and 4 cycles? */                  \
             break;                                                            \
                                                                               \
@@ -648,7 +635,7 @@ void translate_icache_sync() {
         else                                                                  \
         {                                                                     \
           /* SMLAL rd, rm, rs */                                              \
-          arm_multiply_long(s64_add, yes, no);                                \
+          ce.arm_mul64<NoFlags, MulAdd, true>(inst);                          \
           cycle_count += 3;  /* Between 2 and 5 cycles? */                    \
         }                                                                     \
       }                                                                       \
@@ -664,7 +651,7 @@ void translate_icache_sync() {
         {                                                                     \
           case 0:                                                             \
             /* SMLALS rdlo, rdhi, rm, rs */                                   \
-            arm_multiply_long(s64_add, yes, yes);                             \
+            ce.arm_mul64<SetFlags, MulAdd, true>(inst);                       \
             cycle_count += 3;  /* Between 2 and 5 cycles? */                  \
             break;                                                            \
                                                                               \
@@ -1106,246 +1093,154 @@ void translate_icache_sync() {
       ce.arm_aluimm1<OpMvn, SetFlags>(inst, cycle_count);                     \
       break;                                                                  \
                                                                               \
-    case 0x40:                                                                \
-      /* STR rd, [rn], -imm */                                                \
+    /* Memops with immediate post-increment/decrement */                      \
+    case 0x40:     /* STR  rd, [rn], -imm */                                  \
+    case 0x42:     /* STRT rd, [rn], -imm */                                  \
       arm_access_memory(store, down, post, u32, imm);                         \
       break;                                                                  \
                                                                               \
-    case 0x41:                                                                \
-      /* LDR rd, [rn], -imm */                                                \
+    case 0x41:     /* LDR  rd, [rn], -imm */                                  \
+    case 0x43:     /* LDRT rd, [rn], -imm */                                  \
       arm_access_memory(load, down, post, u32, imm);                          \
       break;                                                                  \
                                                                               \
-    case 0x42:                                                                \
-      /* STRT rd, [rn], -imm */                                               \
-      arm_access_memory(store, down, post, u32, imm);                         \
-      break;                                                                  \
-                                                                              \
-    case 0x43:                                                                \
-      /* LDRT rd, [rn], -imm */                                               \
-      arm_access_memory(load, down, post, u32, imm);                          \
-      break;                                                                  \
-                                                                              \
-    case 0x44:                                                                \
-      /* STRB rd, [rn], -imm */                                               \
+    case 0x44:     /* STRB  rd, [rn], -imm */                                 \
+    case 0x46:     /* STRBT rd, [rn], -imm */                                 \
       arm_access_memory(store, down, post, u8, imm);                          \
       break;                                                                  \
                                                                               \
-    case 0x45:                                                                \
-      /* LDRB rd, [rn], -imm */                                               \
+    case 0x45:     /* LDRB  rd, [rn], -imm */                                 \
+    case 0x47:     /* LDRBT rd, [rn], -imm */                                 \
       arm_access_memory(load, down, post, u8, imm);                           \
       break;                                                                  \
                                                                               \
-    case 0x46:                                                                \
-      /* STRBT rd, [rn], -imm */                                              \
-      arm_access_memory(store, down, post, u8, imm);                          \
-      break;                                                                  \
-                                                                              \
-    case 0x47:                                                                \
-      /* LDRBT rd, [rn], -imm */                                              \
-      arm_access_memory(load, down, post, u8, imm);                           \
-      break;                                                                  \
-                                                                              \
-    case 0x48:                                                                \
-      /* STR rd, [rn], +imm */                                                \
+    case 0x48:     /* STR  rd, [rn], +imm */                                  \
+    case 0x4A:     /* STRT rd, [rn], +imm */                                  \
       arm_access_memory(store, up, post, u32, imm);                           \
       break;                                                                  \
                                                                               \
-    case 0x49:                                                                \
-      /* LDR rd, [rn], +imm */                                                \
+    case 0x49:     /* LDR  rd, [rn], +imm */                                  \
+    case 0x4B:     /* LDRT rd, [rn], +imm */                                  \
       arm_access_memory(load, up, post, u32, imm);                            \
       break;                                                                  \
                                                                               \
-    case 0x4A:                                                                \
-      /* STRT rd, [rn], +imm */                                               \
-      arm_access_memory(store, up, post, u32, imm);                           \
-      break;                                                                  \
-                                                                              \
-    case 0x4B:                                                                \
-      /* LDRT rd, [rn], +imm */                                               \
-      arm_access_memory(load, up, post, u32, imm);                            \
-      break;                                                                  \
-                                                                              \
-    case 0x4C:                                                                \
-      /* STRB rd, [rn], +imm */                                               \
+    case 0x4C:     /* STRB  rd, [rn], +imm */                                 \
+    case 0x4E:     /* STRBT rd, [rn], +imm */                                 \
       arm_access_memory(store, up, post, u8, imm);                            \
       break;                                                                  \
                                                                               \
-    case 0x4D:                                                                \
-      /* LDRB rd, [rn], +imm */                                               \
+    case 0x4D:     /* LDRB  rd, [rn], +imm */                                 \
+    case 0x4F:     /* LDRBT rd, [rn], +imm */                                 \
       arm_access_memory(load, up, post, u8, imm);                             \
       break;                                                                  \
                                                                               \
-    case 0x4E:                                                                \
-      /* STRBT rd, [rn], +imm */                                              \
-      arm_access_memory(store, up, post, u8, imm);                            \
-      break;                                                                  \
-                                                                              \
-    case 0x4F:                                                                \
-      /* LDRBT rd, [rn], +imm */                                              \
-      arm_access_memory(load, up, post, u8, imm);                             \
-      break;                                                                  \
-                                                                              \
-    case 0x50:                                                                \
-      /* STR rd, [rn - imm] */                                                \
+    /* Memops with immediate pre-increment/decrement (optional writeback) */  \
+    case 0x50:     /* STR rd, [rn - imm] */                                   \
       arm_access_memory(store, down, pre, u32, imm);                          \
       break;                                                                  \
                                                                               \
-    case 0x51:                                                                \
-      /* LDR rd, [rn - imm] */                                                \
+    case 0x51:     /* LDR rd, [rn - imm] */                                   \
       arm_access_memory(load, down, pre, u32, imm);                           \
       break;                                                                  \
                                                                               \
-    case 0x52:                                                                \
-      /* STR rd, [rn - imm]! */                                               \
+    case 0x52:     /* STR rd, [rn - imm]! */                                  \
       arm_access_memory(store, down, pre_wb, u32, imm);                       \
       break;                                                                  \
                                                                               \
-    case 0x53:                                                                \
-      /* LDR rd, [rn - imm]! */                                               \
+    case 0x53:     /* LDR rd, [rn - imm]! */                                  \
       arm_access_memory(load, down, pre_wb, u32, imm);                        \
       break;                                                                  \
                                                                               \
-    case 0x54:                                                                \
-      /* STRB rd, [rn - imm] */                                               \
+    case 0x54:     /* STRB rd, [rn - imm] */                                  \
       arm_access_memory(store, down, pre, u8, imm);                           \
       break;                                                                  \
                                                                               \
-    case 0x55:                                                                \
-      /* LDRB rd, [rn - imm] */                                               \
+    case 0x55:     /* LDRB rd, [rn - imm] */                                  \
       arm_access_memory(load, down, pre, u8, imm);                            \
       break;                                                                  \
                                                                               \
-    case 0x56:                                                                \
-      /* STRB rd, [rn - imm]! */                                              \
+    case 0x56:     /* STRB rd, [rn - imm]! */                                 \
       arm_access_memory(store, down, pre_wb, u8, imm);                        \
       break;                                                                  \
                                                                               \
-    case 0x57:                                                                \
-      /* LDRB rd, [rn - imm]! */                                              \
+    case 0x57:     /* LDRB rd, [rn - imm]! */                                 \
       arm_access_memory(load, down, pre_wb, u8, imm);                         \
       break;                                                                  \
                                                                               \
-    case 0x58:                                                                \
-      /* STR rd, [rn + imm] */                                                \
+    case 0x58:     /* STR rd, [rn + imm] */                                   \
       arm_access_memory(store, up, pre, u32, imm);                            \
       break;                                                                  \
                                                                               \
-    case 0x59:                                                                \
-      /* LDR rd, [rn + imm] */                                                \
+    case 0x59:     /* LDR rd, [rn + imm] */                                   \
       arm_access_memory(load, up, pre, u32, imm);                             \
       break;                                                                  \
                                                                               \
-    case 0x5A:                                                                \
-      /* STR rd, [rn + imm]! */                                               \
+    case 0x5A:     /* STR rd, [rn + imm]! */                                  \
       arm_access_memory(store, up, pre_wb, u32, imm);                         \
       break;                                                                  \
                                                                               \
-    case 0x5B:                                                                \
-      /* LDR rd, [rn + imm]! */                                               \
+    case 0x5B:     /* LDR rd, [rn + imm]! */                                  \
       arm_access_memory(load, up, pre_wb, u32, imm);                          \
       break;                                                                  \
                                                                               \
-    case 0x5C:                                                                \
-      /* STRB rd, [rn + imm] */                                               \
+    case 0x5C:     /* STRB rd, [rn + imm] */                                  \
       arm_access_memory(store, up, pre, u8, imm);                             \
       break;                                                                  \
                                                                               \
-    case 0x5D:                                                                \
-      /* LDRB rd, [rn + imm] */                                               \
+    case 0x5D:     /* LDRB rd, [rn + imm] */                                  \
       arm_access_memory(load, up, pre, u8, imm);                              \
       break;                                                                  \
                                                                               \
-    case 0x5E:                                                                \
-      /* STRB rd, [rn + imm]! */                                              \
+    case 0x5E:     /* STRB rd, [rn + imm]! */                                 \
       arm_access_memory(store, up, pre_wb, u8, imm);                          \
       break;                                                                  \
                                                                               \
-    case 0x5F:                                                                \
-      /* LDRBT rd, [rn + imm]! */                                             \
+    case 0x5F:     /* LDRB rd, [rn + imm]! */                                 \
       arm_access_memory(load, up, pre_wb, u8, imm);                           \
       break;                                                                  \
                                                                               \
-    case 0x60:                                                                \
-      /* STR rd, [rn], -rm */                                                 \
+    /* Memops with regop as post-increment/decrement */                       \
+    case 0x60:     /* STR  rd, [rn], -rm */                                   \
+    case 0x62:     /* STRT rd, [rn], -rm */                                   \
       arm_access_memory(store, down, post, u32, reg);                         \
       break;                                                                  \
                                                                               \
-    case 0x61:                                                                \
-      /* LDR rd, [rn], -rm */                                                 \
+    case 0x61:     /* LDR  rd, [rn], -rm */                                   \
+    case 0x63:     /* LDRT rd, [rn], -rm */                                   \
       arm_access_memory(load, down, post, u32, reg);                          \
       break;                                                                  \
                                                                               \
-    case 0x62:                                                                \
-      /* STRT rd, [rn], -rm */                                                \
-      arm_access_memory(store, down, post, u32, reg);                         \
-      break;                                                                  \
-                                                                              \
-    case 0x63:                                                                \
-      /* LDRT rd, [rn], -rm */                                                \
-      arm_access_memory(load, down, post, u32, reg);                          \
-      break;                                                                  \
-                                                                              \
-    case 0x64:                                                                \
-      /* STRB rd, [rn], -rm */                                                \
+    case 0x64:     /* STRB  rd, [rn], -rm */                                  \
+    case 0x66:     /* STRBT rd, [rn], -rm */                                  \
       arm_access_memory(store, down, post, u8, reg);                          \
       break;                                                                  \
                                                                               \
-    case 0x65:                                                                \
-      /* LDRB rd, [rn], -rm */                                                \
+    case 0x65:     /* LDRB  rd, [rn], -rm */                                  \
+    case 0x67:     /* LDRBT rd, [rn], -rm */                                  \
       arm_access_memory(load, down, post, u8, reg);                           \
       break;                                                                  \
                                                                               \
-    case 0x66:                                                                \
-      /* STRBT rd, [rn], -rm */                                               \
-      arm_access_memory(store, down, post, u8, reg);                          \
-      break;                                                                  \
-                                                                              \
-    case 0x67:                                                                \
-      /* LDRBT rd, [rn], -rm */                                               \
-      arm_access_memory(load, down, post, u8, reg);                           \
-      break;                                                                  \
-                                                                              \
-    case 0x68:                                                                \
-      /* STR rd, [rn], +rm */                                                 \
+    case 0x68:     /* STR  rd, [rn], +rm */                                   \
+    case 0x6A:     /* STRT rd, [rn], +rm */                                   \
       arm_access_memory(store, up, post, u32, reg);                           \
       break;                                                                  \
                                                                               \
-    case 0x69:                                                                \
-      /* LDR rd, [rn], +rm */                                                 \
+    case 0x69:     /* LDR  rd, [rn], +rm */                                   \
+    case 0x6B:     /* LDRT rd, [rn], +rm */                                   \
       arm_access_memory(load, up, post, u32, reg);                            \
       break;                                                                  \
                                                                               \
-    case 0x6A:                                                                \
-      /* STRT rd, [rn], +rm */                                                \
-      arm_access_memory(store, up, post, u32, reg);                           \
-      break;                                                                  \
-                                                                              \
-    case 0x6B:                                                                \
-      /* LDRT rd, [rn], +rm */                                                \
-      arm_access_memory(load, up, post, u32, reg);                            \
-      break;                                                                  \
-                                                                              \
-    case 0x6C:                                                                \
-      /* STRB rd, [rn], +rm */                                                \
+    case 0x6C:     /* STRB  rd, [rn], +rm */                                  \
+    case 0x6E:     /* STRBT rd, [rn], +rm */                                  \
       arm_access_memory(store, up, post, u8, reg);                            \
       break;                                                                  \
                                                                               \
-    case 0x6D:                                                                \
-      /* LDRB rd, [rn], +rm */                                                \
+    case 0x6D:     /* LDRB  rd, [rn], +rm */                                  \
+    case 0x6F:     /* LDRBT rd, [rn], +rm */                                  \
       arm_access_memory(load, up, post, u8, reg);                             \
       break;                                                                  \
                                                                               \
-    case 0x6E:                                                                \
-      /* STRBT rd, [rn], +rm */                                               \
-      arm_access_memory(store, up, post, u8, reg);                            \
-      break;                                                                  \
-                                                                              \
-    case 0x6F:                                                                \
-      /* LDRBT rd, [rn], +rm */                                               \
-      arm_access_memory(load, up, post, u8, reg);                             \
-      break;                                                                  \
-                                                                              \
+    /* Memops with regop as pre-increment/decrement (optional writeback) */   \
     case 0x70:                                                                \
       /* STR rd, [rn - rm] */                                                 \
       arm_access_memory(store, down, pre, u32, reg);                          \
@@ -1426,6 +1321,7 @@ void translate_icache_sync() {
       arm_access_memory(load, up, pre_wb, u8, reg);                           \
       break;                                                                  \
                                                                               \
+    /* Muliple memops */                                                      \
     case 0x80:                                                                \
       /* STMDA rn, rlist */                                                   \
       arm_block_memory(store, down_a, no, no);                                \

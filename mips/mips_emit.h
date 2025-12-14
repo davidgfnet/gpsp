@@ -170,18 +170,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 #define generate_mov(ireg_dest, ireg_src)                                     \
   mips_emit_addu(ireg_dest, ireg_src, reg_zero)                               \
 
-#define generate_multiply_s64()                                               \
-  mips_emit_mult(arm_to_mips_reg[rm], arm_to_mips_reg[rs])                    \
-
-#define generate_multiply_u64()                                               \
-  mips_emit_multu(arm_to_mips_reg[rm], arm_to_mips_reg[rs])                   \
-
-#define generate_multiply_s64_add()                                           \
-  mips_emit_madd(arm_to_mips_reg[rm], arm_to_mips_reg[rs])                    \
-
-#define generate_multiply_u64_add()                                           \
-  mips_emit_maddu(arm_to_mips_reg[rm], arm_to_mips_reg[rs])                   \
-
 #define generate_function_call(function_location)                             \
   mips_emit_jal(mips_absolute_offset(function_location));                     \
   mips_emit_nop()                                                             \
@@ -819,52 +807,6 @@ u32 execute_spsr_restore_body(u32 address)
   generate_load_reg_pc(reg_a1, rn, 8)                                         \
 
 #define arm_generate_op_load_no()                                             \
-
-#define arm_multiply_flags_yes(_rd)                                           \
-  generate_op_logic_flags(_rd)                                                \
-
-#define arm_multiply_flags_no(_rd)                                            \
-
-#define arm_multiply_add_no()                                                 \
-  mips_emit_mflo(arm_to_mips_reg[rd])                                         \
-
-#define arm_multiply_add_yes()                                                \
-  mips_emit_mflo(reg_temp);                                                   \
-  mips_emit_addu(arm_to_mips_reg[rd], reg_temp, arm_to_mips_reg[rn])          \
-
-#define arm_multiply(add_op, flags)                                           \
-{                                                                             \
-  arm_decode_multiply();                                                      \
-  mips_emit_multu(arm_to_mips_reg[rm], arm_to_mips_reg[rs]);                  \
-  arm_multiply_add_##add_op();                                                \
-  arm_multiply_flags_##flags(arm_to_mips_reg[rd]);                            \
-}                                                                             \
-
-#define arm_multiply_long_flags_yes(_rdlo, _rdhi)                             \
-  mips_emit_sltiu(reg_z_cache, _rdlo, 1);                                     \
-  mips_emit_sltiu(reg_a0, _rdhi, 1);                                          \
-  mips_emit_and(reg_z_cache, reg_z_cache, reg_a0);                            \
-  mips_emit_srl(reg_n_cache, _rdhi, 31);                                      \
-
-#define arm_multiply_long_flags_no(_rdlo, _rdhi)                              \
-
-#define arm_multiply_long_add_yes(name)                                       \
-  mips_emit_mtlo(arm_to_mips_reg[rdlo]);                                      \
-  mips_emit_mthi(arm_to_mips_reg[rdhi]);                                      \
-  generate_multiply_##name()                                                  \
-
-#define arm_multiply_long_add_no(name)                                        \
-  generate_multiply_##name()                                                  \
-
-#define arm_multiply_long(name, add_op, flags)                                \
-{                                                                             \
-  arm_decode_multiply_long();                                                 \
-  arm_multiply_long_add_##add_op(name);                                       \
-  mips_emit_mflo(arm_to_mips_reg[rdlo]);                                      \
-  mips_emit_mfhi(arm_to_mips_reg[rdhi]);                                      \
-  arm_multiply_long_flags_##flags(arm_to_mips_reg[rdlo],                      \
-   arm_to_mips_reg[rdhi]);                                                    \
-}                                                                             \
 
 #define arm_psr_read(op_type, psr_reg)                                        \
   generate_function_call(execute_read_##psr_reg);                             \
@@ -2238,6 +2180,68 @@ public:
       generate_op_adds_reg(reg_temp, rn, regop2);
       break;
     };
+  }
+
+  // Performs 32 bit multiplications (rd and rn are swapped)
+  template<FlagOperation flg, MulMode mm>
+  inline void arm_mul32(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
+    u32 rd = store_alloc_reg(it.rn(), reg_a2);
+
+    mips_emit_multu(rm, rs);
+
+    if (mm == MulAdd) {
+      u32 rn = load_alloc_reg(it.rd(), reg_temp, it.pc + 8);
+      mips_emit_mflo(reg_rv);
+      mips_emit_addu(rd, reg_rv, rn);
+    } else {
+      mips_emit_mflo(rd);
+    }
+
+    update_nz_flags<flg>(it, rd);
+    // Writing PC is not really defined.
+  }
+
+  // Performs 64 bit multiplications
+  template<FlagOperation flg, MulMode mm, bool signmul>
+  inline void arm_mul64(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
+    u32 rdlo = (mm == MulAdd) ? load_alloc_reg(it.rdlo(), reg_a2, it.pc + 8)
+                              : store_alloc_reg(it.rdlo(), reg_a2);
+    u32 rdhi = (mm == MulAdd) ? load_alloc_reg(it.rdhi(), reg_temp, it.pc + 8)
+                              : store_alloc_reg(it.rdhi(), reg_temp);
+
+    if (mm == MulAdd) {
+      mips_emit_mtlo(rdlo);
+      mips_emit_mthi(rdhi);
+      if (signmul) {
+        mips_emit_madd(rm, rs);
+      } else {
+        mips_emit_maddu(rm, rs);
+      }
+    } else {
+      if (signmul) {
+        mips_emit_mult(rm, rs);
+      } else {
+        mips_emit_multu(rm, rs);
+      }
+    }
+
+    mips_emit_mflo(rdlo);
+    mips_emit_mfhi(rdhi);
+
+    if (flg == SetFlags) {
+      mips_emit_sltiu(reg_z_cache, rdlo, 1);   // TODO use orr then stliu?
+      mips_emit_sltiu(reg_a0, rdhi, 1);
+      mips_emit_and(reg_z_cache, reg_z_cache, reg_a0);
+      mips_emit_srl(reg_n_cache, rdhi, 31);
+    }
   }
 
 };

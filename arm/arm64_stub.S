@@ -248,14 +248,19 @@ defsymbl(execute_store_cpsr)
   and w3, w0, w2                          // reg_flags = new_cpsr & store_mask
   bic w4, w4, w2                          // current_cpsr & ~store_mask
   orr w0, w3, w4                          // w2 = final CPSR value
+  str w0, [reg_base, #REG_CPSR]
   extract_flags_reg(w0)                   // Update cached flags too
 
+  tst w2, #0xff
+  b.ne 1f
+  ret                                     // No mode change, just resume.
+
+1:
   str lr, [reg_base, #REG_SAVE]
   store_registers()
-  bl execute_store_cpsr_body              // Do the remaining work in C mode
+  bl process_cpsr_write                   // Do the remaining work in C mode
 
   cbnz w0, 1f                             // If PC has changed due to this
-
   ldr lr, [reg_base, #REG_SAVE]           // Resume execution where we left it
   load_registers()
   ret

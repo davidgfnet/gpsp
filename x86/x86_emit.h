@@ -32,8 +32,10 @@ extern "C" {
   void x86_indirect_branch_thumb(u32 address);
   void x86_indirect_branch_dual(u32 address);
 
-  void function_cc execute_store_cpsr(u32 new_cpsr, u32 store_mask);
-  u32 execute_store_cpsr_body();
+  u32 execute_read_cpsr();
+  u32 execute_read_spsr();
+  void execute_store_spsr(u32 new_spsr, u32 store_mask);
+  void execute_store_cpsr(u32 new_cpsr, u32 store_mask);
 
   u32 function_cc execute_arm_translate_internal(u32 cycles, void *regptr);
 }
@@ -57,8 +59,6 @@ extern "C" {
   #define reg_arg1  x86_reg_edx
 #endif
 
-/* Offsets from reg_base, see stub.S */
-#define SPSR_BASE_OFF   0xA9100
 
 #define generate_test_imm(ireg, imm)                                          \
   x86_emit_test_reg_imm(reg_##ireg, imm);                                     \
@@ -77,12 +77,6 @@ extern "C" {
 
 #define generate_update_flag(condcode, regnum)                                \
   x86_emit_setcc_mem(condcode, reg_base, regnum * 4)                          \
-
-#define generate_load_spsr(ireg, idxr)                                        \
-  x86_emit_mov_reg_mem_idx(reg_##ireg, reg_base, 2, reg_##idxr, SPSR_BASE_OFF);
-
-#define generate_store_spsr(ireg, idxr)                                       \
-  x86_emit_mov_mem_idx_reg(reg_##ireg, reg_base, 2, reg_##idxr, SPSR_BASE_OFF);
 
 #define generate_load_reg(ireg, reg_index)                                    \
   x86_emit_mov_reg_mem(reg_##ireg, reg_base, reg_index * 4);                  \
@@ -760,70 +754,6 @@ u32 function_cc execute_spsr_restore(u32 address)
      block_exits[block_exit_position].branch_target);                         \
   }                                                                           \
   block_exit_position++;                                                      \
-}                                                                             \
-
-#define execute_read_cpsr(oreg)                                               \
-  collapse_flags(oreg, a2)
-
-#define execute_read_spsr(oreg)                                               \
-  collapse_flags(oreg, a2);                                                   \
-  generate_load_reg(oreg, CPU_MODE);                                          \
-  generate_and_imm(oreg, 0xF);                                                \
-  generate_load_spsr(oreg, oreg);                                             \
-
-#define arm_psr_read(op_type, psr_reg)                                        \
-  execute_read_##psr_reg(rv);                                                 \
-  generate_store_reg(rv, rd)                                                  \
-
-// Does mode-change magic (including IRQ checks)
-u32 execute_store_cpsr_body()
-{
-  set_cpu_mode(cpu_modes[reg[REG_CPSR] & 0xF]);
-  if((io_registers[REG_IE] & io_registers[REG_IF]) &&
-      io_registers[REG_IME] && ((reg[REG_CPSR] & 0x80) == 0))
-  {
-    REG_MODE(MODE_IRQ)[6] = reg[REG_PC] + 4;
-    REG_SPSR(MODE_IRQ) = reg[REG_CPSR];
-    reg[REG_CPSR] = (reg[REG_CPSR] & 0xFFFFFF00) | 0xD2;
-    set_cpu_mode(MODE_IRQ);
-    return 0x00000018;
-  }
-
-  return 0;
-}
-
-
-#define arm_psr_load_new_reg()                                                \
-  generate_load_reg(a0, rm)                                                   \
-
-#define arm_psr_load_new_imm()                                                \
-  ror(imm, imm, imm_ror);                                                     \
-  generate_load_imm(a0, imm)                                                  \
-
-#define execute_store_cpsr()                                                  \
-  generate_load_imm(a1, cpsr_masks[psr_pfield][0]);                           \
-  generate_load_imm(a2, cpsr_masks[psr_pfield][1]);                           \
-  generate_store_reg_i32(pc, REG_PC);                                         \
-  generate_function_call(execute_store_cpsr)                                  \
-
-/* REG_SPSR(reg[CPU_MODE]) = (new_spsr & store_mask) | (old_spsr & (~store_mask))*/
-#define execute_store_spsr()                                                  \
-  generate_load_reg(a2, CPU_MODE);                                            \
-  generate_and_imm(a2, 0xF);                                                  \
-  generate_load_spsr(a1, a2);                                                 \
-  generate_and_imm(a0,  spsr_masks[psr_pfield]);                              \
-  generate_and_imm(a1, ~spsr_masks[psr_pfield]);                              \
-  generate_or(a0, a1);                                                        \
-  generate_store_spsr(a0, a2);                                                \
-
-#define arm_psr_store(op_type, psr_reg)                                       \
-  arm_psr_load_new_##op_type();                                               \
-  execute_store_##psr_reg();                                                  \
-
-#define arm_psr(op_type, transfer_type, psr_reg)                              \
-{                                                                             \
-  arm_decode_psr_##op_type(opcode);                                           \
-  arm_psr_##transfer_type(op_type, psr_reg);                                  \
 }                                                                             \
 
 #define arm_access_memory_load(mem_type)                                      \
@@ -2147,6 +2077,43 @@ public:
 
     generate_store_reg(a0, it.rdlo());
     generate_store_reg(a1, it.rdhi());
+  }
+
+  // PSR register read
+  template<PSReg reg>
+  inline void arm_read_psr(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    if (reg == RegCPSR) {
+      generate_function_call(execute_read_cpsr);
+    } else {
+      generate_function_call(execute_read_spsr);
+    }
+
+    generate_store_reg(rv, it.rd());
+  }
+
+  // PSR register write
+  template<PSReg reg, OpType opt>
+  inline void arm_write_psr(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    if (opt == OpReg) {
+      generate_load_reg(a0, it.rm());
+    } else {
+      u32 imm = rotr32(it.imm8(), it.rot4() * 2);
+      generate_load_imm(a0, imm);
+    }
+
+    if (reg == RegCPSR) {
+      generate_load_imm(a1, cpsr_masks[it.field_fc()][0]);
+      generate_load_imm(a2, cpsr_masks[it.field_fc()][1]);
+      generate_store_reg_i32(it.pc, REG_PC);
+      generate_function_call(execute_store_cpsr);
+    } else {
+      generate_load_imm(a1, spsr_masks[it.field_fc()]);
+      generate_function_call(execute_store_spsr);
+    }
   }
 
 };

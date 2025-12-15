@@ -153,6 +153,14 @@ public:
     return (opcode >> 12) & 0xF;
   }
 
+  // PSR instructions
+  u32 field_fsxc() const {
+    return ((opcode >> 16) & 0xF);
+  }
+  u32 field_fc() const {
+    return ((opcode >> 16) & 0x1) | ((opcode >> 18) & 0x2);
+  }
+
   // Operand 2 bits and modes
   bool op2imm() const {
     // whether the register is shifted/rotated by an immediate or another reg.

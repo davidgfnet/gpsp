@@ -40,7 +40,6 @@ extern "C" {
   void arm_indirect_branch_dual_thumb(u32 address);
 
   void execute_store_cpsr(u32 new_cpsr);
-  u32 execute_store_cpsr_body(u32 _cpsr, u32 store_mask, u32 address);
   u32 execute_spsr_restore_body(u32 pc);
   u32 execute_spsr_restore(u32 address);
 
@@ -359,7 +358,6 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 
 #define generate_load_imm(ireg, imm, imm_ror)                                 \
   ARM_MOV_REG_IMM(0, ireg, imm, imm_ror)                                      \
-
 
 
 #define generate_shift_left(ireg, imm)                                        \
@@ -1009,53 +1007,6 @@ u32 execute_spsr_restore_body(u32 pc)
   arm_generate_op_##type(name, yes, yes, flags_op);                           \
 }                                                                             \
 
-#define arm_psr_read_cpsr()                                                   \
-{                                                                             \
-  u32 _rd = arm_prepare_store_reg(reg_a0, rd);                                \
-  generate_load_memreg(_rd, REG_CPSR);                                        \
-  generate_save_flags();                                                      \
-  ARM_BIC_REG_IMM(0, _rd, _rd, 0xF0, arm_imm_lsl_to_rot(24));                 \
-  ARM_AND_REG_IMM(0, reg_flags, reg_flags, 0xF0, arm_imm_lsl_to_rot(24));     \
-  ARM_ORR_REG_REG(0, _rd, _rd, reg_flags);                                    \
-  arm_complete_store_reg(_rd, rd)                                             \
-}
-
-#define arm_psr_read_spsr()                                                   \
-{                                                                             \
-  u32 _rd = arm_prepare_store_reg(reg_a0, rd);                                \
-  ARM_ADD_REG_IMM(0, reg_a0, reg_base, SPSR_RAM_OFF >> 2, 30);                \
-  ARM_LDR_IMM(0, reg_a1, reg_base, CPU_MODE * 4);                             \
-  ARM_AND_REG_IMM(0, reg_a1, reg_a1, 0xF, 0);                                 \
-  ARM_LDR_REG_REG_SHIFT(0, _rd, reg_a0, reg_a1, ARMSHIFT_LSL, 2);             \
-  arm_complete_store_reg(_rd, rd);                                            \
-}
-
-#define arm_psr_read(op_type, psr_reg)                                        \
-  arm_psr_read_##psr_reg()                                                    \
-
-/* This function's okay because it's called from an ASM function that can
- * wrap it correctly.
- */
-
-u32 execute_store_cpsr_body(u32 _cpsr, u32 store_mask, u32 address)
-{
-  reg[REG_CPSR] = _cpsr;
-  if(store_mask & 0xFF)
-  {
-    set_cpu_mode(cpu_modes[_cpsr & 0xF]);
-    if((io_registers[REG_IE] & io_registers[REG_IF]) &&
-     io_registers[REG_IME] && ((_cpsr & 0x80) == 0))
-    {
-      REG_MODE(MODE_IRQ)[6] = address + 4;
-      REG_SPSR(MODE_IRQ) = _cpsr;
-      reg[REG_CPSR] = 0xD2;
-      set_cpu_mode(MODE_IRQ);
-      return 0x00000018;
-    }
-  }
-
-  return 0;
-}
 
 static void trace_instruction(u32 pc, u32 mode)
 {
@@ -1096,39 +1047,6 @@ static void trace_instruction(u32 pc, u32 mode)
   #define emit_trace_arm_instruction(pc)
 #endif
 
-#define arm_psr_load_new_reg()                                                \
-  arm_generate_load_reg(reg_a0, rm)                                           \
-
-#define arm_psr_load_new_imm()                                                \
-  generate_load_imm(reg_a0, imm, imm_ror)                                     \
-
-#define arm_psr_store_cpsr()                                                  \
-  generate_function_far_call(armfn_store_cpsr);                               \
-  write32(cpsr_masks[psr_pfield][0]);                                         \
-  write32(cpsr_masks[psr_pfield][1]);                                         \
-  write32(pc);                                                                \
-
-#define arm_psr_store_spsr()                                                  \
-  arm_load_imm_32bit(reg_a1, spsr_masks[psr_pfield]);                         \
-  ARM_LDR_IMM(0, reg_a2, reg_base, (CPU_MODE * 4));                           \
-  ARM_AND_REG_IMM(0, reg_a2, reg_a2, 0xF, 0);                                 \
-  ARM_ADD_REG_IMMSHIFT(0, ARMREG_LR, reg_base, reg_a2, ARMSHIFT_LSL, 2);      \
-  ARM_AND_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a1, ARMSHIFT_LSL, 0);           \
-  ARM_LDR_IMM(0, reg_a2, ARMREG_LR, SPSR_RAM_OFF);                            \
-  ARM_BIC_REG_IMMSHIFT(0, reg_a2, reg_a2, reg_a1, ARMSHIFT_LSL, 0);           \
-  ARM_ORR_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a2, ARMSHIFT_LSL, 0);           \
-  ARM_STR_IMM(0, reg_a0, ARMREG_LR, SPSR_RAM_OFF);                            \
-
-#define arm_psr_store(op_type, psr_reg)                                       \
-  arm_psr_load_new_##op_type();                                               \
-  arm_psr_store_##psr_reg()                                                   \
-
-
-#define arm_psr(op_type, transfer_type, psr_reg)                              \
-{                                                                             \
-  arm_decode_psr_##op_type(opcode);                                           \
-  arm_psr_##transfer_type(op_type, psr_reg);                                  \
-}                                                                             \
 
 /* We use USAT + ROR to map addresses to the handler table. For ARMv5 we use
    the table -1 entry to map any out of range/unaligned access, and some fun
@@ -1488,6 +1406,18 @@ public:
     return scratch_reg;
   }
 
+  // Forces a register load!
+  inline void thumb_force_load_reg(u32 dest_reg, u32 reg_index, u32 pc_value) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 regn = thumb_register_allocation[reg_index];
+    if (regn != mem_reg) {
+      ARM_MOV_REG_REG(0, dest_reg, regn);
+    } else {
+      ARM_LDR_IMM(0, dest_reg, reg_base, (reg_index * 4));
+    }
+  }
+
   inline u32 arm_prepare_load_reg_pc(u32 scratch_reg, u32 reg_index, u32 pc_value) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
@@ -1496,6 +1426,22 @@ public:
 
     generate_load_pc(scratch_reg, pc_value);
     return scratch_reg;
+  }
+
+  // Forces a register load!
+  inline void arm_force_load_reg(u32 dest_reg, u32 reg_index, u32 pc_value) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    if (reg_index == REG_PC) {
+      generate_load_pc(dest_reg, pc_value);
+    } else {
+      u32 regn = arm_register_allocation[reg_index];
+      if (regn != mem_reg) {
+        ARM_MOV_REG_REG(0, dest_reg, regn);
+      } else {
+        ARM_LDR_IMM(0, dest_reg, reg_base, (reg_index * 4));
+      }
+    }
   }
 
   // Thumb instruction set
@@ -2319,6 +2265,57 @@ public:
 
     arm_complete_store_reg(rdlo, it.rdlo());
     arm_complete_store_reg(rdhi, it.rdhi());
+  }
+
+  // PSR register read
+  template<PSReg reg>
+  inline void arm_read_psr(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rd = arm_prepare_store_reg(reg_a0, it.rd());
+
+    if (reg == RegCPSR) {
+      generate_load_memreg(rd, REG_CPSR);
+      generate_save_flags();
+      ARM_BIC_REG_IMM(0, rd, rd, 0xF0, arm_imm_lsl_to_rot(24));
+      ARM_AND_REG_IMM(0, reg_flags, reg_flags, 0xF0, arm_imm_lsl_to_rot(24));
+      ARM_ORR_REG_REG(0, rd, rd, reg_flags);
+    } else {
+      ARM_ADD_REG_IMM(0, reg_a2, reg_base, SPSR_RAM_OFF >> 2, 30);
+      ARM_LDR_IMM(0, reg_a1, reg_base, CPU_MODE * 4);
+      ARM_AND_REG_IMM(0, reg_a1, reg_a1, 0xF, 0);
+      ARM_LDR_REG_REG_SHIFT(0, rd, reg_a2, reg_a1, ARMSHIFT_LSL, 2);
+    }
+
+    arm_complete_store_reg(rd, it.rd())
+  }
+
+  // PSR register write
+  template<PSReg reg, OpType opt>
+  inline void arm_write_psr(const ARMInst &it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    if (opt == OpReg) {
+      arm_force_load_reg(reg_a0, it.rm(), it.pc + 8);
+    } else {
+      generate_load_imm(reg_a0, it.imm8(), it.rot4() * 2);
+    }
+
+    if (reg == RegCPSR) {
+      generate_function_far_call(armfn_store_cpsr);
+      write32(cpsr_masks[it.field_fc()][0]);
+      write32(cpsr_masks[it.field_fc()][1]);
+      write32(it.pc);
+    } else {
+      arm_load_imm_32bit(reg_a1, spsr_masks[it.field_fc()]);
+      ARM_LDR_IMM(0, reg_a2, reg_base, (CPU_MODE * 4));
+      ARM_AND_REG_IMM(0, reg_a2, reg_a2, 0xF, 0);
+      ARM_ADD_REG_IMMSHIFT(0, ARMREG_LR, reg_base, reg_a2, ARMSHIFT_LSL, 2);
+      ARM_AND_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a1, ARMSHIFT_LSL, 0);
+      ARM_LDR_IMM(0, reg_a2, ARMREG_LR, SPSR_RAM_OFF);
+      ARM_BIC_REG_IMMSHIFT(0, reg_a2, reg_a2, reg_a1, ARMSHIFT_LSL, 0);
+      ARM_ORR_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a2, ARMSHIFT_LSL, 0);
+      ARM_STR_IMM(0, reg_a0, ARMREG_LR, SPSR_RAM_OFF);
+    }
   }
 
 };

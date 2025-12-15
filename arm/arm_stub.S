@@ -323,21 +323,25 @@ defsymbl(execute_store_cpsr)
   ldr r0, [reg_base, #REG_CPSR]           @ r0 = cpsr
   bic r0, r0, r1                          @ r0 = cpsr & ~store_mask
   orr reg_flags, reg_flags, r0            @ reg_flags = new_cpsr | cpsr
-
   mov r0, reg_flags                       @ also put new cpsr in r0
+  str r0, [reg_base, #REG_CPSR]
+
+  tst r1, $0xff                           @ immediately return if no mode was written
+  beq 1f
 
   store_registers_arm()                   @ save ARM registers
-  ldr r2, [lr, #8]                        @ r2 = pc
-  call_c_function(execute_store_cpsr_body)
+  ldr r1, [lr, #8]                        @ r1 = pc
+  call_c_function(process_cpsr_write)
   load_registers_arm()                    @ restore ARM registers
 
   cmp r0, #0                              @ check new PC
-  bne 1f                                  @ if it's zero, resume
+  bne 2f                                  @ if it's zero, resume
 
+1:
   restore_flags()
   add pc, lr, #12                         @ return (skip data)
 
-1:
+2:
   call_c_function(block_lookup_address_arm)
   restore_flags()
   bx r0                                   @ return to PC ARM address

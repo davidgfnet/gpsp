@@ -23,6 +23,16 @@
 
 #include "decoder.h"
 
+// Whether the CPU flags are updated or no.
+typedef enum { NoFlags, SetFlags } FlagOperation;
+// Memory access type
+typedef enum { AccLoad, AccStore } AccMode;
+// PSR register
+typedef enum { RegCPSR, RegSPSR } PSReg;
+// Operand type
+typedef enum { OpReg, OpImm } OpType;
+
+
 class BaseInst {
 public:
   BaseInst(u32 pc, u16 flgst)
@@ -59,6 +69,20 @@ public:
   u8 *emit_ptr;              // Points to the JIT buffer, so we can emit code.
   u8 *emit_end;              // Points to the "end" of the JIT buffer
 };
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+u8 function_cc *block_lookup_address_arm(u32 pc);
+u8 function_cc *block_lookup_address_thumb(u32 pc);
+u8 function_cc *block_lookup_address_dual(u32 pc);
+
+u32 function_cc process_cpsr_write(u32 new_cpsr, u32 pc);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

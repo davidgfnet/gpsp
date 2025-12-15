@@ -107,10 +107,6 @@ typedef enum {
 } AluOperation;
 
 typedef enum {
-  NoFlags, SetFlags
-} FlagOperation;
-
-typedef enum {
   OffReg, OffPC, OffImm5, OffImm8
 } ThumbMemOffset;
 
@@ -118,25 +114,9 @@ typedef enum {
   AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec
 } AddrMode;
 
-typedef enum {
-  AccLoad, AccStore
-} AccMode;
 
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
-
-#define arm_decode_psr_reg(opcode)                                            \
-  u32 psr_pfield = ((opcode >> 16) & 1) | ((opcode >> 18) & 2);               \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 rm = opcode & 0x0F;                                                     \
-  (void)rd;
-
-#define arm_decode_psr_imm(opcode)                                            \
-  u32 psr_pfield = ((opcode >> 16) & 1) | ((opcode >> 18) & 2);               \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 imm = opcode & 0xFF;                                                    \
-  u32 imm_ror = ((opcode >> 8) & 0x0F) * 2;                                   \
-  (void)rd
 
 #define arm_decode_branchx(opcode)                                            \
   u32 rn = opcode & 0x0F                                                      \
@@ -690,11 +670,8 @@ void translate_icache_sync() {
           arm_swap(u32);                                                      \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* MRS rd, cpsr */                                                    \
-        arm_psr(reg, read, cpsr);                                             \
-      }                                                                       \
+      else     /* MRS rd, cpsr */                                             \
+        ce.arm_read_psr<RegCPSR>(inst);                                       \
       break;                                                                  \
                                                                               \
     case 0x11:                                                                \
@@ -735,11 +712,8 @@ void translate_icache_sync() {
           /* BX rn */                                                         \
           arm_bx();                                                           \
         }                                                                     \
-        else                                                                  \
-        {                                                                     \
-          /* MSR cpsr, rm */                                                  \
-          arm_psr(reg, store, cpsr);                                          \
-        }                                                                     \
+        else     /* MSR cpsr, rm */                                           \
+          ce.arm_write_psr<RegCPSR, OpReg>(inst);                             \
       }                                                                       \
       break;                                                                  \
                                                                               \
@@ -782,11 +756,8 @@ void translate_icache_sync() {
           arm_swap(u8);                                                       \
         }                                                                     \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* MRS rd, spsr */                                                    \
-        arm_psr(reg, read, spsr);                                             \
-      }                                                                       \
+      else     /* MRS rd, spsr */                                             \
+        ce.arm_read_psr<RegSPSR>(inst);                                       \
       break;                                                                  \
                                                                               \
     case 0x15:                                                                \
@@ -820,11 +791,8 @@ void translate_icache_sync() {
         /* STRH rd, [rn - imm]! */                                            \
         arm_access_memory(store, down, pre_wb, u16, half_imm);                \
       }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        /* MSR spsr, rm */                                                    \
-        arm_psr(reg, store, spsr);                                            \
-      }                                                                       \
+      else     /* MSR spsr, rm */                                             \
+        ce.arm_write_psr<RegSPSR, OpReg>(inst);                               \
       break;                                                                  \
                                                                               \
     case 0x17:                                                                \
@@ -1049,8 +1017,10 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x32:                                                                \
-      /* MSR cpsr, imm */                                                     \
-      arm_psr(imm, store, cpsr);                                              \
+      ce.arm_write_psr<RegCPSR, OpImm>(inst);                                 \
+      break;                                                                  \
+    case 0x36:                                                                \
+      ce.arm_write_psr<RegSPSR, OpImm>(inst);                                 \
       break;                                                                  \
                                                                               \
     case 0x33:     /* TEQ rn, imm */                                          \
@@ -1059,12 +1029,6 @@ void translate_icache_sync() {
     case 0x34 ... 0x35:      /* CMP rn, imm */                                \
       ce.arm_aluimm2<OpCmp>(inst, cycle_count);                               \
       break;                                                                  \
-                                                                              \
-    case 0x36:                                                                \
-      /* MSR spsr, imm */                                                     \
-      arm_psr(imm, store, spsr);                                              \
-      break;                                                                  \
-                                                                              \
     case 0x37:     /* CMN rn, imm */                                          \
       ce.arm_aluimm2<OpCmn>(inst, cycle_count);                               \
       break;                                                                  \
@@ -2137,6 +2101,25 @@ u8 function_cc *block_lookup_translate_##type(u32 pc)                         \
 
 block_lookup_translate_builder(arm);
 block_lookup_translate_builder(thumb);
+
+// Called when a mode change is performed (via CPSR write).
+// Might result in a IRQ being raised.
+u32 function_cc process_cpsr_write(u32 new_cpsr, u32 pc) {
+  // Change CPU mode (perhaps, it could be the same)
+  set_cpu_mode(cpu_modes[new_cpsr & 0xF]);
+  // Check if an IRQ could be raised, return the new PC in that case
+  if((io_registers[REG_IE] & io_registers[REG_IF]) &&
+      io_registers[REG_IME] && ((new_cpsr & 0x80) == 0))
+  {
+    REG_MODE(MODE_IRQ)[6] = pc + 4;
+    REG_SPSR(MODE_IRQ) = new_cpsr;
+    reg[REG_CPSR] = (new_cpsr & 0xFFFFFF00) | 0xD2;
+    set_cpu_mode(MODE_IRQ);
+    return 0x00000018;
+  }
+
+  return 0;
+}
 
 u8 function_cc *block_lookup_address_dual(u32 pc)
 {

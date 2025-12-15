@@ -43,9 +43,6 @@ void function_cc execute_store_aligned_u32(u32 address, u32 source);
 u32 execute_arm_translate(u32 cycles);
 void init_translater(void);
 
-u8 function_cc *block_lookup_address_arm(u32 pc);
-u8 function_cc *block_lookup_address_thumb(u32 pc);
-u8 function_cc *block_lookup_address_dual(u32 pc);
 bool translate_block_arm(u32 pc, bool ram_region);
 bool translate_block_thumb(u32 pc, bool ram_region);
 

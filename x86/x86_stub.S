@@ -123,26 +123,24 @@ _##symbol:
 
 # destroys ecx and edx
 
-.macro collapse_flag offset, shift
-  mov \offset(REG_BASE), %ecx
-  shl $\shift, %ecx
-  or %ecx, %edx
-.endm
+#define collapse_flag(dreg, flagreg, shift)  \
+  mov flagreg(REG_BASE), %ecx;               \
+  shl $shift, %ecx;                          \
+  or %ecx, dreg;
 
-.macro collapse_flags_no_update
-  xor %edx, %edx
-  collapse_flag REG_N_FLAG, 31
-  collapse_flag REG_Z_FLAG, 30
-  collapse_flag REG_C_FLAG, 29
-  collapse_flag REG_V_FLAG, 28
-  mov REG_CPSR(REG_BASE), %ecx
-  and $0xFF, %ecx
-  or %ecx, %edx
-.endm
+#define calculate_cpsr(dreg)                 \
+  xor dreg, dreg;                            \
+  collapse_flag(dreg, REG_N_FLAG, 31);       \
+  collapse_flag(dreg, REG_Z_FLAG, 30);       \
+  collapse_flag(dreg, REG_C_FLAG, 29);       \
+  collapse_flag(dreg, REG_V_FLAG, 28);       \
+  mov REG_CPSR(REG_BASE), %ecx;              \
+  and $0xFF, %ecx;                           \
+  or %ecx, dreg;
 
 
 .macro collapse_flags
-  collapse_flags_no_update
+  calculate_cpsr(%edx)
   mov %edx, REG_CPSR(REG_BASE)
 .endm
 
@@ -458,6 +456,32 @@ load_stubs(s16, movswl, ~1, 1, read_memory16s)
 load_stubs( u8, movzbl, ~0, 0, read_memory8)
 load_stubs( s8, movsbl, ~0, 0, read_memory8s)
 
+// Return CPSR/SPSR reg values
+
+defsymbl(execute_read_cpsr)
+  calculate_cpsr(%eax)                    // Return current consolidated CPSR
+  ret
+
+defsymbl(execute_read_spsr)
+  mov CPU_MODE(REG_BASE), %eax
+  and $0xF, %eax                          // Read CPU mode bits
+  mov SPSR_OFF(REG_BASE, FULLREG(ax), 4), %eax
+  ret
+
+# -> REG_SPSR(reg[CPU_MODE]) = (new_spsr & store_mask) | (old_spsr & (~store_mask))
+# arg0 (%eax) value to write (from a reg or imm)
+# arg1 (%edx) write mask
+defsymbl(execute_store_spsr)
+  mov CPU_MODE(REG_BASE), %esi
+  and $0xF, %esi
+  mov SPSR_OFF(REG_BASE, FULLREG(si), 4), %ecx   // Read current SPSR
+  and %edx, %eax
+  not %edx
+  and %edx, %ecx
+  or  %ecx, %eax                                 // Write only through bitmask
+  mov %eax, SPSR_OFF(REG_BASE, FULLREG(si), 4)   // Write SPSR back
+  ret
+
 
 # arg0 (%eax) = new_cpsr
 # arg1 (%edx) = store_mask (user mode)
@@ -482,7 +506,9 @@ defsymbl(execute_store_cpsr)
   extract_flags                   # pull out flag vars from new CPSR
   ret
 1:
-  CALL_FUNC(execute_store_cpsr_body)   # do the dirty work in this C function
+  mov %eax, CARG1_REG
+  mov REG_PC(REG_BASE), CARG2_REG
+  CALL_FUNC(process_cpsr_write)   # do the dirty work in this C function
   extract_flags                   # pull out flag vars from new CPSR
   cmp $0, %eax                    # see if return value is 0
   jnz 2f                          # might have changed the PC

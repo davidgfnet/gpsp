@@ -471,7 +471,7 @@ defsymbl(execute_store_cpsr)
   sw $ra, REG_SAVE3($16)
   save_registers
   addu $4, $1, $0                 # load the new CPSR
-  cfncall execute_store_cpsr_body, 7   # do the dirty work in this C function
+  cfncall process_cpsr_write, 7   # do the dirty work in this C function
 
   bnez $2, 2f                     # this could have changed the pc
   nop
@@ -607,7 +607,7 @@ fnptrs:
   .long flush_translation_cache_ram    # 4
   .long set_cpu_mode                   # 5
   .long execute_spsr_restore_body      # 6
-  .long execute_store_cpsr_body        # 7
+  .long process_cpsr_write             # 7
   .long process_cheats                 # 8
   .long check_and_raise_interrupts     # 9
 

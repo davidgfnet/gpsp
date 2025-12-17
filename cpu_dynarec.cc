@@ -153,11 +153,6 @@ typedef enum {
 #define arm_decode_branch()                                                   \
   s32 offset = ((s32)(opcode & 0xFFFFFF) << 8) >> 6                           \
 
-#define thumb_decode_shift()                                                  \
-  u32 imm = (opcode >> 6) & 0x1F;                                             \
-  u32 rs = (opcode >> 3) & 0x07;                                              \
-  u32 rd = opcode & 0x07                                                      \
-
 #define thumb_decode_imm()                                                    \
   u32 imm = opcode & 0xFF;                                                    \
   (void)imm
@@ -1493,19 +1488,14 @@ void translate_icache_sync() {
                                                                               \
   switch(hiop)                                                                \
   {                                                                           \
-    case 0x00 ... 0x07:                                                       \
-      /* LSL rd, rs, imm */                                                   \
-      thumb_shift(shift, lsl, imm);                                           \
+    case 0x00 ... 0x07:      /* LSL rd, rs, imm */                            \
+      ce.thumb_shft<OpImm, ShiftLSL>(inst);                                   \
       break;                                                                  \
-                                                                              \
-    case 0x08 ... 0x0F:                                                       \
-      /* LSR rd, rs, imm */                                                   \
-      thumb_shift(shift, lsr, imm);                                           \
+    case 0x08 ... 0x0F:      /* LSR rd, rs, imm */                            \
+      ce.thumb_shft<OpImm, ShiftLSR>(inst);                                   \
       break;                                                                  \
-                                                                              \
-    case 0x10 ... 0x17:                                                       \
-      /* ASR rd, rs, imm */                                                   \
-      thumb_shift(shift, asr, imm);                                           \
+    case 0x10 ... 0x17:      /* ASR rd, rs, imm */                            \
+      ce.thumb_shft<OpImm, ShiftASR>(inst);                                   \
       break;                                                                  \
                                                                               \
     case 0x18 ... 0x19:      /* ADD rd, rs, rn */                             \
@@ -1544,19 +1534,17 @@ void translate_icache_sync() {
           ce.thumb_aluop2<OpXor>(inst);                                       \
           break;                                                              \
                                                                               \
-        case 0x02:                                                            \
-          /* LSL rd, rs */                                                    \
-          thumb_shift(alu_op, lsl, reg);                                      \
+        case 0x02:           /* LSL rd, rs */                                 \
+          ce.thumb_shft<OpReg, ShiftLSL>(inst);                               \
           break;                                                              \
-                                                                              \
-        case 0x03:                                                            \
-          /* LSR rd, rs */                                                    \
-          thumb_shift(alu_op, lsr, reg);                                      \
+        case 0x03:           /* LSR rd, rs */                                 \
+          ce.thumb_shft<OpReg, ShiftLSR>(inst);                               \
           break;                                                              \
-                                                                              \
-        case 0x04:                                                            \
-          /* ASR rd, rs */                                                    \
-          thumb_shift(alu_op, asr, reg);                                      \
+        case 0x04:           /* ASR rd, rs */                                 \
+          ce.thumb_shft<OpReg, ShiftASR>(inst);                               \
+          break;                                                              \
+        case 0x07:           /* ROR rd, rs */                                 \
+          ce.thumb_shft<OpReg, ShiftROR>(inst);                               \
           break;                                                              \
                                                                               \
         case 0x05:           /* ADC rd, rs */                                 \
@@ -1564,11 +1552,6 @@ void translate_icache_sync() {
           break;                                                              \
         case 0x06:           /* SBC rd, rs */                                 \
           ce.thumb_aluop2<OpSbc>(inst);                                       \
-          break;                                                              \
-                                                                              \
-        case 0x07:                                                            \
-          /* ROR rd, rs */                                                    \
-          thumb_shift(alu_op, ror, reg);                                      \
           break;                                                              \
                                                                               \
         case 0x08:           /* TST rd, rs */                                 \

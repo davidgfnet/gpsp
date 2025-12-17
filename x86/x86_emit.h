@@ -282,10 +282,6 @@ extern "C" {
 #define get_shift_imm()                                                       \
   u32 shift = (opcode >> 7) & 0x1F                                            \
 
-#define generate_shift_reg(ireg, name, flags_op)                              \
-  generate_load_reg_pc(ireg, rm, 12);                                         \
-  generate_load_reg(a1, ((opcode >> 8) & 0x0F));                              \
-  generate_##name##_##flags_op##_reg(ireg);                                   \
 
 #ifdef TRACE_INSTRUCTIONS
   void function_cc trace_instruction(u32 pc, u32 mode)
@@ -317,80 +313,6 @@ extern "C" {
 #define check_generate_c_flag   (flag_status & 0x02)
 #define check_generate_v_flag   (flag_status & 0x01)
 
-#define generate_asr_flags_reg(ireg)                                          \
-{                                                                             \
-  u8 *jmpinst1, *jmpinst2;                                                    \
-  x86_emit_movzxb(reg_a2, reg_a1);                                            \
-  x86_emit_jecxz_filler(jmpinst1);                                            \
-  generate_shift_right_arithmetic_var(a0);                                    \
-  generate_update_flag(c, REG_C_FLAG)                                         \
-  generate_cmp_imm(a2, 32);                                                   \
-  x86_emit_j_filler(x86_condition_code_l, jmpinst2);                          \
-  generate_shift_right_arithmetic(a0, 16);                                    \
-  generate_shift_right_arithmetic(a0, 16);                                    \
-  generate_update_flag(c, REG_C_FLAG)                                         \
-  generate_branch_patch_jecxz(jmpinst1, translation_ptr);                     \
-  generate_branch_patch_conditional(jmpinst2, translation_ptr);               \
-  generate_mov(ireg, a0);                                                     \
-}
-
-#define generate_lsl_flags_reg(ireg)                                          \
-{                                                                             \
-  u8 *jmpinst1, *jmpinst2;                                                    \
-  x86_emit_movzxb(reg_a2, reg_a1);                                            \
-  x86_emit_jecxz_filler(jmpinst1);                                            \
-  generate_sub_imm(a2, 1);                                                    \
-  generate_shift_left_var(a0);                                                \
-  generate_or(a0, a0);                                                        \
-  generate_update_flag(s, REG_C_FLAG)                                         \
-  generate_shift_left(a0, 1);                                                 \
-  generate_cmp_imm(a2, 32);                                                   \
-  x86_emit_j_filler(x86_condition_code_l, jmpinst2);                          \
-  generate_load_imm(a0, 0);                                                   \
-  generate_store_reg_i32(0, REG_C_FLAG);                                      \
-  generate_branch_patch_jecxz(jmpinst1, translation_ptr);                     \
-  generate_branch_patch_conditional(jmpinst2, translation_ptr);               \
-  generate_mov(ireg, a0);                                                     \
-}
-
-#define generate_lsr_flags_reg(ireg)                                          \
-{                                                                             \
-  u8 *jmpinst1, *jmpinst2;                                                    \
-  x86_emit_movzxb(reg_a2, reg_a1);                                            \
-  x86_emit_jecxz_filler(jmpinst1);                                            \
-  generate_sub_imm(a2, 1);                                                    \
-  generate_shift_right_var(a0);                                               \
-  generate_test_imm(a0, 1);                                                   \
-  generate_update_flag(nz, REG_C_FLAG)                                        \
-  generate_shift_right(a0, 1);                                                \
-  generate_cmp_imm(a2, 32);                                                   \
-  x86_emit_j_filler(x86_condition_code_l, jmpinst2);                          \
-  generate_load_imm(a0, 0);                                                   \
-  generate_store_reg_i32(0, REG_C_FLAG);                                      \
-  generate_branch_patch_jecxz(jmpinst1, translation_ptr);                     \
-  generate_branch_patch_conditional(jmpinst2, translation_ptr);               \
-  generate_mov(ireg, a0);                                                     \
-}
-
-#define generate_ror_flags_reg(ireg)                                          \
-{                                                                             \
-  u8 *jmpinst;                                                                \
-  x86_emit_movzxb(reg_a2, reg_a1);                                            \
-  x86_emit_jecxz_filler(jmpinst);                                             \
-  generate_rotate_right_var(a0);                                              \
-  x86_emit_bittest(reg_a0, 31);                                               \
-  generate_update_flag(c, REG_C_FLAG);                                        \
-  generate_branch_patch_jecxz(jmpinst, translation_ptr);                      \
-  generate_mov(ireg, a0);                                                     \
-}
-
-// Shift right sets the CF of the shifted-out bit, use it with setc
-#define generate_rrx_flags(ireg)                                              \
-  generate_load_imm(a2, 0xffffffff);                                          \
-  generate_add_memreg(a2, REG_C_FLAG);                                        \
-  generate_rcr1(a0);                                                          \
-  generate_update_flag(c, REG_C_FLAG)                                         \
-  generate_mov(ireg, a0);
 
 #define generate_rrx(ireg)                                                    \
   generate_load_reg(a2, REG_C_FLAG);                                          \
@@ -1015,22 +937,6 @@ u32 function_cc execute_spsr_restore(u32 address)
   generate_load_reg(a0, rs);                                                  \
   generate_load_imm(a1, imm)                                                  \
 
-#define thumb_shift_operation_imm(op_type)                                    \
-  thumb_##op_type##_imm_op()
-
-#define thumb_shift_operation_reg(op_type)                                    \
-  generate_##op_type##_flags_reg(a0);                                         \
-  generate_or(a0, a0);                                                        \
-  update_logical_flags()                                                      \
-
-#define thumb_shift(decode_type, op_type, value_type)                         \
-{                                                                             \
-  thumb_decode_##decode_type();                                               \
-  generate_shift_load_operands_##value_type();                                \
-  thumb_shift_operation_##value_type(op_type);                                \
-  generate_store_reg(rv, rd);                                                 \
-}                                                                             \
-
 // Operation types: imm, mem_reg, mem_imm
 
 #define thumb_load_pc_pool_const(reg_rd, value)                               \
@@ -1078,16 +984,12 @@ u32 function_cc execute_spsr_restore(u32 address)
 
 // Borrow flag in ARM is opposite to carry flag in x86
 
-#define load_c_flag(tmpreg)                                                   \
-  /* Loads the flag to the right value by adding it to ~0 causing carry */    \
-  generate_load_imm(tmpreg, 0xffffffff);                                      \
-  generate_add_memreg(tmpreg, REG_C_FLAG);                                    \
+#define load_c_flag()                                                         \
+  x86_emit_mem_bittest(0, reg_base, REG_C_FLAG * 4)                           \
 
-#define load_inv_c_flag(tmpreg)                                               \
-  /* Loads the inverse C flag (for subtraction, since ARM's inverted) */      \
-  generate_load_reg(tmpreg, REG_C_FLAG);                                      \
-  generate_sub_imm(tmpreg, 1);                                                \
-
+#define load_inv_c_flag()                                                     \
+  x86_emit_mem_bittest(0, reg_base, REG_C_FLAG * 4)                           \
+  x86_emit_cmc()
 
 static void function_cc execute_swi(u32 pc)
 {
@@ -1179,9 +1081,9 @@ static void function_cc execute_swi(u32 pc)
   }                                                                           \
 
 /* Just loads the LSB byte of the desired register */
-#define emit_load_reg_pc_lsb(ireg, regnum, pc_offset)                         \
+#define emit_load_reg_pc_lsb(ireg, regnum, pcvalue)                           \
   if(regnum == REG_PC) {                                                      \
-    x86_emit_mov_reg_imm(ireg, 0xFF & (it.pc + (pc_offset)));                 \
+    x86_emit_mov_reg_imm(ireg, 0xFF & (pcvalue));                             \
   } else {                                                                    \
     x86_emit_mem_movzxb(ireg, reg_base, (regnum) * 4);                        \
   }                                                                           \
@@ -1276,6 +1178,20 @@ public:
     }
   }
 
+  inline void load_reg(u32 dreg, u32 regnum, u32 pc_value) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    if (regnum == REG_PC) {
+      x86_emit_mov_reg_imm(dreg, pc_value);
+    } else {
+      x86_emit_mov_reg_mem(dreg, reg_base, regnum * 4);
+    }
+  }
+
+  inline void store_reg(u32 dreg, u32 regnum) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    x86_emit_mov_mem_reg(dreg, reg_base, regnum * 4)
+  }
+
   // ======== Thumb instructions ====================================
   template <AluOperation aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
@@ -1310,12 +1226,12 @@ public:
       update_cv_sub_flags();
       break;
     case OpAdc:
-      load_c_flag(a2);         // Load C flag into CFLAGS
+      load_c_flag();         // Load C flag into CFLAGS
       generate_adc(a0, a1);
       update_cv_add_flags();
       break;
     case OpSbc:
-      load_inv_c_flag(a2);         // Load !C flag into CFLAGS
+      load_inv_c_flag();         // Load !C flag into CFLAGS
       generate_sbb(a0, a1);
       update_cv_sub_flags();
       break;
@@ -1323,6 +1239,35 @@ public:
 
     upd_nz_flags<SetFlags>(it);
     generate_store_reg(a0, it.rd());
+  }
+
+  template <OpType stype, ShiftType st>
+  inline void thumb_shft(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    if (stype == OpImm) {
+      if (it.gen_flag_c())
+        emit_op2_shimm<SetFlags>(reg_a0, it.rs(), st, it.imm5(), 0);
+      else
+        emit_op2_shimm<NoFlags>(reg_a0, it.rs(), st, it.imm5(), 0);
+    } else {
+      if (it.gen_flag_c())
+        emit_op2_shreg<SetFlags>(reg_a0, it.rd(), it.rs(), st, 0);
+      else
+        emit_op2_shreg<NoFlags>(reg_a0, it.rd(), it.rs(), st, 0);
+    }
+
+    store_reg(reg_a0, it.rd());
+
+    if (it.gen_flag_z() || it.gen_flag_n()) {
+      generate_or(a0, a0);
+      if (it.gen_flag_z()) {
+        generate_update_flag(z, REG_Z_FLAG);
+      }
+      if (it.gen_flag_n()) {
+        generate_update_flag(s, REG_N_FLAG);
+      }
+    }
   }
 
   template <AluOperation aluop>
@@ -1626,7 +1571,7 @@ public:
       upd_nzcv_add_flags<flg>(it);
       break;
     case OpAdc:
-      load_c_flag(a2);         // Load C flag into CFLAGS
+      load_c_flag();         // Load C flag into CFLAGS
       x86_emit_adc_reg_imm(reg_a0, imm);
       upd_nzcv_add_flags<flg>(it);
       break;
@@ -1640,12 +1585,12 @@ public:
       upd_nzcv_sub_flags<flg>(it);
       break;
     case OpSbc:
-      load_inv_c_flag(a2);     // Load C flag into CFLAGS
+      load_inv_c_flag();     // Load C flag into CFLAGS
       x86_emit_sbb_reg_imm(reg_a0, imm);
       upd_nzcv_sub_flags<flg>(it);
       break;
     case OpRsc:
-      load_inv_c_flag(a2);     // Load C flag into CFLAGS
+      load_inv_c_flag();     // Load C flag into CFLAGS
       generate_load_imm(a1, imm);
       x86_emit_sbb_reg_reg(reg_a1, reg_a0);
       upd_nzcv_sub_flags<flg>(it);
@@ -1730,150 +1675,148 @@ public:
   }
 
   // Calculates operand 2 when register is shifted/rotated by an immediate.
-  template<FlagOperation flg>
-  inline void emit_op2_shimm(const ARMInst &it) {
-    u32 imm = it.op2sa();      // Shift amount [0..31]
+  // Uses no other registers beside `dreg`.
+  // NOTE: dreg is a native reg, sreg an ARM reg
+  template<FlagOperation c_flg>
+  inline void emit_op2_shimm(u32 dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     // Uses X86 similarities to ARM to calculate the carry flag
 
-    switch (it.op2smode()) {
-    case 0:      /* LSL */
-      emit_load_reg_pc(a0, it.rm(), 8);
-      if (imm) {
-        generate_shift_left(a0, imm);
-        if (flg == SetFlags) {
+    switch (st) {
+    case ShiftLSL:
+      load_reg(dreg, sreg, pc);
+      if (sa) {
+        x86_emit_shl_reg_imm(dreg, sa);
+        if (c_flg == SetFlags) {
           generate_update_flag(c, REG_C_FLAG);
         }
       }
       break;
 
-    case 1:      /* LSR (0 means shift by 32) */
-      if (imm) {
-        emit_load_reg_pc(a0, it.rm(), 8);
-        generate_shift_right(a0, imm);
-        if (flg == SetFlags) {
+    case ShiftLSR:
+      if (sa) {
+        load_reg(dreg, sreg, pc);
+        x86_emit_shr_reg_imm(dreg, sa);
+        if (c_flg == SetFlags) {
           generate_update_flag(c, REG_C_FLAG);
         }
       } else {
-        if (flg == SetFlags) {
-          emit_load_reg_pc(a0, it.rm(), 8);
-          generate_shift_right(a0, 31);
+        if (c_flg == SetFlags) {
+          load_reg(dreg, sreg, pc);
+          x86_emit_shr_reg_imm(dreg, 31);
           generate_store_reg(a0, REG_C_FLAG);
         }
-        generate_load_imm(a0, 0);
+        x86_emit_mov_reg_imm(dreg, 0);
       }
       break;
 
-    case 2:      /* ASR (0 is also shift by 32) */
-      emit_load_reg_pc(a0, it.rm(), 8);
-      if (imm) {
-        generate_shift_right_arithmetic(a0, imm);
-        if (flg == SetFlags) {
+    case ShiftASR:
+      load_reg(dreg, sreg, pc);
+      if (sa) {
+        x86_emit_sar_reg_imm(dreg, sa);
+        if (c_flg == SetFlags) {
           generate_update_flag(c, REG_C_FLAG);
         }
-      } else {
-        // Shift by "32"
-        generate_shift_right_arithmetic(a0, 31);
-        if (flg == SetFlags) {
+      } else {   // Shift by "32"
+        x86_emit_sar_reg_imm(dreg, 31);
+        if (c_flg == SetFlags) {
           generate_update_flag(nz, REG_C_FLAG);
         }
       }
       break;
 
-    case 3:      /* ROR */
-      emit_load_reg_pc(a0, it.rm(), 8);
-      if (imm) {
-        generate_rotate_right(a0, imm);
-        if (flg == SetFlags) {
+    case ShiftROR:
+      load_reg(dreg, sreg, pc);
+      if (sa) {
+        x86_emit_ror_reg_imm(dreg, sa);
+        if (c_flg == SetFlags) {
           generate_update_flag(c, REG_C_FLAG);
         }
       } else {   /* RRX{S} mode */
-        generate_load_reg(a2, REG_C_FLAG);
-        generate_shift_right(a0, 1);
-        if (flg == SetFlags) {
+        load_c_flag();
+        x86_emit_rot_reg1(rcr, dreg);
+        if (c_flg == SetFlags) {
           generate_update_flag(c, REG_C_FLAG);
         }
-        generate_shift_left(a2, 31);
-        generate_or(a0, a2);
       }
       break;
     };
   }
 
   // Calculates operand 2 when register is shifted/rotated by another register.
-  template<FlagOperation flg>
-  inline void emit_op2_shreg(const ARMInst &it) {
+  template<FlagOperation c_flg>
+  inline void emit_op2_shreg(u32 dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    emit_load_reg_pc(a0, it.rm(), 12);
-    emit_load_reg_pc_lsb(reg_a2, it.rs(), 12);   // Loads the LSB byte only! Into ECX
+    load_reg(dreg, sreg, pc);
+    emit_load_reg_pc_lsb(reg_a2, areg, pc);   // Loads the LSB byte only! Into ECX
 
-    if (flg == SetFlags) {
+    if (c_flg == SetFlags) {
       u8 *iszeroj, *jmpz32;
       x86_emit_jecxz_filler(iszeroj);    // Skip if shift amount is zero.
-      switch (it.op2smode()) {
-        case 0:     /* LSL */
+      switch (st) {
+        case ShiftLSL:
           generate_sub_imm(a2, 1);
-          generate_shift_left_var(a0);
-          x86_emit_bittest(reg_a0, 31);
+          x86_emit_shl_reg_reg(dreg);
+          x86_emit_bittest(dreg, 31);
           generate_update_flag(c, REG_C_FLAG);
-          generate_shift_left(a0, 1);
+          x86_emit_shl_reg_imm(dreg, 1);
           generate_cmp_imm(a2, 32);
           x86_emit_j_filler(x86_condition_code_l, jmpz32);
-            generate_load_imm(a0, 0);
+            x86_emit_mov_reg_imm(dreg, 0);
             generate_store_reg_i32(0, REG_C_FLAG);
           generate_branch_patch_conditional(jmpz32, translation_ptr);
           break;
-        case 1:     /* LSR */
+        case ShiftLSR:
           generate_sub_imm(a2, 1);
-          generate_shift_right_var(a0);
-          generate_test_imm(a0, 1);
+          x86_emit_shr_reg_reg(dreg);
+          x86_emit_test_reg_imm(dreg, 0x1);
           generate_update_flag(nz, REG_C_FLAG);
-          generate_shift_right(a0, 1);
+          x86_emit_shr_reg_imm(dreg, 1);
           generate_cmp_imm(a2, 32);
           x86_emit_j_filler(x86_condition_code_l, jmpz32);
-            generate_load_imm(a0, 0);
+            x86_emit_mov_reg_imm(dreg, 0);
             generate_store_reg_i32(0, REG_C_FLAG);
           generate_branch_patch_conditional(jmpz32, translation_ptr);
           break;
-        case 2:     /* ASR */
-          generate_shift_right_arithmetic_var(a0);
+        case ShiftASR:
+          x86_emit_sar_reg_reg(dreg);
           generate_update_flag(c, REG_C_FLAG);
           generate_cmp_imm(a2, 32);
           x86_emit_j_filler(x86_condition_code_l, jmpz32);
-          generate_shift_right_arithmetic(a0, 16);
-          generate_shift_right_arithmetic(a0, 16);
+          x86_emit_sar_reg_imm(dreg, 16);
+          x86_emit_sar_reg_imm(dreg, 16);
           generate_update_flag(c, REG_C_FLAG);
           generate_branch_patch_conditional(jmpz32, translation_ptr);
           break;
-        case 3:     /* ROR */
-          generate_rotate_right_var(a0);
-          x86_emit_bittest(reg_a0, 31);
+        case ShiftROR:
+          x86_emit_rot_reg_reg(ror, dreg);
+          x86_emit_bittest(dreg, 31);
           generate_update_flag(c, REG_C_FLAG);
           break;
       };
       generate_branch_patch_jecxz(iszeroj, translation_ptr);
     } else {
-      switch (it.op2smode()) {
-        case 0:     /* LSL */
+      switch (st) {
+        case ShiftLSL:
           generate_xor(a1, a1);
-          generate_shift_left_var(a0);
+          x86_emit_shl_reg_reg(dreg);
           generate_cmp_imm(a2, 32);
-          x86_emit_cmov(nc, reg_a0, reg_a1);
+          x86_emit_cmov(nc, dreg, reg_a1);
           break;
-        case 1:     /* LSR */
+        case ShiftLSR:
           generate_xor(a1, a1);
-          generate_shift_right_var(a0);
+          x86_emit_shr_reg_reg(dreg);
           generate_cmp_imm(a2, 32);
-          x86_emit_cmov(nc, reg_a0, reg_a1);
+          x86_emit_cmov(nc, dreg, reg_a1);
           break;
-        case 2:     /* ASR */
+        case ShiftASR:
           generate_cmp_imm(a2, 32);
           generate_load_imm(a1, 31);
           x86_emit_cmov(nc, reg_a2, reg_a1);
-          generate_shift_right_arithmetic_var(a0);
+          x86_emit_sar_reg_reg(dreg);
           break;
-        case 3:     /* ROR */
-          generate_rotate_right_var(a0);
+        case ShiftROR:
+          x86_emit_rot_reg_reg(ror, dreg);
           break;
       };
     }
@@ -1885,14 +1828,14 @@ public:
     // Calculates the Op2 part and writes it to a0
     if (flg == SetFlags && it.gen_flag_c()) {
       if (it.op2imm())
-        emit_op2_shimm<SetFlags>(it);
+        emit_op2_shimm<SetFlags>(reg_a0, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
       else
-        emit_op2_shreg<SetFlags>(it);
+        emit_op2_shreg<SetFlags>(reg_a0, it.rm(), it.rs(), (ShiftType)it.op2smode(), it.pc + 12);
     } else {
       if (it.op2imm())
-        emit_op2_shimm<NoFlags>(it);
+        emit_op2_shimm<NoFlags>(reg_a0, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
       else
-        emit_op2_shreg<NoFlags>(it);
+        emit_op2_shreg<NoFlags>(reg_a0, it.rm(), it.rs(), (ShiftType)it.op2smode(), it.pc + 12);
     }
   }
 
@@ -1932,7 +1875,7 @@ public:
        upd_nzcv_add_flags<flg>(it);
        break;
     case OpAdc:
-       load_c_flag(a2);         // Load C flag into CFLAGS
+       load_c_flag();         // Load C flag into CFLAGS
        generate_adc(a0, a1);
        upd_nzcv_add_flags<flg>(it);
        break;
@@ -1941,7 +1884,7 @@ public:
        upd_nzcv_sub_flags<flg>(it);
        break;
     case OpSbc:
-       load_inv_c_flag(a2);     // Load C flag into CFLAGS
+       load_inv_c_flag();     // Load C flag into CFLAGS
        generate_sbb(a1, a0);
        upd_nzcv_sub_flags<flg>(it);
        break;
@@ -1950,7 +1893,7 @@ public:
        upd_nzcv_sub_flags<flg>(it);
        break;
     case OpRsc:
-       load_inv_c_flag(a2);     // Load C flag into CFLAGS
+       load_inv_c_flag();     // Load C flag into CFLAGS
        generate_sbb(a0, a1);
        upd_nzcv_sub_flags<flg>(it);
        break;

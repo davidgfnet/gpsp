@@ -442,91 +442,9 @@ const u32 arm_to_a64_reg[] =
   }                                                                           \
   _rm = arm_reg                                                               \
 
-#define generate_shift_reg_lsl_no_flags(_rm, _rs)                             \
-  generate_load_reg_pc_lsb(reg_temp, _rs, 12);                                \
-  aa64_emit_cmpi(reg_temp, 32);                                               \
-  aa64_emit_lslv(reg_temp, arm_to_a64_reg[_rm], reg_temp);                    \
-  aa64_emit_csel(reg_a0, reg_zero, reg_temp, ccode_hs);                       \
-
-#define generate_shift_reg_lsr_no_flags(_rm, _rs)                             \
-  generate_load_reg_pc_lsb(reg_temp, _rs, 12);                                \
-  aa64_emit_cmpi(reg_temp, 32);                                               \
-  aa64_emit_lsrv(reg_temp, arm_to_a64_reg[_rm], reg_temp);                    \
-  aa64_emit_csel(reg_a0, reg_zero, reg_temp, ccode_hs);                       \
-
-#define generate_shift_reg_asr_no_flags(_rm, _rs)                             \
-  generate_load_reg_pc_lsb(reg_temp, _rs, 12);                                \
-  aa64_emit_cmpi(reg_temp, 31);                                               \
-  aa64_emit_asrv(reg_a0, arm_to_a64_reg[_rm], reg_temp);                      \
-  aa64_emit_asr(reg_temp, arm_to_a64_reg[_rm], 31);                           \
-  aa64_emit_csel(reg_a0, reg_a0, reg_temp, ccode_lo);                         \
-
-#define generate_shift_reg_ror_no_flags(_rm, _rs)                             \
-  generate_load_reg_pc_lsb(reg_temp, _rs, 12);                                \
-  aa64_emit_rorv(reg_a0, arm_to_a64_reg[_rm], reg_temp)                       \
-
-#define generate_shift_reg_lsl_flags(_rm, _rs)                                \
-{                                                                             \
-  generate_load_reg_pc_lsb(reg_a1, _rs, 12);                                  \
-  generate_load_reg_pc(reg_a0, _rm, 12);                                      \
-  /* Only load the result on zero, no shift */                                \
-  aa64_emit_cbz(reg_a1, 8);                                                   \
-  aa64_emit_subi(reg_temp, reg_a1, 1);                                        \
-  aa64_emit_lslv(reg_a0, reg_a0, reg_temp);                                   \
-  aa64_emit_lsr(reg_c_cache, reg_a0, 31);                                     \
-  aa64_emit_cmpi(reg_a1, 33);                                                 \
-  aa64_emit_lsl(reg_a0, reg_a0, 1);                                           \
-  /* Result and flag to be zero if shift is > 32 */                           \
-  aa64_emit_csel(reg_c_cache, reg_zero, reg_c_cache, ccode_hs);               \
-  aa64_emit_csel(reg_a0,      reg_zero, reg_a0,      ccode_hs);               \
-}                                                                             \
-
-#define generate_shift_reg_lsr_flags(_rm, _rs)                                \
-{                                                                             \
-  generate_load_reg_pc_lsb(reg_a1, _rs, 12);                                  \
-  generate_load_reg_pc(reg_a0, _rm, 12);                                      \
-  /* Only load the result on zero, no shift */                                \
-  aa64_emit_cbz(reg_a1, 8);                                                   \
-  aa64_emit_subi(reg_temp, reg_a1, 1);                                        \
-  aa64_emit_lsrv(reg_a0, reg_a0, reg_temp);                                   \
-  aa64_emit_andi(reg_c_cache, reg_a0, 0, 0);  /* imm=1 */                     \
-  aa64_emit_cmpi(reg_a1, 33);                                                 \
-  aa64_emit_lsr(reg_a0, reg_a0, 1);                                           \
-  /* Result and flag to be zero if shift is > 32 */                           \
-  aa64_emit_csel(reg_c_cache, reg_zero, reg_c_cache, ccode_hs);               \
-  aa64_emit_csel(reg_a0,      reg_zero, reg_a0,      ccode_hs);               \
-}                                                                             \
-
-#define generate_shift_reg_asr_flags(_rm, _rs)                                \
-  generate_load_reg_pc_lsb(reg_a1, _rs, 12);                                  \
-  generate_load_reg_pc(reg_a0, _rm, 12);                                      \
-  /* Only load the result on zero, no shift */                                \
-  aa64_emit_cbz(reg_a1, 8);                                                   \
-  /* Cap shift at 32, since it's equivalent */                                \
-  aa64_emit_movlo(reg_temp, 32);                                              \
-  aa64_emit_cmpi(reg_a1, 32);                                                 \
-  aa64_emit_csel(reg_a1, reg_a1, reg_temp, ccode_ls);                         \
-  aa64_emit_subi(reg_temp, reg_a1, 1);                                        \
-  aa64_emit_asrv(reg_a0, reg_a0, reg_temp);                                   \
-  aa64_emit_andi(reg_c_cache, reg_a0, 0, 0);  /* imm=1 */                     \
-  aa64_emit_asr(reg_a0, reg_a0, 1);                                           \
-
-#define generate_shift_reg_ror_flags(_rm, _rs)                                \
-  generate_load_reg_pc_lsb(reg_a1, _rs, 12);                                  \
-  aa64_emit_cbz(reg_a1, 4);                                                   \
-  aa64_emit_subi(reg_temp, reg_a1, 1);                                        \
-  aa64_emit_lsrv(reg_temp, arm_to_a64_reg[_rm], reg_temp);                    \
-  aa64_emit_andi(reg_c_cache, reg_temp, 0, 0);  /* imm=1 */                   \
-  aa64_emit_rorv(reg_a0, arm_to_a64_reg[_rm], reg_a1)                         \
-
 #define generate_shift_imm(arm_reg, name, flags_op)                           \
   u32 shift = (opcode >> 7) & 0x1F;                                           \
   generate_shift_imm_##name##_##flags_op(arm_reg, rm, shift)                  \
-
-#define generate_shift_reg(arm_reg, name, flags_op)                           \
-  u32 rs = ((opcode >> 8) & 0x0F);                                            \
-  generate_shift_reg_##name##_##flags_op(rm, rs);                             \
-  rm = arm_reg                                                                \
 
 #define generate_block_extra_vars()                                           \
   u32 stored_pc = pc;                                                         \
@@ -1008,27 +926,6 @@ u32 execute_spsr_restore_body(u32 address)
     generate_mov(rd, rs);                                                     \
   }                                                                           \
 
-#define thumb_generate_shift_reg(name)                                        \
-{                                                                             \
-  u32 original_rd = rd;                                                       \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
-    generate_shift_reg_##name##_flags(rd, rs);                                \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_shift_reg_##name##_no_flags(rd, rs);                             \
-  }                                                                           \
-  aa64_emit_addi(arm_to_a64_reg[original_rd], reg_a0, 0);                     \
-}                                                                             \
-
-#define thumb_shift(decode_type, op_type, value_type)                         \
-{                                                                             \
-  thumb_decode_##decode_type();                                               \
-  thumb_generate_shift_##value_type(op_type);                                 \
-  generate_op_logic_flags(arm_to_a64_reg[rd]);                                \
-}                                                                             \
-
 
 #define generate_branch_filler(condition_code, writeback_location)            \
   (writeback_location) = translation_ptr;                                     \
@@ -1215,6 +1112,25 @@ public:
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     };
+  }
+
+  template <OpType stype, ShiftType st>
+  inline void thumb_shft(const ThumbInst & it) {
+    u32 rd = arm_to_a64_reg[it.rd()];
+
+    if (stype == OpImm) {
+      if (it.gen_flag_c())
+        emit_op2_shimm<SetFlags>(rd, it.rs(), st, it.imm5(), 0);
+      else
+        emit_op2_shimm<NoFlags>(rd, it.rs(), st, it.imm5(), 0);
+    } else {
+      if (it.gen_flag_c())
+        emit_op2_shreg<SetFlags>(rd, it.rd(), it.rs(), st, 0);
+      else
+        emit_op2_shreg<NoFlags>(rd, it.rd(), it.rs(), st, 0);
+    }
+
+    update_nz_flags<SetFlags>(it, rd);
   }
 
   template <AluOperation aluop>
@@ -1670,53 +1586,53 @@ public:
 
   // Calculates operand 2 when register is shifted/rotated by an immediate.
   template<FlagOperation flg>
-  inline void emit_op2_shimm(const ARMInst &it) {
-    u32 imm = it.op2sa();      // Shift amount [0..31]
+  inline void emit_op2_shimm(u32 dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rm;
 
-    switch (it.op2smode()) {
-    case 0:      /* LSL */
-      rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
-      if (flg == SetFlags && imm) {
-        aa64_emit_ubfx(reg_c_cache, rm, (32 - imm), 1);
+    switch (st) {
+    case ShiftLSL:
+      rm = load_alloc_reg(sreg, dreg, pc);
+      if (flg == SetFlags && sa) {
+        aa64_emit_ubfx(reg_c_cache, rm, (32 - sa), 1);
       }
-      aa64_emit_lsl(reg_a0, rm, imm);
+      aa64_emit_lsl(dreg, rm, sa);
       break;
 
-    case 1:      /* LSR (0 means shift by 32) */
-      if (imm) {
-        rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    case ShiftLSR:      /* (sa 0 means shift by 32) */
+      if (sa) {
+        rm = load_alloc_reg(sreg, dreg, pc);
         if (flg == SetFlags) {
-          aa64_emit_ubfx(reg_c_cache, rm, (imm - 1), 1);
+          aa64_emit_ubfx(reg_c_cache, rm, (sa - 1), 1);
         }
-        aa64_emit_lsr(reg_a0, rm, imm);
+        aa64_emit_lsr(dreg, rm, sa);
       } else {
         if (flg == SetFlags) {
-          rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+          rm = load_alloc_reg(sreg, dreg, pc);
           aa64_emit_lsr(reg_c_cache, rm, 31);
         }
-        aa64_emit_movlo(reg_a0, 0);
+        aa64_emit_movlo(dreg, 0);
       }
       break;
 
-    case 2:      /* ASR (0 is also shift by 32) */
-      rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    case ShiftASR:      /* (sa 0 is also shift by 32) */
+      rm = load_alloc_reg(sreg, dreg, pc);
       if (flg == SetFlags) {
-        aa64_emit_ubfx(reg_c_cache, rm, ((imm ? imm : 32) - 1), 1);
+        aa64_emit_ubfx(reg_c_cache, rm, ((sa ? sa : 32) - 1), 1);
       }
-      aa64_emit_asr(reg_a0, rm, (imm ? imm : 31));
+      aa64_emit_asr(dreg, rm, (sa ? sa : 31));
       break;
 
-    case 3:      /* ROR */
-      rm = load_alloc_reg(it.rm(), reg_a1, it.pc + 8);
-      if (imm) {
+    case ShiftROR:
+      rm = load_alloc_reg(sreg, reg_temp, pc);
+      if (sa) {
         if (flg == SetFlags) {
-          aa64_emit_ubfx(reg_c_cache, rm, (imm - 1), 1);
+          aa64_emit_ubfx(reg_c_cache, rm, (sa - 1), 1);
         }
-        aa64_emit_ror(reg_a0, rm, imm);
+        aa64_emit_ror(dreg, rm, sa);
       } else {
-        aa64_emit_extr(reg_a0, reg_c_cache, rm, 1);
+        // TODO this doesn't work when rm and dreg are the same register.
+        aa64_emit_extr(dreg, reg_c_cache, rm, 1);
         if (flg == SetFlags) {
           aa64_emit_ubfx(reg_c_cache, rm, 0, 1);
         }
@@ -1727,35 +1643,35 @@ public:
 
   // Calculates operand 2 when register is shifted/rotated by another register.
   template<FlagOperation flg>
-  inline void emit_op2_shreg(const ARMInst &it) {
+  inline void emit_op2_shreg(u32 dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    load_alloc_reg_lsb(it.rs(), reg_a1, it.pc + 12);  // Loads the LSB byte only!
+    load_alloc_reg_lsb(areg, reg_a1, pc);  // Loads the LSB byte only!
 
     if (flg == SetFlags) {
-      force_load_reg(it.rm(), reg_a0, it.pc + 12);    // Load reg into a0
-      switch (it.op2smode()) {
+      force_load_reg(sreg, dreg, pc);    // Force load reg into dreg
+      switch (st) {
         case 0:     /* LSL */
           aa64_emit_cbz(reg_a1, 8);           // Skip it all on shift = 0
           // This code works if shift <= 32.
           aa64_emit_subi(reg_temp, reg_a1, 1);
-          aa64_emit_lslv(reg_a0, reg_a0, reg_temp);
-          aa64_emit_lsr(reg_c_cache, reg_a0, 31);
+          aa64_emit_lslv(dreg, dreg, reg_temp);
+          aa64_emit_lsr(reg_c_cache, dreg, 31);
           aa64_emit_cmpi(reg_a1, 33);
-          aa64_emit_lsl(reg_a0, reg_a0, 1);
+          aa64_emit_lsl(dreg, dreg, 1);
           // If shift > 32 we just clear both reg and C flag
           aa64_emit_csel(reg_c_cache, reg_zero, reg_c_cache, ccode_hs);
-          aa64_emit_csel(reg_a0,      reg_zero, reg_a0,      ccode_hs);
+          aa64_emit_csel(dreg,        reg_zero, dreg,        ccode_hs);
           break;
         case 1:     /* LSR */
           aa64_emit_cbz(reg_a1, 8);           // Skip it all on shift = 0
           aa64_emit_subi(reg_temp, reg_a1, 1);
-          aa64_emit_lsrv(reg_a0, reg_a0, reg_temp);
-          aa64_emit_andi(reg_c_cache, reg_a0, 0, 0);  /* imm=1 */
+          aa64_emit_lsrv(dreg, dreg, reg_temp);
+          aa64_emit_andi(reg_c_cache, dreg, 0, 0);  /* imm=1 */
           aa64_emit_cmpi(reg_a1, 33);
-          aa64_emit_lsr(reg_a0, reg_a0, 1);
+          aa64_emit_lsr(dreg, dreg, 1);
           // If shift > 32 we just clear both reg and C flag
           aa64_emit_csel(reg_c_cache, reg_zero, reg_c_cache, ccode_hs);
-          aa64_emit_csel(reg_a0,      reg_zero, reg_a0,      ccode_hs);
+          aa64_emit_csel(dreg,        reg_zero, dreg,        ccode_hs);
           break;
         case 2:     /* ASR */
           aa64_emit_cbz(reg_a1, 8);           // Skip it all on shift = 0
@@ -1763,38 +1679,38 @@ public:
           aa64_emit_cmpi(reg_a1, 32);
           aa64_emit_csel(reg_a1, reg_a1, reg_temp, ccode_ls);
           aa64_emit_subi(reg_temp, reg_a1, 1);
-          aa64_emit_asrv(reg_a0, reg_a0, reg_temp);
-          aa64_emit_andi(reg_c_cache, reg_a0, 0, 0);  /* imm=1 */
-          aa64_emit_asr(reg_a0, reg_a0, 1);
+          aa64_emit_asrv(dreg, dreg, reg_temp);
+          aa64_emit_andi(reg_c_cache, dreg, 0, 0);  /* imm=1 */
+          aa64_emit_asr(dreg, dreg, 1);
           break;
         case 3:     /* ROR */
           // ror/lsrv only use the 5 LSB in aarch64
-          aa64_emit_rorv(reg_a0, reg_a0, reg_a1);
+          aa64_emit_rorv(dreg, dreg, reg_a1);
           aa64_emit_cbz(reg_a1, 2);
-          aa64_emit_lsr(reg_c_cache, reg_a0, 31);
+          aa64_emit_lsr(reg_c_cache, dreg, 31);
           break;
       };
     } else {
-      u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 12);
-      switch (it.op2smode()) {
+      u32 rm = load_alloc_reg(sreg, dreg, pc);
+      switch (st) {
         case 0:     /* LSL */
           aa64_emit_cmpi(reg_a1, 32);
           aa64_emit_lslv(reg_temp, rm, reg_a1);
-          aa64_emit_csel(reg_a0, reg_zero, reg_temp, ccode_hs);
+          aa64_emit_csel(dreg, reg_zero, reg_temp, ccode_hs);
           break;
         case 1:     /* LSR */
           aa64_emit_cmpi(reg_a1, 32);
           aa64_emit_lsrv(reg_temp, rm, reg_a1);
-          aa64_emit_csel(reg_a0, reg_zero, reg_temp, ccode_hs);
+          aa64_emit_csel(dreg, reg_zero, reg_temp, ccode_hs);
           break;
         case 2:     /* ASR */
           aa64_emit_cmpi(reg_a1, 31);
           aa64_emit_asr(reg_temp, rm, 31);
-          aa64_emit_asrv(reg_a0, rm, reg_a1);
-          aa64_emit_csel(reg_a0, reg_a0, reg_temp, ccode_lo);
+          aa64_emit_asrv(dreg, rm, reg_a1);
+          aa64_emit_csel(dreg, dreg, reg_temp, ccode_lo);
           break;
         case 3:     /* ROR */
-          aa64_emit_rorv(reg_a0, rm, reg_a1);
+          aa64_emit_rorv(dreg, rm, reg_a1);
           break;
       };
     }
@@ -1813,14 +1729,14 @@ public:
         return load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
 
       if (flg == SetFlags && it.gen_flag_c())
-        emit_op2_shimm<SetFlags>(it);
+        emit_op2_shimm<SetFlags>(reg_a0, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
       else
-        emit_op2_shimm<NoFlags>(it);
+        emit_op2_shimm<NoFlags>(reg_a0, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
     } else {
       if (flg == SetFlags && it.gen_flag_c())
-        emit_op2_shreg<SetFlags>(it);
+        emit_op2_shreg<SetFlags>(reg_a0, it.rm(), it.rs(), (ShiftType)it.op2smode(), it.pc + 12);
       else
-        emit_op2_shreg<NoFlags>(it);
+        emit_op2_shreg<NoFlags>(reg_a0, it.rm(), it.rs(), (ShiftType)it.op2smode(), it.pc + 12);
     }
     return reg_a0;
   }

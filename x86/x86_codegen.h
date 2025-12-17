@@ -113,6 +113,7 @@ typedef enum
   x86_opcode_rcr_reg1                   = 0x03D1,
   x86_opcode_call_offset                = 0xE8,
   x86_opcode_ret                        = 0xC3,
+  x86_opcode_cmc                        = 0xF5,
   x86_opcode_test_rm_imm                = 0x00F7,
   x86_opcode_test_reg_rm                = 0x85,
   x86_opcode_not_rm                     = 0x02F7,
@@ -221,6 +222,9 @@ typedef enum
 #define x86_emit_ret()                                                        \
   x86_emit_byte(x86_opcode_ret)                                               \
 
+#define x86_emit_cmc()                                                        \
+  x86_emit_byte(x86_opcode_cmc)                                               \
+
 #define x86_emit_mov_reg_mem(dest, base, offset)                              \
   x86_emit_opcode_1b_mem(mov_reg_rm, dest, base, offset)                      \
 
@@ -249,6 +253,11 @@ typedef enum
 #define x86_emit_mem_movzxb(dest, base, offset)                               \
   x86_emit_byte(x86_opcode_ext);                                              \
   x86_emit_opcode_1b_mem(movzxb, dest, base, offset);                         \
+
+#define x86_emit_mem_bittest(bitnum, base, offset)                            \
+  x86_emit_byte(x86_opcode_ext);                                              \
+  x86_emit_opcode_1b_mem(bt, 0x04, base, offset);                             \
+  x86_emit_byte(bitnum);                                                      \
 
 #define x86_emit_bittest(src, bitnum)                                         \
   x86_emit_byte(x86_opcode_ext);                                              \

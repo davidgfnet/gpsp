@@ -1324,49 +1324,6 @@ static void trace_instruction(u32 pc, u32 mode)
     thumb_complete_store_reg(rd, it.rd_hi());                                 \
   }                                                                           \
 
-#define generate_op_lsl_reg(_rd, _rm, _rs)                                    \
-  generate_op_movs_reg_regshift(_rd, 0, _rm, ARMSHIFT_LSL, _rs)               \
-
-#define generate_op_lsr_reg(_rd, _rm, _rs)                                    \
-  generate_op_movs_reg_regshift(_rd, 0, _rm, ARMSHIFT_LSR, _rs)               \
-
-#define generate_op_asr_reg(_rd, _rm, _rs)                                    \
-  generate_op_movs_reg_regshift(_rd, 0, _rm, ARMSHIFT_ASR, _rs)               \
-
-#define generate_op_ror_reg(_rd, _rm, _rs)                                    \
-  generate_op_movs_reg_regshift(_rd, 0, _rm, ARMSHIFT_ROR, _rs)               \
-
-
-#define generate_op_lsl_imm(_rd, _rm)                                         \
-  generate_op_movs_reg_immshift(_rd, 0, _rm, ARMSHIFT_LSL, imm)               \
-
-#define generate_op_lsr_imm(_rd, _rm)                                         \
-  generate_op_movs_reg_immshift(_rd, 0, _rm, ARMSHIFT_LSR, imm)               \
-
-#define generate_op_asr_imm(_rd, _rm)                                         \
-  generate_op_movs_reg_immshift(_rd, 0, _rm, ARMSHIFT_ASR, imm)               \
-
-#define generate_op_ror_imm(_rd, _rm)                                         \
-  generate_op_movs_reg_immshift(_rd, 0, _rm, ARMSHIFT_ROR, imm)               \
-
-
-#define thumb_generate_shift_reg(op_type)                                     \
-  u32 __rm = thumb_prepare_load_reg(translation_ptr, reg_rd, rd);             \
-  u32 __rs = thumb_prepare_load_reg(translation_ptr, reg_rs, rs);             \
-  generate_op_##op_type##_reg(__rd, __rm, __rs)                               \
-
-#define thumb_generate_shift_imm(op_type)                                     \
-  u32 __rs = thumb_prepare_load_reg(translation_ptr, reg_rs, rs);             \
-  generate_op_##op_type##_imm(__rd, __rs)                                     \
-
-
-#define thumb_shift(decode_type, op_type, value_type)                         \
-{                                                                             \
-  thumb_decode_##decode_type();                                               \
-  u32 __rd = thumb_prepare_store_reg(reg_rd, rd);                             \
-  thumb_generate_shift_##value_type(op_type);                                 \
-  thumb_complete_store_reg(__rd, rd);                                         \
-}                                                                             \
 
 /* Operation types: imm, mem_reg, mem_imm */
 
@@ -1520,6 +1477,26 @@ public:
     };
 
     thumb_complete_store_reg(reg_rd, it.rd());
+  }
+
+  template <OpType stype, ShiftType st>
+  inline void thumb_shft(const ThumbInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
+    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+
+    const u32 shtype = (st == ShiftLSL) ? ARMSHIFT_LSL :
+                       (st == ShiftLSR) ? ARMSHIFT_LSR :
+                       (st == ShiftASR) ? ARMSHIFT_ASR : ARMSHIFT_ROR;
+
+    if (stype == OpImm) {
+      generate_op_movs_reg_immshift(rd, 0, rs, shtype, it.imm5());
+    } else {
+      u32 rm = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
+      generate_op_movs_reg_regshift(rd, 0, rm, shtype, rs);
+    }
+
+    thumb_complete_store_reg(rd, it.rd());
   }
 
   template <AluOperation aluop>

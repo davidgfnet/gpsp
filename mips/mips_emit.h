@@ -385,93 +385,9 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
   }                                                                           \
   _rm = arm_reg                                                               \
 
-#define generate_shift_reg_lsl_no_flags(_rm, _rs)                             \
-  mips_emit_sltiu(reg_temp, arm_to_mips_reg[_rs], 32);                        \
-  mips_emit_sllv(reg_a0, arm_to_mips_reg[_rm], arm_to_mips_reg[_rs]);         \
-  mips_emit_movz(reg_a0, reg_zero, reg_temp)                                  \
-
-#define generate_shift_reg_lsr_no_flags(_rm, _rs)                             \
-  mips_emit_sltiu(reg_temp, arm_to_mips_reg[_rs], 32);                        \
-  mips_emit_srlv(reg_a0, arm_to_mips_reg[_rm], arm_to_mips_reg[_rs]);         \
-  mips_emit_movz(reg_a0, reg_zero, reg_temp)                                  \
-
-#define generate_shift_reg_asr_no_flags(_rm, _rs)                             \
-  mips_emit_sltiu(reg_temp, arm_to_mips_reg[_rs], 32);                        \
-  mips_emit_b(bne, reg_temp, reg_zero, 2);                                    \
-  mips_emit_srav(reg_a0, arm_to_mips_reg[_rm], arm_to_mips_reg[_rs]);         \
-  mips_emit_sra(reg_a0, reg_a0, 31)                                           \
-
-#define generate_shift_reg_ror_no_flags(_rm, _rs)                             \
-  rotate_right_var(reg_a0, arm_to_mips_reg[_rm],                              \
-                   reg_temp, arm_to_mips_reg[_rs])                            \
-
-#define generate_shift_reg_lsl_flags(_rm, _rs)                                \
-{                                                                             \
-  u32 shift_reg = _rs;                                                        \
-  check_load_reg_pc(arm_reg_a1, shift_reg, 8);                                \
-  generate_load_reg_pc(reg_a0, _rm, 12);                                      \
-  /* Only load the result on zero, no shift */                                \
-  mips_emit_b(beq, arm_to_mips_reg[shift_reg], reg_zero, 7);                  \
-  generate_swap_delay();                                                      \
-  mips_emit_addiu(reg_temp, arm_to_mips_reg[shift_reg], -1);                  \
-  mips_emit_sllv(reg_a0, reg_a0, reg_temp);                                   \
-  mips_emit_srl(reg_c_cache, reg_a0, 31);                                     \
-  mips_emit_sltiu(reg_temp, arm_to_mips_reg[shift_reg], 33);                  \
-  mips_emit_sll(reg_a0, reg_a0, 1);                                           \
-  /* Result and flag to be zero if shift is 33+ */                            \
-  mips_emit_movz(reg_c_cache, reg_zero, reg_temp);                            \
-  mips_emit_movz(reg_a0, reg_zero, reg_temp);                                 \
-}                                                                             \
-
-#define generate_shift_reg_lsr_flags(_rm, _rs)                                \
-{                                                                             \
-  u32 shift_reg = _rs;                                                        \
-  check_load_reg_pc(arm_reg_a1, shift_reg, 8);                                \
-  generate_load_reg_pc(reg_a0, _rm, 12);                                      \
-  /* Only load the result on zero, no shift */                                \
-  mips_emit_b(beq, arm_to_mips_reg[shift_reg], reg_zero, 7);                  \
-  generate_swap_delay();                                                      \
-  mips_emit_addiu(reg_temp, arm_to_mips_reg[shift_reg], -1);                  \
-  mips_emit_srlv(reg_a0, reg_a0, reg_temp);                                   \
-  mips_emit_andi(reg_c_cache, reg_a0, 1);                                     \
-  mips_emit_sltiu(reg_temp, arm_to_mips_reg[shift_reg], 33);                  \
-  mips_emit_srl(reg_a0, reg_a0, 1);                                           \
-  /* Result and flag to be zero if shift is 33+ */                            \
-  mips_emit_movz(reg_c_cache, reg_zero, reg_temp);                            \
-  mips_emit_movz(reg_a0, reg_zero, reg_temp);                                 \
-}                                                                             \
-
-#define generate_shift_reg_asr_flags(_rm, _rs)                                \
-  generate_load_reg_pc(reg_a1, _rs, 8);                                       \
-  generate_load_reg_pc(reg_a0, _rm, 12);                                      \
-  /* Only load the result on zero, no shift */                                \
-  mips_emit_b(beq, reg_a1, reg_zero, 7);                                      \
-  generate_swap_delay();                                                      \
-  /* Cap shift at 32, since it's equivalent */                                \
-  mips_emit_addiu(reg_temp, reg_zero, 32);                                    \
-  mips_emit_srl(reg_rv, reg_a1, 5);                                           \
-  mips_emit_movn(reg_a1, reg_temp, reg_rv);                                   \
-  mips_emit_addiu(reg_temp, reg_a1, -1);                                      \
-  mips_emit_srav(reg_a0, reg_a0, reg_temp);                                   \
-  mips_emit_andi(reg_c_cache, reg_a0, 1);                                     \
-  mips_emit_sra(reg_a0, reg_a0, 1);                                           \
-
-#define generate_shift_reg_ror_flags(_rm, _rs)                                \
-  mips_emit_b(beq, arm_to_mips_reg[_rs], reg_zero, 3);                        \
-  mips_emit_addiu(reg_temp, arm_to_mips_reg[_rs], -1);                        \
-  mips_emit_srlv(reg_temp, arm_to_mips_reg[_rm], reg_temp);                   \
-  mips_emit_andi(reg_c_cache, reg_temp, 1);                                   \
-  rotate_right_var(reg_a0, arm_to_mips_reg[_rm],                              \
-                   reg_temp, arm_to_mips_reg[_rs])                            \
-
 #define generate_shift_imm(arm_reg, name, flags_op)                           \
   u32 shift = (opcode >> 7) & 0x1F;                                           \
   generate_shift_imm_##name##_##flags_op(arm_reg, rm, shift)                  \
-
-#define generate_shift_reg(arm_reg, name, flags_op)                           \
-  u32 rs = ((opcode >> 8) & 0x0F);                                            \
-  generate_shift_reg_##name##_##flags_op(rm, rs);                             \
-  rm = arm_reg                                                                \
 
 
 #define generate_block_extra_vars()                                           \
@@ -1079,27 +995,6 @@ u32 execute_spsr_restore_body(u32 address)
     mips_emit_addu(arm_to_mips_reg[rd], arm_to_mips_reg[rs], reg_zero);       \
   }                                                                           \
 
-#define thumb_generate_shift_reg(name)                                        \
-{                                                                             \
-  u32 original_rd = rd;                                                       \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
-    generate_shift_reg_##name##_flags(rd, rs);                                \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_shift_reg_##name##_no_flags(rd, rs);                             \
-  }                                                                           \
-  mips_emit_addu(arm_to_mips_reg[original_rd], reg_a0, reg_zero);             \
-}                                                                             \
-
-#define thumb_shift(decode_type, op_type, value_type)                         \
-{                                                                             \
-  thumb_decode_##decode_type();                                               \
-  thumb_generate_shift_##value_type(op_type);                                 \
-  generate_op_logic_flags(arm_to_mips_reg[rd]);                               \
-}                                                                             \
-
 
 #define thumb_conditional_branch(condition)                                   \
 {                                                                             \
@@ -1375,6 +1270,25 @@ public:
       generate_op_sbcs_reg(rd, rd, rs);
       break;
     };
+  }
+
+  template <OpType stype, ShiftType st>
+  inline void thumb_shft(const ThumbInst & it) {
+    u32 rd = arm_to_mips_reg[it.rd()];
+
+    if (stype == OpImm) {
+      if (it.gen_flag_c())
+        emit_op2_shimm<SetFlags>(rd, it.rs(), st, it.imm5(), 0);
+      else
+        emit_op2_shimm<NoFlags>(rd, it.rs(), st, it.imm5(), 0);
+    } else {
+      if (it.gen_flag_c())
+        emit_op2_shreg<SetFlags>(rd, it.rd(), it.rs(), st, 0);
+      else
+        emit_op2_shreg<NoFlags>(rd, it.rd(), it.rs(), st, 0);
+    }
+
+    update_nz_flags(it, rd);
   }
 
   template <AluOperation aluop>
@@ -1828,59 +1742,58 @@ public:
 
   // Calculates operand 2 when register is shifted/rotated by an immediate.
   template<FlagOperation flg>
-  inline void emit_op2_shimm(const ARMInst &it) {
-    u32 imm = it.op2sa();      // Shift amount [0..31]
+  inline void emit_op2_shimm(u32 dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rm;
 
-    switch (it.op2smode()) {
-    case 0:      /* LSL */
-      rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
-      if (flg == SetFlags && imm) {
-        extract_bits(reg_c_cache, rm, (32 - imm), 1);
+    switch (st) {
+    case ShiftLSL:
+      rm = load_alloc_reg(sreg, dreg, pc);
+      if (flg == SetFlags && sa) {
+        extract_bits(reg_c_cache, rm, (32 - sa), 1);
       }
-      mips_emit_sll(reg_a0, rm, imm);
+      mips_emit_sll(dreg, rm, sa);
       break;
 
-    case 1:      /* LSR (0 means shift by 32) */
-      if (imm) {
-        rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    case ShiftLSR:      /* (sa 0 means shift by 32) */
+      if (sa) {
+        rm = load_alloc_reg(sreg, dreg, pc);
         if (flg == SetFlags) {
-          extract_bits(reg_c_cache, rm, (imm - 1), 1);
+          extract_bits(reg_c_cache, rm, (sa - 1), 1);
         }
-        mips_emit_srl(reg_a0, rm, imm);
+        mips_emit_srl(dreg, rm, sa);
       } else {
         if (flg == SetFlags) {
-          rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+          rm = load_alloc_reg(sreg, dreg, pc);
           mips_emit_srl(reg_c_cache, rm, 31);
         }
         // TODO: Can we just return reg_zero and save an inst?
-        mips_emit_addu(reg_a0, reg_zero, reg_zero);
+        mips_emit_addu(dreg, reg_zero, reg_zero);
       }
       break;
 
-    case 2:      /* ASR (0 is also shift by 32) */
-      rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    case ShiftASR:      /* (sa 0 is also shift by 32) */
+      rm = load_alloc_reg(sreg, dreg, pc);
       if (flg == SetFlags) {
-        extract_bits(reg_c_cache, rm, ((imm ? imm : 32) - 1), 1);
+        extract_bits(reg_c_cache, rm, ((sa ? sa : 32) - 1), 1);
       }
-      mips_emit_sra(reg_a0, rm, (imm ? imm : 31));
+      mips_emit_sra(dreg, rm, (sa ? sa : 31));
       break;
 
-    case 3:      /* ROR */
-      rm = load_alloc_reg(it.rm(), reg_a1, it.pc + 8);
-      if (imm) {
-        rotate_right(reg_a0, rm, reg_temp, imm);
+    case ShiftROR:
+      rm = load_alloc_reg(sreg, reg_a1, pc);
+      if (sa) {
+        rotate_right(dreg, rm, reg_temp, sa);
         if (flg == SetFlags) {
-          mips_emit_srl(reg_c_cache, reg_a0, 31);  // CF is just the MSB bit
+          mips_emit_srl(reg_c_cache, dreg, 31);  // CF is just the MSB bit
         }
       } else {   /* RRX */
         mips_emit_sll(reg_temp, reg_c_cache, 31);
         if (flg == SetFlags) {
           mips_emit_andi(reg_c_cache, rm, 1);
         }
-        mips_emit_srl(reg_a0, rm, 1);
-        mips_emit_or(reg_a0, reg_a0, reg_temp);
+        mips_emit_srl(dreg, rm, 1);
+        mips_emit_or(dreg, dreg, reg_temp);
       }
       break;
     };
@@ -1888,82 +1801,82 @@ public:
 
   // Calculates operand 2 when register is shifted/rotated by another register.
   template<FlagOperation flg>
-  inline void emit_op2_shreg(const ARMInst &it) {
+  inline void emit_op2_shreg(u32 dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    load_alloc_reg_lsb(it.rs(), reg_a1, it.pc + 12);  // Loads the LSB byte only!
+    load_alloc_reg_lsb(areg, reg_a1, pc);  // Loads the LSB byte only!
 
     if (flg == SetFlags) {
-      switch (it.op2smode()) {
-        case 0:     /* LSL */
-          force_load_reg(it.rm(), reg_a0, it.pc + 12);
+      switch (st) {
+        case ShiftLSL:
+          force_load_reg(sreg, dreg, pc);
           /* Skip it all on imm = 0 */
           mips_emit_b(beq, reg_a1, reg_zero, 7);
           generate_swap_delay();
           mips_emit_addiu(reg_temp, reg_a1, -1);
-          mips_emit_sllv(reg_a0, reg_a0, reg_temp);
-          mips_emit_srl(reg_c_cache, reg_a0, 31);
+          mips_emit_sllv(dreg, dreg, reg_temp);
+          mips_emit_srl(reg_c_cache, dreg, 31);
           mips_emit_sltiu(reg_temp, reg_a1, 33);
-          mips_emit_sll(reg_a0, reg_a0, 1);
+          mips_emit_sll(dreg, dreg, 1);
           /* Result and flag to be zero if shift is >32 */
           mips_emit_movz(reg_c_cache, reg_zero, reg_temp);
-          mips_emit_movz(reg_a0, reg_zero, reg_temp);
+          mips_emit_movz(dreg, reg_zero, reg_temp);
           break;
-        case 1:     /* LSR */
-          force_load_reg(it.rm(), reg_a0, it.pc + 12);
+        case ShiftLSR:
+          force_load_reg(sreg, dreg, pc);
           mips_emit_b(beq, reg_a1, reg_zero, 7);  // Skip it all on shift = 0
           generate_swap_delay();
           mips_emit_addiu(reg_temp, reg_a1, -1);
-          mips_emit_srlv(reg_a0, reg_a0, reg_temp);
-          mips_emit_andi(reg_c_cache, reg_a0, 1);
+          mips_emit_srlv(dreg, dreg, reg_temp);
+          mips_emit_andi(reg_c_cache, dreg, 1);
           mips_emit_sltiu(reg_temp, reg_a1, 33);
-          mips_emit_srl(reg_a0, reg_a0, 1);
+          mips_emit_srl(dreg, dreg, 1);
           /* Result and flag to be zero if shift is >32 */
           mips_emit_movz(reg_c_cache, reg_zero, reg_temp);
-          mips_emit_movz(reg_a0, reg_zero, reg_temp);
+          mips_emit_movz(dreg, reg_zero, reg_temp);
           break;
-        case 2:     /* ASR */
-          force_load_reg(it.rm(), reg_a0, it.pc + 12);
+        case ShiftASR:
+          force_load_reg(sreg, dreg, pc);
           mips_emit_b(beq, reg_a1, reg_zero, 7);
           generate_swap_delay();
           mips_emit_addiu(reg_temp, reg_zero, 32);
           mips_emit_srl(reg_rv, reg_a1, 5);             // Check if shift >= 32
           mips_emit_movn(reg_a1, reg_temp, reg_rv);     // Cap it at 32
           mips_emit_addiu(reg_temp, reg_a1, -1);        // Shift in two steps
-          mips_emit_srav(reg_a0, reg_a0, reg_temp);
-          mips_emit_andi(reg_c_cache, reg_a0, 1);
-          mips_emit_sra(reg_a0, reg_a0, 1);
+          mips_emit_srav(dreg, dreg, reg_temp);
+          mips_emit_andi(reg_c_cache, dreg, 1);
+          mips_emit_sra(dreg, dreg, 1);
           break;
-        case 3:     /* ROR */
+        case ShiftROR:
           {
-            u32 rm = load_alloc_reg(it.rm(), reg_a2, it.pc + 12);
-            rotate_right_var(reg_a0, rm, reg_temp, reg_a1);
-            mips_emit_srl(reg_temp, reg_a0, 31);  // CF is just the MSB bit
+            u32 rm = load_alloc_reg(sreg, reg_a2, pc);
+            rotate_right_var(dreg, rm, reg_temp, reg_a1);
+            mips_emit_srl(reg_temp, dreg, 31);  // CF is just the MSB bit
             mips_emit_movn(reg_c_cache, reg_temp, reg_a1);
           }
           break;
       };
     } else {
-      u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 12);
-      switch (it.op2smode()) {
-        case 0:     /* LSL */
+      u32 rm = load_alloc_reg(sreg, dreg, pc);
+      switch (st) {
+        case ShiftLSL:
           mips_emit_sltiu(reg_temp, reg_a1, 32);
-          mips_emit_sllv(reg_a0, rm, reg_a1);
-          mips_emit_movz(reg_a0, reg_zero, reg_temp);
+          mips_emit_sllv(dreg, rm, reg_a1);
+          mips_emit_movz(dreg, reg_zero, reg_temp);
           break;
-        case 1:     /* LSR */
+        case ShiftLSR:
           mips_emit_sltiu(reg_temp, reg_a1, 32);
-          mips_emit_srlv(reg_a0, rm, reg_a1);
-          mips_emit_movz(reg_a0, reg_zero, reg_temp);
+          mips_emit_srlv(dreg, rm, reg_a1);
+          mips_emit_movz(dreg, reg_zero, reg_temp);
           break;
-        case 2:     /* ASR */
+        case ShiftASR:
           mips_emit_sltiu(reg_temp, reg_a1, 32);
           mips_emit_b(bne, reg_temp, reg_zero, 2);
-          mips_emit_srav(reg_a0, rm, reg_a1);
-          mips_emit_sra(reg_a0, reg_a0, 31);
+          mips_emit_srav(dreg, rm, reg_a1);
+          mips_emit_sra(dreg, dreg, 31);
           break;
-        case 3:     /* ROR */
+        case ShiftROR:
           // TODO: src and dst must be different!
-          rotate_right_var(reg_a0, rm, reg_temp, reg_a1);
+          rotate_right_var(dreg, rm, reg_temp, reg_a1);
           break;
       };
     }
@@ -1978,18 +1891,18 @@ public:
       // Special case: LSL with imm = 0 means unmodified register (and Cflag).
       // Just return the register directly (or scratch to a0 for PC)
       // Saves one instruction (it is relatively common)
-      if (it.op2sa() == 0 && it.op2smode() == 0 /* LSL */)
+      if (it.op2sa() == 0 && it.op2smode() == ShiftLSL)
         return load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
 
       if (flg == SetFlags && it.gen_flag_c())
-        emit_op2_shimm<SetFlags>(it);
+        emit_op2_shimm<SetFlags>(reg_a0, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
       else
-        emit_op2_shimm<NoFlags>(it);
+        emit_op2_shimm<NoFlags>(reg_a0, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
     } else {
       if (flg == SetFlags && it.gen_flag_c())
-        emit_op2_shreg<SetFlags>(it);
+        emit_op2_shreg<SetFlags>(reg_a0, it.rm(), it.rs(), (ShiftType)it.op2smode(), it.pc + 12);
       else
-        emit_op2_shreg<NoFlags>(it);
+        emit_op2_shreg<NoFlags>(reg_a0, it.rm(), it.rs(), (ShiftType)it.op2smode(), it.pc + 12);
     }
     return reg_a0;
   }

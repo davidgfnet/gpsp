@@ -31,6 +31,8 @@ typedef enum { AccLoad, AccStore } AccMode;
 typedef enum { RegCPSR, RegSPSR } PSReg;
 // Operand type
 typedef enum { OpReg, OpImm } OpType;
+// ARM shift/rotation type (matches ARM encoding)
+typedef enum { ShiftLSL = 0, ShiftLSR = 1, ShiftASR = 2, ShiftROR = 3 } ShiftType;
 
 
 class BaseInst {

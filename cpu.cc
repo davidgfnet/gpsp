@@ -140,8 +140,8 @@ typedef enum { LgcAnd, LgcOrr, LgcXor, LgcBic, LgcMul, LgcNot, LgcMov } LogicMod
 typedef enum { FlagsSet, FlagsIgnore } FlagMode;
 typedef enum { OpDirect, OpReverse } OperandMode;
 typedef enum { Op2Reg, Op2Imm } ArmOp2;
-typedef enum { Op2PlusReg, Op2MinusReg, Op2PlusImm, Op2MinusImm,
-               HOp2PlusReg, HOp2MinusReg, HOp2PlusImm, HOp2MinusImm } MemOp2;
+typedef enum { OffOp2Reg, OffImm8, OffImm12, OffReg  } MemOp2;
+typedef enum { OffPositive, OffNegative } MemOffDir;
 typedef enum { MemIdxPre, MemIdxPreWB, MemIdxPostWB } MemIdxMode;
 typedef enum { AccLoad, AccStore } AccMode;
 typedef enum { AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec } AddrMode;
@@ -488,21 +488,19 @@ inline static cpu_alert_type thumb_memop(u32 rd, u32 addr, s32 &cyccnt) {
   return CPU_ALERT_NONE;
 }
 
-template<AccMode mode, typename memmode, MemOp2 op2m, MemIdxMode midx>
+template<AccMode mode, typename memmode, MemOp2 op2m, MemOffDir dir, MemIdxMode midx>
 inline static cpu_alert_type arm_memop(const ARMInstDec &it, s32 &cyccnt) {
   // Offset can be:
   // - 12 bit offset
   // - Regmode flexible operand (reg shifted/rotated by 5 bit immediate)
   // - 8 bit immediate (for "Additional Memory Instructions")
   // - A register (for "Additional Memory Instructions")
-  u32 offval = (op2m == Op2PlusImm)   ?  it.off12() :
-               (op2m == Op2MinusImm)  ? -it.off12() :
-               (op2m == Op2PlusReg)   ?  calc_op2_shimm<FlagsIgnore>(it) :
-               (op2m == Op2MinusReg)  ? -calc_op2_shimm<FlagsIgnore>(it) :
-               (op2m == HOp2PlusImm)  ?  it.off8() :
-               (op2m == HOp2MinusImm) ? -it.off8() :
-               (op2m == HOp2PlusReg)  ?  read_reg<8>(it.rm()) :
-                                        -read_reg<8>(it.rm());
+  const u32 offuval = (op2m == OffImm12)  ?  it.off12() :
+                      (op2m == OffOp2Reg) ?  calc_op2_shimm<FlagsIgnore>(it) :
+                      (op2m == OffImm8)   ?  it.off8() :
+                      /* OffReg */           read_reg<8>(it.rm());
+
+  const u32 offval = (dir == OffNegative) ? -offuval : offuval;
 
   // Calculate the address (might use offset depending on the mode)
   u32 address = read_reg<8>(it.rn());
@@ -1104,7 +1102,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
       case 0x00:
          if((opcode & 0x90) == 0x90) {
             if(opcode & 0x20) /* STRH rd, [rn], -rm */
-               return arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+               return arm_memop<AccStore, u16, OffReg, OffNegative, MemIdxPostWB>(inst, cyccnt);
             else    /* MUL rd, rm, rs */
                arm_mul32<FlagsIgnore, MulReg>(inst);
          }
@@ -1119,11 +1117,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
                   arm_mul32<FlagsSet, MulReg>(inst);
                   break;
                case 1:   /* LDRH rd, [rn], -rm */
-                  return arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffReg, OffNegative, MemIdxPostWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn], -rm */
-                  return arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffReg, OffNegative, MemIdxPostWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn], -rm */
-                  return arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffReg, OffNegative, MemIdxPostWB>(inst, cyccnt);
             }
          else  /* ANDS rd, rn, reg_op */
             return arm_logic<LgcAnd, FlagsSet, Op2Reg>(inst);
@@ -1132,7 +1130,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
       case 0x02:
          if((opcode & 0x90) == 0x90) {
             if(opcode & 0x20) /* STRH rd, [rn], -rm */
-               return arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+               return arm_memop<AccStore, u16, OffReg, OffNegative, MemIdxPostWB>(inst, cyccnt);
             else              /* MLA rd, rm, rs, rn */
                arm_mul32<FlagsIgnore, MulAdd>(inst);
          }
@@ -1147,11 +1145,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
                   arm_mul32<FlagsSet, MulAdd>(inst);
                   break;
                case 1:   /* LDRH rd, [rn], -rm */
-                  return arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffReg, OffNegative, MemIdxPostWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn], -rm */
-                  return arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffReg, OffNegative, MemIdxPostWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn], -rm */
-                  return arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffReg, OffNegative, MemIdxPostWB>(inst, cyccnt);
             }
          else  /* EORS rd, rn, reg_op */
             return arm_logic<LgcXor, FlagsSet, Op2Reg>(inst);
@@ -1159,7 +1157,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       case 0x04:
          if((opcode & 0x90) == 0x90)    /* STRH rd, [rn], -imm */
-            return arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+            return arm_memop<AccStore, u16, OffImm8, OffNegative, MemIdxPostWB>(inst, cyccnt);
          else                           /* SUB rd, rn, reg_op */
             return arm_sub<FlagsIgnore, Op2Reg, OpDirect, true>(inst, true);
 
@@ -1167,11 +1165,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn], -imm */
-                  return arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffImm8, OffNegative, MemIdxPostWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn], -imm */
-                  return arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffImm8, OffNegative, MemIdxPostWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn], -imm */
-                  return arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffImm8, OffNegative, MemIdxPostWB>(inst, cyccnt);
             }
          else  /* SUBS rd, rn, reg_op */
             return arm_sub<FlagsSet, Op2Reg, OpDirect, true>(inst, true);
@@ -1179,7 +1177,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       case 0x06:
          if((opcode & 0x90) == 0x90)    /* STRH rd, [rn], -imm */
-            return arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+            return arm_memop<AccStore, u16, OffImm8, OffNegative, MemIdxPostWB>(inst, cyccnt);
          else                           /* RSB rd, rn, reg_op */
             return arm_sub<FlagsIgnore, Op2Reg, OpReverse, true>(inst, true);
 
@@ -1187,11 +1185,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn], -imm */
-                  return arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffImm8, OffNegative, MemIdxPostWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn], -imm */
-                  return arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffImm8, OffNegative, MemIdxPostWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn], -imm */
-                  return arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffImm8, OffNegative, MemIdxPostWB>(inst, cyccnt);
             }
          else  /* RSBS rd, rn, reg_op */
             return arm_sub<FlagsSet, Op2Reg, OpReverse, true>(inst, true);
@@ -1200,7 +1198,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
       case 0x08:
          if((opcode & 0x90) == 0x90) {
             if(opcode & 0x20)      /* STRH rd, [rn], +rm */
-               return arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+               return arm_memop<AccStore, u16, OffReg, OffPositive, MemIdxPostWB>(inst, cyccnt);
             else                   /* UMULL rd, rm, rs */
                arm_mul64<FlagsIgnore, MulReg, SiUnsigned>(inst);
          }
@@ -1215,11 +1213,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
                   arm_mul64<FlagsSet, MulReg, SiUnsigned>(inst);
                   break;
                case 1:   /* LDRH rd, [rn], +rm */
-                  return arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffReg, OffPositive, MemIdxPostWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn], +rm */
-                  return arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffReg, OffPositive, MemIdxPostWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn], +rm */
-                  return arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffReg, OffPositive, MemIdxPostWB>(inst, cyccnt);
             }
          }
          else  /* ADDS rd, rn, reg_op */
@@ -1229,7 +1227,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
       case 0x0A:
          if((opcode & 0x90) == 0x90) {
             if(opcode & 0x20)      /* STRH rd, [rn], +rm */
-               return arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+               return arm_memop<AccStore, u16, OffReg, OffPositive, MemIdxPostWB>(inst, cyccnt);
             else    /* UMLAL rd, rm, rs */
                arm_mul64<FlagsIgnore, MulAdd, SiUnsigned>(inst);
          }
@@ -1244,11 +1242,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
                   arm_mul64<FlagsSet, MulAdd, SiUnsigned>(inst);
                   break;
                case 1:   /* LDRH rd, [rn], +rm */
-                  return arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffReg, OffPositive, MemIdxPostWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn], +rm */
-                  return arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffReg, OffPositive, MemIdxPostWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn], +rm */
-                  return arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffReg, OffPositive, MemIdxPostWB>(inst, cyccnt);
             }
          }
          else  /* ADCS rd, rn, reg_op */
@@ -1258,7 +1256,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
       case 0x0C:
          if((opcode & 0x90) == 0x90) {
             if(opcode & 0x20)      /* STRH rd, [rn], +imm */
-               return arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+               return arm_memop<AccStore, u16, OffImm8, OffPositive, MemIdxPostWB>(inst, cyccnt);
             else                   /* SMULL rd, rm, rs */
                arm_mul64<FlagsIgnore, MulReg, SiSigned>(inst);
          }
@@ -1273,11 +1271,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
                   arm_mul64<FlagsSet, MulReg, SiSigned>(inst);
                   break;
                case 1:   /* LDRH rd, [rn], +imm */
-                  return arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffImm8, OffPositive, MemIdxPostWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn], +imm */
-                  return arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffImm8, OffPositive, MemIdxPostWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn], +imm */
-                  return arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffImm8, OffPositive, MemIdxPostWB>(inst, cyccnt);
             }
          }
          else  /* SBCS rd, rn, reg_op */
@@ -1288,7 +1286,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
          {
             if(opcode & 0x20)      /* STRH rd, [rn], +imm */
-               return arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+               return arm_memop<AccStore, u16, OffImm8, OffPositive, MemIdxPostWB>(inst, cyccnt);
             else                   /* SMLAL rd, rm, rs */
                arm_mul64<FlagsIgnore, MulAdd, SiSigned>(inst);
          }
@@ -1303,11 +1301,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
                   arm_mul64<FlagsSet, MulAdd, SiSigned>(inst);
                   break;
                case 1:   /* LDRH rd, [rn], +imm */
-                  return arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffImm8, OffPositive, MemIdxPostWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn], +imm */
-                  return arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffImm8, OffPositive, MemIdxPostWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn], +imm */
-                  return arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPostWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffImm8, OffPositive, MemIdxPostWB>(inst, cyccnt);
             }
          }
          else  /* RSCS rd, rn, reg_op */
@@ -1317,7 +1315,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
       case 0x10:
          if((opcode & 0x90) == 0x90) {
             if(opcode & 0x20)      /* STRH rd, [rn - rm] */
-               return arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
+               return arm_memop<AccStore, u16, OffReg, OffNegative, MemIdxPre>(inst, cyccnt);
             else                   /* SWP rd, rm, [rn] */
                return arm_swap<u32>(inst, cyccnt);
          }
@@ -1331,11 +1329,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90) {
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn - rm] */
-                  return arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffReg, OffNegative, MemIdxPre>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn - rm] */
-                  return arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffReg, OffNegative, MemIdxPre>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn - rm] */
-                  return arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffReg, OffNegative, MemIdxPre>(inst, cyccnt);
             }
          }
          else  /* TST rd, rn, reg_op */
@@ -1344,7 +1342,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       case 0x12:
          if((opcode & 0x90) == 0x90)    /* STRH rd, [rn - rm]! */
-            return arm_memop<AccStore, u16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
+            return arm_memop<AccStore, u16, OffReg, OffNegative, MemIdxPreWB>(inst, cyccnt);
          else {
             if(opcode & 0x10) {
                /* BX rn */
@@ -1367,11 +1365,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn - rm]! */
-                  return arm_memop<AccLoad, u16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffReg, OffNegative, MemIdxPreWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn - rm]! */
-                  return arm_memop<AccLoad, s8, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffReg, OffNegative, MemIdxPreWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn - rm]! */
-                  return arm_memop<AccLoad, s16, HOp2MinusReg, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffReg, OffNegative, MemIdxPreWB>(inst, cyccnt);
             }
          else  /* TEQ rd, rn, reg_op */
             arm_logic_test<LgcXor, Op2Reg>(inst);
@@ -1380,7 +1378,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
       case 0x14:
          if((opcode & 0x90) == 0x90) {
             if(opcode & 0x20)      /* STRH rd, [rn - imm] */
-               return arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
+               return arm_memop<AccStore, u16, OffImm8, OffNegative, MemIdxPre>(inst, cyccnt);
             else                   /* SWPB rd, rm, [rn] */
                return arm_swap<u8>(inst, cyccnt);
          }
@@ -1394,11 +1392,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn - imm] */
-                  return arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffImm8, OffNegative, MemIdxPre>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn - imm] */
-                  return arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffImm8, OffNegative, MemIdxPre>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn - imm] */
-                  return arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffImm8, OffNegative, MemIdxPre>(inst, cyccnt);
             }
          else  /* CMP rn, reg_op */
             arm_sub<FlagsSet, Op2Reg, OpDirect, false>(inst, true);
@@ -1406,7 +1404,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       case 0x16:
          if((opcode & 0x90) == 0x90)    /* STRH rd, [rn - imm]! */
-            return arm_memop<AccStore, u16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
+            return arm_memop<AccStore, u16, OffImm8, OffNegative, MemIdxPreWB>(inst, cyccnt);
          else                           /* MSR spsr, rm */
             spsr_write(inst, reg[inst.rm()]);
          break;
@@ -1415,11 +1413,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn - imm]! */
-                  return arm_memop<AccLoad, u16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffImm8, OffNegative, MemIdxPreWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn - imm]! */
-                  return arm_memop<AccLoad, s8, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffImm8, OffNegative, MemIdxPreWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn - imm]! */
-                  return arm_memop<AccLoad, s16, HOp2MinusImm, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffImm8, OffNegative, MemIdxPreWB>(inst, cyccnt);
             }
          else  /* CMN rd, rn, reg_op */
             arm_add<FlagsSet, Op2Reg, false>(inst, false);
@@ -1427,7 +1425,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       case 0x18:
          if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + rm] */
-            return arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
+            return arm_memop<AccStore, u16, OffReg, OffPositive, MemIdxPre>(inst, cyccnt);
          else                           /* ORR rd, rn, reg_op */
             return arm_logic<LgcOrr, FlagsIgnore, Op2Reg>(inst);
 
@@ -1435,11 +1433,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn + rm] */
-                  return arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffReg, OffPositive, MemIdxPre>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn + rm] */
-                  return arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffReg, OffPositive, MemIdxPre>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn + rm] */
-                  return arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffReg, OffPositive, MemIdxPre>(inst, cyccnt);
             }
          else  /* ORRS rd, rn, reg_op */
             return arm_logic<LgcOrr, FlagsSet, Op2Reg>(inst);
@@ -1447,7 +1445,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       case 0x1A:
          if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + rm]! */
-            return arm_memop<AccStore, u16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
+            return arm_memop<AccStore, u16, OffReg, OffPositive, MemIdxPreWB>(inst, cyccnt);
          else                           /* MOV rd, reg_op */
             return arm_logic<LgcMov, FlagsIgnore, Op2Reg>(inst);
 
@@ -1455,11 +1453,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn + rm]! */
-                  return arm_memop<AccLoad, u16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffReg, OffPositive, MemIdxPreWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn + rm]! */
-                  return arm_memop<AccLoad, s8, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffReg, OffPositive, MemIdxPreWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn + rm]! */
-                  return arm_memop<AccLoad, s16, HOp2PlusReg, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffReg, OffPositive, MemIdxPreWB>(inst, cyccnt);
             }
          else  /* MOVS rd, reg_op */
             return arm_logic<LgcMov, FlagsSet, Op2Reg>(inst);
@@ -1467,7 +1465,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       case 0x1C:
          if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + imm] */
-            return arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
+            return arm_memop<AccStore, u16, OffImm8, OffPositive, MemIdxPre>(inst, cyccnt);
          else  /* BIC rd, rn, reg_op */
             return arm_logic<LgcBic, FlagsIgnore, Op2Reg>(inst);
 
@@ -1475,11 +1473,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn + imm] */
-                  return arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffImm8, OffPositive, MemIdxPre>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn + imm] */
-                  return arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffImm8, OffPositive, MemIdxPre>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn + imm] */
-                  return arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPre>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffImm8, OffPositive, MemIdxPre>(inst, cyccnt);
             }
          else  /* BICS rd, rn, reg_op */
             return arm_logic<LgcBic, FlagsSet, Op2Reg>(inst);
@@ -1487,7 +1485,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       case 0x1E:
          if((opcode & 0x90) == 0x90)    /* STRH rd, [rn + imm]! */
-            return arm_memop<AccStore, u16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
+            return arm_memop<AccStore, u16, OffImm8, OffPositive, MemIdxPreWB>(inst, cyccnt);
          else  /* MVN rd, reg_op */
             return arm_logic<LgcNot, FlagsIgnore, Op2Reg>(inst);
 
@@ -1495,11 +1493,11 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          if((opcode & 0x90) == 0x90)
             switch((opcode >> 5) & 0x03) {
                case 1:   /* LDRH rd, [rn + imm]! */
-                  return arm_memop<AccLoad, u16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, u16, OffImm8, OffPositive, MemIdxPreWB>(inst, cyccnt);
                case 2:   /* LDRSB rd, [rn + imm]! */
-                  return arm_memop<AccLoad, s8, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s8, OffImm8, OffPositive, MemIdxPreWB>(inst, cyccnt);
                case 3:   /* LDRSH rd, [rn + imm]! */
-                  return arm_memop<AccLoad, s16, HOp2PlusImm, MemIdxPreWB>(inst, cyccnt);
+                  return arm_memop<AccLoad, s16, OffImm8, OffPositive, MemIdxPreWB>(inst, cyccnt);
             }
          else  /* MVNS rd, rn, reg_op */
             return arm_logic<LgcNot, FlagsSet, Op2Reg>(inst);
@@ -1572,110 +1570,110 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
 
       /* Load/Store with immediate post increment/decrement (byte and word) */
       case 0x40: case 0x42:   /* STR/STRT rd, [rn], -imm */
-         return arm_memop<AccStore, u32, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffImm12, OffNegative, MemIdxPostWB>(inst, cyccnt);
       case 0x41: case 0x43:   /* LDR/LDRT rd, [rn], -imm */
-         return arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffImm12, OffNegative, MemIdxPostWB>(inst, cyccnt);
       case 0x44: case 0x46:   /* STRB/STRBT rd, [rn], -imm */
-         return arm_memop<AccStore, u8, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffImm12, OffNegative, MemIdxPostWB>(inst, cyccnt);
       case 0x45: case 0x47:   /* LDRB/LDRBT rd, [rn], -imm */
-         return arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffImm12, OffNegative, MemIdxPostWB>(inst, cyccnt);
       case 0x48: case 0x4A:   /* STR/STRT rd, [rn], +imm */
-         return arm_memop<AccStore, u32, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffImm12, OffPositive, MemIdxPostWB>(inst, cyccnt);
       case 0x49: case 0x4B:   /* LDR/LDRT rd, [rn], +imm */
-         return arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffImm12, OffPositive, MemIdxPostWB>(inst, cyccnt);
       case 0x4C: case 0x4E:   /* STRB/STRBT rd, [rn], +imm */
-         return arm_memop<AccStore, u8, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffImm12, OffPositive, MemIdxPostWB>(inst, cyccnt);
       case 0x4D: case 0x4F:   /* LDRB/LDRBT rd, [rn], +imm */
-         return arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffImm12, OffPositive, MemIdxPostWB>(inst, cyccnt);
 
       /* Load/Store with optional immediate pre increment/decrement (byte and word) */
       case 0x50:              /* STR rd, [rn - imm] */
-         return arm_memop<AccStore, u32, Op2MinusImm, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffImm12, OffNegative, MemIdxPre>(inst, cyccnt);
       case 0x51:              /* LDR rd, [rn - imm] */
-         return arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffImm12, OffNegative, MemIdxPre>(inst, cyccnt);
       case 0x52:              /* STR rd, [rn - imm]! */
-         return arm_memop<AccStore, u32, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffImm12, OffNegative, MemIdxPreWB>(inst, cyccnt);
       case 0x53:              /* LDR rd, [rn - imm]! */
-         return arm_memop<AccLoad, u32, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffImm12, OffNegative, MemIdxPreWB>(inst, cyccnt);
       case 0x54:              /* STRB rd, [rn - imm] */
-         return arm_memop<AccStore, u8, Op2MinusImm, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffImm12, OffNegative, MemIdxPre>(inst, cyccnt);
       case 0x55:              /* LDRB rd, [rn - imm] */
-         return arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffImm12, OffNegative, MemIdxPre>(inst, cyccnt);
       case 0x56:              /* STRB rd, [rn - imm]! */
-         return arm_memop<AccStore, u8, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffImm12, OffNegative, MemIdxPreWB>(inst, cyccnt);
       case 0x57:              /* LDRB rd, [rn - imm]! */
-         return arm_memop<AccLoad, u8, Op2MinusImm, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffImm12, OffNegative, MemIdxPreWB>(inst, cyccnt);
 
       case 0x58:              /* STR rd, [rn + imm] */
-         return arm_memop<AccStore, u32, Op2PlusImm, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffImm12, OffPositive, MemIdxPre>(inst, cyccnt);
       case 0x59:              /* LDR rd, [rn + imm] */
-         return arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffImm12, OffPositive, MemIdxPre>(inst, cyccnt);
       case 0x5A:              /* STR rd, [rn + imm]! */
-         return arm_memop<AccStore, u32, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffImm12, OffPositive, MemIdxPreWB>(inst, cyccnt);
       case 0x5B:              /* LDR rd, [rn + imm]! */
-         return arm_memop<AccLoad, u32, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffImm12, OffPositive, MemIdxPreWB>(inst, cyccnt);
       case 0x5C:              /* STRB rd, [rn + imm] */
-         return arm_memop<AccStore, u8, Op2PlusImm, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffImm12, OffPositive, MemIdxPre>(inst, cyccnt);
       case 0x5D:              /* LDRB rd, [rn + imm] */
-         return arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffImm12, OffPositive, MemIdxPre>(inst, cyccnt);
       case 0x5E:              /* STRB rd, [rn + imm]! */
-         return arm_memop<AccStore, u8, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffImm12, OffPositive, MemIdxPreWB>(inst, cyccnt);
       case 0x5F:              /* LDRB rd, [rn + imm]! */
-         return arm_memop<AccLoad, u8, Op2PlusImm, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffImm12, OffPositive, MemIdxPreWB>(inst, cyccnt);
 
       /* Load/Store with shifted-reg post increment/decrement (byte and word) */
       case 0x60: case 0x62:  /* STR/STRT rd, [rn], -reg_op */
-         return arm_memop<AccStore, u32, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cyccnt);
       case 0x61: case 0x63:   /* LDR rd, [rn], -reg_op */
-         return arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cyccnt);
       case 0x64: case 0x66:   /* STRB/STRBT rd, [rn], -reg_op */
-         return arm_memop<AccStore, u8, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cyccnt);
       case 0x65: case 0x67:   /* LDRB/LDRBT rd, [rn], -reg_op */
-         return arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cyccnt);
 
       case 0x68: case 0x6A:   /* STR/STRT rd, [rn], +reg_op */
-         return arm_memop<AccStore, u32, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cyccnt);
       case 0x69: case 0x6B:   /* LDR/LDRT rd, [rn], +reg_op */
-         return arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cyccnt);
       case 0x6C: case 0x6E:   /* STRB/STRBT rd, [rn], +reg_op */
-         return arm_memop<AccStore, u8, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cyccnt);
       case 0x6D: case 0x6F:   /* LDRB/LDRBT rd, [rn], +reg_op */
-         return arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPostWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cyccnt);
 
       /* Load/Store with optional shifted-reg pre increment/decrement (byte and word) */
       case 0x70:              /* STR rd, [rn - reg_op] */
-         return arm_memop<AccStore, u32, Op2MinusReg, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffOp2Reg, OffNegative, MemIdxPre>(inst, cyccnt);
       case 0x71:              /* LDR rd, [rn - reg_op] */
-         return arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffOp2Reg, OffNegative, MemIdxPre>(inst, cyccnt);
       case 0x72:              /* STR rd, [rn - reg_op]! */
-         return arm_memop<AccStore, u32, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cyccnt);
       case 0x73:              /* LDR rd, [rn - reg_op]! */
-         return arm_memop<AccLoad, u32, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cyccnt);
       case 0x74:              /* STRB rd, [rn - reg_op] */
-         return arm_memop<AccStore, u8, Op2MinusReg, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffOp2Reg, OffNegative, MemIdxPre>(inst, cyccnt);
       case 0x75:              /* LDRB rd, [rn - reg_op] */
-         return arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffOp2Reg, OffNegative, MemIdxPre>(inst, cyccnt);
       case 0x76:              /* STRB rd, [rn - reg_op]! */
-         return arm_memop<AccStore, u8, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cyccnt);
       case 0x77:              /* LDRB rd, [rn - reg_op]! */
-         return arm_memop<AccLoad, u8, Op2MinusReg, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cyccnt);
 
       case 0x78:              /* STR rd, [rn + reg_op] */
-         return arm_memop<AccStore, u32, Op2PlusReg, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffOp2Reg, OffPositive, MemIdxPre>(inst, cyccnt);
       case 0x79:              /* LDR rd, [rn + reg_op] */
-         return arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffOp2Reg, OffPositive, MemIdxPre>(inst, cyccnt);
       case 0x7A:              /* STR rd, [rn + reg_op]! */
-         return arm_memop<AccStore, u32, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccStore, u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cyccnt);
       case 0x7B:              /* LDR rd, [rn + reg_op]! */
-         return arm_memop<AccLoad, u32, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cyccnt);
       case 0x7C:              /* STRB rd, [rn + reg_op] */
-         return arm_memop<AccStore, u8, Op2PlusReg, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffOp2Reg, OffPositive, MemIdxPre>(inst, cyccnt);
       case 0x7D:              /* LDRB rd, [rn + reg_op] */
-         return arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPre>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffOp2Reg, OffPositive, MemIdxPre>(inst, cyccnt);
       case 0x7E:              /* STRB rd, [rn + reg_op]! */
-         return arm_memop<AccStore, u8, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccStore, u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cyccnt);
       case 0x7F:              /* LDRB rd, [rn + reg_op]! */
-         return arm_memop<AccLoad, u8, Op2PlusReg, MemIdxPreWB>(inst, cyccnt);
+         return arm_memop<AccLoad, u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cyccnt);
 
       /* STM instructions: STMDA, STMIA, STMDB, STMIB */
 

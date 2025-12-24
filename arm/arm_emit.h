@@ -1144,21 +1144,6 @@ static void trace_instruction(u32 pc, u32 mode)
   arm_block_memory_adjust_pc_##access_type();                                 \
 }                                                                             \
 
-#define arm_swap(type)                                                        \
-{                                                                             \
-  arm_decode_swap();                                                          \
-  cycle_count += 3;                                                           \
-  arm_generate_load_reg(reg_a0, rn);                                          \
-  generate_load_call_##type();                                                \
-  write32((pc + 8));                                                          \
-  generate_mov(reg_a2, reg_rv);                                               \
-  arm_generate_load_reg(reg_a0, rn);                                          \
-  arm_generate_load_reg(reg_a1, rm);                                          \
-  arm_generate_store_reg(reg_a2, rd);                                         \
-  generate_store_call_##type();                                               \
-  write32((pc + 4));                                                          \
-}                                                                             \
-
 #define complete_store_reg_pc_thumb()                                         \
   if (it.rd_hi() == REG_PC)                                                   \
   {                                                                           \
@@ -1638,6 +1623,24 @@ public:
     arm_generate_store_reg_pc_no_flags(reg_rv, it.rd());
   }
 
+  template <typename memtype>
+  inline void arm_swap(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    cycle_count += 3;   // TODO: Some more accurate accounting :)
+
+    // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
+
+    arm_force_load_reg(reg_a0, it.rn(), it.pc + 4);
+    generate_store_call(ldr_handler_offset<memtype>());
+    write32(it.pc);
+
+    generate_mov(reg_a2, reg_rv);
+    arm_force_load_reg(reg_a0, it.rn(), it.pc + 4);
+    arm_force_load_reg(reg_a1, it.rm(), it.pc + 4);
+    arm_generate_store_reg(reg_a2, it.rd());
+    generate_store_call(str_handler_offset<memtype>());
+    write32((it.pc + 4));
+  }
 
   template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
   inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {

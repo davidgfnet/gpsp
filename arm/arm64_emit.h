@@ -667,20 +667,6 @@ u32 execute_spsr_restore_body(u32 address)
 }                                                                             \
 
 
-// ARM: rn *must* be different from rm and rd. rm *can* be the same as rd.
-
-#define arm_swap(type)                                                        \
-{                                                                             \
-  arm_decode_swap();                                                          \
-  cycle_count += 3;                                                           \
-  generate_load_reg(reg_a0, rn);                                              \
-  generate_function_call(execute_load_##type);                                \
-  generate_load_reg(reg_a1, rm);                                              \
-  generate_store_reg(reg_res, rd);                                            \
-  generate_load_reg(reg_a0, rn);                                              \
-  generate_function_call(execute_store_##type);                               \
-}                                                                             \
-
 #define check_store_reg_pc_thumb(_rd)                                         \
   if(_rd == REG_PC)                                                           \
   {                                                                           \
@@ -1171,6 +1157,26 @@ public:
     generate_store_reg(reg_res, it.rd());
 
     check_store_reg_pc_no_flags(it.rd());
+  }
+
+  template <typename memtype>
+  inline void arm_swap(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    cycle_count += 3;   // TODO: Some more accurate accounting :)
+
+    // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
+
+    force_load_reg(it.rn(), reg_a0, it.pc + 4);
+    generate_load_pc(reg_a1, it.pc);
+    generate_function_call(call_ldr_handler<memtype>());
+
+    aa64_emit_mov(reg_temp, reg_res);
+    force_load_reg(it.rn(), reg_a0, it.pc + 4);
+    force_load_reg(it.rm(), reg_a1, it.pc + 4);
+    generate_store_reg(reg_temp, it.rd());
+    generate_load_pc(reg_a2, (it.pc + 4));
+    generate_function_call(call_str_handler<memtype>());
   }
 
   template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>

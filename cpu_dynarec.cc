@@ -123,31 +123,6 @@ typedef enum {
 #define arm_decode_branchx(opcode)                                            \
   u32 rn = opcode & 0x0F                                                      \
 
-#define arm_decode_swap()                                                     \
-  u32 rn = (opcode >> 16) & 0x0F;                                             \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 rm = opcode & 0x0F                                                      \
-
-#define arm_decode_half_trans_r()                                             \
-  u32 rn = (opcode >> 16) & 0x0F;                                             \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 rm = opcode & 0x0F                                                      \
-
-#define arm_decode_half_trans_of()                                            \
-  u32 rn = (opcode >> 16) & 0x0F;                                             \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 offset = ((opcode >> 4) & 0xF0) | (opcode & 0x0F)                       \
-
-#define arm_decode_data_trans_imm()                                           \
-  u32 rn = (opcode >> 16) & 0x0F;                                             \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 offset = opcode & 0x0FFF                                                \
-
-#define arm_decode_data_trans_reg()                                           \
-  u32 rn = (opcode >> 16) & 0x0F;                                             \
-  u32 rd = (opcode >> 12) & 0x0F;                                             \
-  u32 rm = opcode & 0x0F                                                      \
-
 #define arm_decode_block_trans()                                              \
   u32 rn = (opcode >> 16) & 0x0F;                                             \
   u32 reg_list = opcode & 0xFFFF                                              \
@@ -563,11 +538,8 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         if(opcode & 0x20)              /* STRH rd, [rn - rm] */               \
           ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
-        else                                                                  \
-        {                                                                     \
-          /* SWP rd, rm, [rn] */                                              \
-          arm_swap(u32);                                                      \
-        }                                                                     \
+        else                           /* SWP rd, rm, [rn] */                 \
+          ce.arm_swap<u32>(inst, cycle_count);                                 \
       }                                                                       \
       else     /* MRS rd, cpsr */                                             \
         ce.arm_read_psr<RegCPSR>(inst);                                       \
@@ -629,11 +601,8 @@ void translate_icache_sync() {
       {                                                                       \
         if(opcode & 0x20)              /* STRH rd, [rn - imm] */              \
           ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
-        else                                                                  \
-        {                                                                     \
-          /* SWPB rd, rm, [rn] */                                             \
-          arm_swap(u8);                                                       \
-        }                                                                     \
+        else                           /* SWPB rd, rm, [rn] */                \
+          ce.arm_swap<u8>(inst, cycle_count);                                 \
       }                                                                       \
       else     /* MRS rd, spsr */                                             \
         ce.arm_read_psr<RegSPSR>(inst);                                       \

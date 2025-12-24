@@ -302,93 +302,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
     generate_indirect_branch_dual();                                          \
   }                                                                           \
 
-#define generate_shift_imm_lsl_no_flags(arm_reg, _rm, _shift)                 \
-  check_load_reg_pc(arm_reg, _rm, 8);                                         \
-  if(_shift != 0)                                                             \
-  {                                                                           \
-    mips_emit_sll(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], _shift);    \
-    _rm = arm_reg;                                                            \
-  }                                                                           \
-
-#define generate_shift_imm_lsr_no_flags(arm_reg, _rm, _shift)                 \
-  if(_shift != 0)                                                             \
-  {                                                                           \
-    check_load_reg_pc(arm_reg, _rm, 8);                                       \
-    mips_emit_srl(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], _shift);    \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    mips_emit_addu(arm_to_mips_reg[arm_reg], reg_zero, reg_zero);             \
-  }                                                                           \
-  _rm = arm_reg                                                               \
-
-#define generate_shift_imm_asr_no_flags(arm_reg, _rm, _shift)                 \
-  check_load_reg_pc(arm_reg, _rm, 8);                                         \
-  if(_shift != 0)                                                             \
-  {                                                                           \
-    mips_emit_sra(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], _shift);    \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    mips_emit_sra(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], 31);        \
-  }                                                                           \
-  _rm = arm_reg                                                               \
-
-#define generate_shift_imm_ror_no_flags(arm_reg, _rm, _shift)                 \
-  check_load_reg_pc(arm_reg, _rm, 8);                                         \
-  if(_shift != 0)                                                             \
-  {                                                                           \
-    rotate_right(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm],              \
-                 reg_temp, _shift);                                           \
-  }                                                                           \
-  else                                                                        \
-  { /* Special case: RRX (no carry update) */                                 \
-    mips_emit_srl(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], 1);         \
-    insert_bits(arm_to_mips_reg[arm_reg], reg_c_cache, reg_temp, 31, 1);      \
-  }                                                                           \
-  _rm = arm_reg                                                               \
-
-#define generate_shift_imm_lsl_flags(arm_reg, _rm, _shift)                    \
-  check_load_reg_pc(arm_reg, _rm, 8);                                         \
-  if(_shift != 0)                                                             \
-  {                                                                           \
-    extract_bits(reg_c_cache, arm_to_mips_reg[_rm], (32 - _shift), 1);        \
-    mips_emit_sll(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], _shift);    \
-    _rm = arm_reg;                                                            \
-  }                                                                           \
-
-#define generate_shift_imm_lsr_flags(arm_reg, _rm, _shift)                    \
-  check_load_reg_pc(arm_reg, _rm, 8);                                         \
-  if(_shift != 0)                                                             \
-  {                                                                           \
-    extract_bits(reg_c_cache, arm_to_mips_reg[_rm], (_shift - 1), 1);         \
-    mips_emit_srl(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], _shift);    \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    mips_emit_srl(reg_c_cache, arm_to_mips_reg[_rm], 31);                     \
-    mips_emit_addu(arm_to_mips_reg[arm_reg], reg_zero, reg_zero);             \
-  }                                                                           \
-  _rm = arm_reg                                                               \
-
-#define generate_shift_imm_asr_flags(arm_reg, _rm, _shift)                    \
-  check_load_reg_pc(arm_reg, _rm, 8);                                         \
-  if(_shift != 0)                                                             \
-  {                                                                           \
-    extract_bits(reg_c_cache, arm_to_mips_reg[_rm], (_shift - 1), 1);         \
-    mips_emit_sra(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], _shift);    \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    mips_emit_sra(arm_to_mips_reg[arm_reg], arm_to_mips_reg[_rm], 31);        \
-    mips_emit_andi(reg_c_cache, arm_to_mips_reg[arm_reg], 1);                 \
-  }                                                                           \
-  _rm = arm_reg                                                               \
-
-#define generate_shift_imm(arm_reg, name, flags_op)                           \
-  u32 shift = (opcode >> 7) & 0x1F;                                           \
-  generate_shift_imm_##name##_##flags_op(arm_reg, rm, shift)                  \
-
 
 #define generate_block_extra_vars()                                           \
   u32 stored_pc = pc;                                                         \
@@ -397,33 +310,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 
 #define generate_block_extra_vars_arm()                                       \
   generate_block_extra_vars();                                                \
-
-#define generate_load_offset_sh(rm)                                           \
-  {                                                                           \
-    switch((opcode >> 5) & 0x03)                                              \
-    {                                                                         \
-      case 0x0: /* LSL imm */                                                 \
-      {                                                                       \
-        generate_shift_imm(arm_reg_a1, lsl, no_flags);                        \
-        break;                                                                \
-      }                                                                       \
-      case 0x1: /* LSR imm */                                                 \
-      {                                                                       \
-        generate_shift_imm(arm_reg_a1, lsr, no_flags);                        \
-        break;                                                                \
-      }                                                                       \
-      case 0x2: /* ASR imm */                                                 \
-      {                                                                       \
-        generate_shift_imm(arm_reg_a1, asr, no_flags);                        \
-        break;                                                                \
-      }                                                                       \
-      case 0x3: /* ROR imm */                                                 \
-      {                                                                       \
-        generate_shift_imm(arm_reg_a1, ror, no_flags);                        \
-        break;                                                                \
-      }                                                                       \
-    }                                                                         \
-  }                                                                           \
 
 #define generate_indirect_branch_arm()                                        \
   {                                                                           \
@@ -713,105 +599,10 @@ u32 execute_spsr_restore_body(u32 address)
   }                                                                           \
   generate_op_logic_flags(_rd)                                                \
 
-#define generate_op_muls_reg(_rd, _rn, _rm)                                   \
-  mips_emit_multu(_rn, _rm);                                                  \
-  mips_emit_mflo(_rd);                                                        \
-  generate_op_logic_flags(_rd)                                                \
-
-#define arm_generate_op_load_yes()                                            \
-  generate_load_reg_pc(reg_a1, rn, 8)                                         \
-
-#define arm_generate_op_load_no()                                             \
 
 #define thumb_load_pc_pool_const(rd, value)                                   \
   generate_load_imm(arm_to_mips_reg[rd], (value));                            \
 
-#define arm_access_memory_load(mem_type)                                      \
-  cycle_count += 2;                                                           \
-  mips_emit_jal(mips_absolute_offset(execute_load_##mem_type));               \
-  generate_load_pc(reg_a1, (pc));                                             \
-  generate_store_reg(reg_rv, rd);                                             \
-  check_store_reg_pc_no_flags(rd)                                             \
-
-#define arm_access_memory_store(mem_type)                                     \
-  cycle_count++;                                                              \
-  generate_load_pc(reg_a2, (pc + 4));                                         \
-  generate_load_reg_pc(reg_a1, rd, 12);                                       \
-  generate_function_call_swap_delay(execute_store_##mem_type)                 \
-
-#define arm_access_memory_reg_pre_up()                                        \
-  mips_emit_addu(reg_a0, arm_to_mips_reg[rn], arm_to_mips_reg[rm])            \
-
-#define arm_access_memory_reg_pre_down()                                      \
-  mips_emit_subu(reg_a0, arm_to_mips_reg[rn], arm_to_mips_reg[rm])            \
-
-#define arm_access_memory_reg_pre(adjust_dir)                                 \
-  check_load_reg_pc(arm_reg_a0, rn, 8);                                       \
-  arm_access_memory_reg_pre_##adjust_dir()                                    \
-
-#define arm_access_memory_reg_pre_wb(adjust_dir)                              \
-  arm_access_memory_reg_pre(adjust_dir);                                      \
-  generate_store_reg(reg_a0, rn)                                              \
-
-#define arm_access_memory_reg_post_up()                                       \
-  mips_emit_addu(arm_to_mips_reg[rn], arm_to_mips_reg[rn],                    \
-   arm_to_mips_reg[rm])                                                       \
-
-#define arm_access_memory_reg_post_down()                                     \
-  mips_emit_subu(arm_to_mips_reg[rn], arm_to_mips_reg[rn],                    \
-   arm_to_mips_reg[rm])                                                       \
-
-#define arm_access_memory_reg_post(adjust_dir)                                \
-  generate_load_reg(reg_a0, rn);                                              \
-  arm_access_memory_reg_post_##adjust_dir()                                   \
-
-#define arm_access_memory_imm_pre_up()                                        \
-  mips_emit_addiu(reg_a0, arm_to_mips_reg[rn], offset)                        \
-
-#define arm_access_memory_imm_pre_down()                                      \
-  mips_emit_addiu(reg_a0, arm_to_mips_reg[rn], -offset)                       \
-
-#define arm_access_memory_imm_pre(adjust_dir)                                 \
-  check_load_reg_pc(arm_reg_a0, rn, 8);                                       \
-  arm_access_memory_imm_pre_##adjust_dir()                                    \
-
-#define arm_access_memory_imm_pre_wb(adjust_dir)                              \
-  arm_access_memory_imm_pre(adjust_dir);                                      \
-  generate_store_reg(reg_a0, rn)                                              \
-
-#define arm_access_memory_imm_post_up()                                       \
-  mips_emit_addiu(arm_to_mips_reg[rn], arm_to_mips_reg[rn], offset)           \
-
-#define arm_access_memory_imm_post_down()                                     \
-  mips_emit_addiu(arm_to_mips_reg[rn], arm_to_mips_reg[rn], -offset)          \
-
-#define arm_access_memory_imm_post(adjust_dir)                                \
-  generate_load_reg(reg_a0, rn);                                              \
-  arm_access_memory_imm_post_##adjust_dir()                                   \
-
-#define arm_data_trans_reg(adjust_op, adjust_dir)                             \
-  arm_decode_data_trans_reg();                                                \
-  generate_load_offset_sh(rm);                                                \
-  arm_access_memory_reg_##adjust_op(adjust_dir)                               \
-
-#define arm_data_trans_imm(adjust_op, adjust_dir)                             \
-  arm_decode_data_trans_imm();                                                \
-  arm_access_memory_imm_##adjust_op(adjust_dir)                               \
-
-#define arm_data_trans_half_reg(adjust_op, adjust_dir)                        \
-  arm_decode_half_trans_r();                                                  \
-  arm_access_memory_reg_##adjust_op(adjust_dir)                               \
-
-#define arm_data_trans_half_imm(adjust_op, adjust_dir)                        \
-  arm_decode_half_trans_of();                                                 \
-  arm_access_memory_imm_##adjust_op(adjust_dir)                               \
-
-#define arm_access_memory(access_type, direction, adjust_op, mem_type,        \
- offset_type)                                                                 \
-{                                                                             \
-  arm_data_trans_##offset_type(adjust_op, direction);                         \
-  arm_access_memory_##access_type(mem_type);                                  \
-}                                                                             \
 
 #define word_bit_count(word)                                                  \
   (bit_count[word >> 8] + bit_count[word & 0xFF])                             \
@@ -976,25 +767,6 @@ u32 execute_spsr_restore_body(u32 address)
   {                                                                           \
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
-
-// Decode types: shift, alu_op
-// Operation types: lsl, lsr, asr, ror
-// Affects N/Z/C flags
-
-#define thumb_generate_shift_imm(name)                                        \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
-    generate_shift_imm_##name##_flags(rd, rs, imm);                           \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_shift_imm_##name##_no_flags(rd, rs, imm);                        \
-  }                                                                           \
-  if(rs != rd)                                                                \
-  {                                                                           \
-    mips_emit_addu(arm_to_mips_reg[rd], arm_to_mips_reg[rs], reg_zero);       \
-  }                                                                           \
-
 
 #define thumb_conditional_branch(condition)                                   \
 {                                                                             \
@@ -1461,6 +1233,105 @@ public:
     generate_function_call_swap_delay(call_str_handler<memtype>());
   }
 
+  template <ARMMemOffset offt, MemOffDir dir>
+  inline void arm_memaddr(u32 oreg, const ARMInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    // Load base register if needed
+    u32 breg = load_alloc_reg(it.rn(), oreg, it.pc + 8);
+
+    switch (offt) {
+    case OffImm12:     // [rn +/- imm12]
+      if (dir == OffPositive) {
+        mips_emit_addiu(oreg, breg, it.off12());
+      } else {
+        mips_emit_addiu(oreg, breg, -it.off12());
+      }
+      break;
+    case OffHImm8:     // [rn +/- imm8]
+      if (dir == OffPositive) {
+        mips_emit_addiu(oreg, breg, it.off8());
+      } else {
+        mips_emit_addiu(oreg, breg, -it.off8());
+      }
+      break;
+    case OffHReg:      // [rn +/- rm]
+      {
+        u32 secreg = load_alloc_reg(it.rm(), reg_temp, it.pc + 8);
+        if (dir == OffPositive) {
+          mips_emit_addu(oreg, breg, secreg);
+        } else {
+          mips_emit_subu(oreg, breg, secreg);
+        }
+      }
+      break;
+    case OffOp2Reg:    // [rn +/- rm shift/rot amount]
+      emit_op2_shimm<NoFlags>(reg_rv, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
+      if (dir == OffPositive) {
+        mips_emit_addu(oreg, breg, reg_rv);
+      } else {
+        mips_emit_subu(oreg, breg, reg_rv);
+      }
+      break;
+    };
+  }
+
+  template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
+  inline void arm_memst(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    cycle_count++;    // TODO: Use proper cycle accounting and honor WAITCNT
+
+    // Generate the final address and base address, and write back if necessary
+    if (idxm == MemIdxPostWB) {
+      // Load the base reg to a0
+      force_load_reg(it.rn(), reg_a0, it.pc + 4);
+      // Calculate the final value to the final reg.
+      u32 wbreg = store_alloc_reg(it.rn(), reg_a2);
+      arm_memaddr<offt, dir>(wbreg, it);
+    }
+    else {
+      arm_memaddr<offt, dir>(reg_a0, it);  // Calculate final addr to a0
+      if (idxm == MemIdxPreWB) {
+        generate_store_reg(reg_a0, it.rn());
+      }
+    }
+
+    // Generate call to handler, load the value to write to a1
+    force_load_reg(it.rd(), reg_a1, it.pc + 12);
+    generate_load_pc(reg_a2, (it.pc + 4));
+    generate_function_call_swap_delay(call_str_handler<memtype>());
+  }
+
+  template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
+  inline void arm_memld(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    const u8 condition = it.cond();        // TODO remove this
+    cycle_count += 2;    // TODO: Use proper cycle accounting and honor WAITCNT
+
+    // Generate the final address and base address, and write back if necessary
+    if (idxm == MemIdxPostWB) {
+      // Load the base reg to a0
+      force_load_reg(it.rn(), reg_a0, it.pc + 4);
+      // Calculate the final value to the final reg.
+      u32 wbreg = store_alloc_reg(it.rn(), reg_a2);
+      arm_memaddr<offt, dir>(wbreg, it);
+    }
+    else {
+      arm_memaddr<offt, dir>(reg_a0, it);  // Calculate final addr to a0
+      if (idxm == MemIdxPreWB) {
+        generate_store_reg(reg_a0, it.rn());
+      }
+    }
+
+    // Generate call to handler, load the value to write to a1
+    generate_load_pc(reg_a1, it.pc);
+    generate_function_call_swap_delay(call_ldr_handler<memtype>());
+    generate_store_reg(reg_rv, it.rd());
+
+    check_store_reg_pc_no_flags(it.rd());
+  }
 
   template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
   inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {

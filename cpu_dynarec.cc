@@ -106,9 +106,11 @@ typedef enum {
   OpTst, OpTeq, OpCmp, OpCmn
 } AluOperation;
 
-typedef enum {
-  OffReg, OffPC, OffImm5, OffImm8
-} ThumbMemOffset;
+typedef enum { OffReg, OffPC, OffImm5, OffImm8 } ThumbMemOffset;
+
+typedef enum { OffOp2Reg, OffHImm8, OffImm12, OffHReg } ARMMemOffset;
+typedef enum { OffPositive, OffNegative } MemOffDir;
+typedef enum { MemIdxPre, MemIdxPreWB, MemIdxPostWB } MemIdxMode;
 
 typedef enum {
   AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec
@@ -268,13 +270,9 @@ void translate_icache_sync() {
     case 0x00:                                                                \
       if((opcode & 0x90) == 0x90)                                             \
       {                                                                       \
-        if(opcode & 0x20)                                                     \
-        {                                                                     \
-          /* STRH rd, [rn], -rm */                                            \
-          arm_access_memory(store, down, post, u16, half_reg);                \
-        }                                                                     \
-        else                                                                  \
-        {                                                                     \
+        if (opcode & 0x20)     /* STRH rd, [rn], -rm */                       \
+          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+        else {                                                                \
           /* MUL rd, rm, rs */                                                \
           ce.arm_mul32<NoFlags, MulOnly>(inst);                               \
           cycle_count += 2;  /* variable 1..4, pick 2 as an aprox. */         \
@@ -286,29 +284,21 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x01:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
+      if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03)                                          \
         {                                                                     \
-          case 0:                                                             \
-            /* MULS rd, rm, rs */                                             \
+          case 0:  /* MULS rd, rm, rs */                                      \
             ce.arm_mul32<SetFlags, MulOnly>(inst);                            \
             cycle_count += 2;  /* variable 1..4, pick 2 as an aprox. */       \
             break;                                                            \
-                                                                              \
-          case 1:                                                             \
-            /* LDRH rd, [rn], -rm */                                          \
-            arm_access_memory(load, down, post, u16, half_reg);               \
+          case 1:  /* LDRH rd, [rn], -rm */                                   \
+            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn], -rm */                                         \
-            arm_access_memory(load, down, post, s8, half_reg);                \
+          case 2:  /* LDRSB rd, [rn], -rm */                                  \
+            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn], -rm */                                         \
-            arm_access_memory(load, down, post, s16, half_reg);               \
+          case 3:  /* LDRSH rd, [rn], -rm */                                  \
+            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -318,15 +308,10 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x02:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        if(opcode & 0x20)                                                     \
-        {                                                                     \
-          /* STRH rd, [rn], -rm */                                            \
-          arm_access_memory(store, down, post, u16, half_reg);                \
-        }                                                                     \
-        else                                                                  \
-        {                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        if (opcode & 0x20)     /* STRH rd, [rn], -rm */                       \
+          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+        else {                                                                \
           /* MLA rd, rm, rs, rn */                                            \
           ce.arm_mul32<NoFlags, MulAdd>(inst);                                \
           cycle_count += 3;  /* variable 2..5, pick 3 as an aprox. */         \
@@ -338,29 +323,21 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x03:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
           case 0:                                                             \
             /* MLAS rd, rm, rs, rn */                                         \
             ce.arm_mul32<SetFlags, MulAdd>(inst);                             \
             cycle_count += 3;  /* variable 2..5, pick 3 as an aprox. */       \
             break;                                                            \
-                                                                              \
-          case 1:                                                             \
-            /* LDRH rd, [rn], -rm */                                          \
-            arm_access_memory(load, down, post, u16, half_reg);               \
+          case 1:  /* LDRH rd, [rn], -rm */                                   \
+            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn], -rm */                                         \
-            arm_access_memory(load, down, post, s8, half_reg);                \
+          case 2:  /* LDRSB rd, [rn], -rm */                                  \
+            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn], -rm */                                         \
-            arm_access_memory(load, down, post, s16, half_reg);               \
+          case 3:  /* LDRSH rd, [rn], -rm */                                  \
+            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -370,34 +347,24 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x04:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        /* STRH rd, [rn], -imm */                                             \
-        arm_access_memory(store, down, post, u16, half_imm);                  \
-      }                                                                       \
+      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn], -imm */              \
+        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       else         /* SUB rd, rn, reg_op */                                   \
         ce.arm_alureg3<OpSub, NoFlags>(inst, cycle_count);                    \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x05:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn], -imm */                                         \
-            arm_access_memory(load, down, post, u16, half_imm);               \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn], -imm */                                  \
+            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn], -imm */                                        \
-            arm_access_memory(load, down, post, s8, half_imm);                \
+          case 2:  /* LDRSB rd, [rn], -imm */                                 \
+            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn], -imm */                                        \
-            arm_access_memory(load, down, post, s16, half_imm);               \
+          case 3:  /* LDRSH rd, [rn], -imm */                                 \
+            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -407,34 +374,24 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x06:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        /* STRH rd, [rn], -imm */                                             \
-        arm_access_memory(store, down, post, u16, half_imm);                  \
-      }                                                                       \
+      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn], -imm */              \
+        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       else         /* RSB rd, rn, reg_op */                                   \
         ce.arm_alureg3<OpRsb, NoFlags>(inst, cycle_count);                    \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x07:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn], -imm */                                         \
-            arm_access_memory(load, down, post, u16, half_imm);               \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn], -imm */                                  \
+            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn], -imm */                                        \
-            arm_access_memory(load, down, post, s8, half_imm);                \
+          case 2:  /* LDRSB rd, [rn], -imm */                                 \
+            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn], -imm */                                        \
-            arm_access_memory(load, down, post, s16, half_imm);               \
+          case 3:  /* LDRSH rd, [rn], -imm */                                 \
+            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -444,15 +401,10 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x08:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        if(opcode & 0x20)                                                     \
-        {                                                                     \
-          /* STRH rd, [rn], +rm */                                            \
-          arm_access_memory(store, up, post, u16, half_reg);                  \
-        }                                                                     \
-        else                                                                  \
-        {                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        if(opcode & 0x20)              /* STRH rd, [rn], +rm */               \
+          ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+        else {                                                                \
           /* UMULL rd, rm, rs */                                              \
           ce.arm_mul64<NoFlags, MulOnly, false>(inst);                        \
           cycle_count += 3;  /* this is an aproximation :P */                 \
@@ -464,29 +416,21 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x09:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
           case 0:                                                             \
             /* UMULLS rdlo, rdhi, rm, rs */                                   \
             ce.arm_mul64<SetFlags, MulOnly, false>(inst);                     \
             cycle_count += 3;  /* this is an aproximation :P */               \
             break;                                                            \
-                                                                              \
-          case 1:                                                             \
-            /* LDRH rd, [rn], +rm */                                          \
-            arm_access_memory(load, up, post, u16, half_reg);                 \
+          case 1:  /* LDRH rd, [rn], +rm */                                   \
+            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn], +rm */                                         \
-            arm_access_memory(load, up, post, s8, half_reg);                  \
+          case 2:  /* LDRSB rd, [rn], +rm */                                  \
+            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn], +rm */                                         \
-            arm_access_memory(load, up, post, s16, half_reg);                 \
+          case 3:  /* LDRSH rd, [rn], +rm */                                  \
+            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -496,13 +440,9 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x0A:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        if(opcode & 0x20)                                                     \
-        {                                                                     \
-          /* STRH rd, [rn], +rm */                                            \
-          arm_access_memory(store, up, post, u16, half_reg);                  \
-        }                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        if(opcode & 0x20)              /* STRH rd, [rn], +rm */               \
+          ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
         else                                                                  \
         {                                                                     \
           /* UMLAL rd, rm, rs */                                              \
@@ -516,29 +456,21 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x0B:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
           case 0:                                                             \
             /* UMLALS rdlo, rdhi, rm, rs */                                   \
             ce.arm_mul64<SetFlags, MulAdd, false>(inst);                      \
             cycle_count += 3;  /* Between 2 and 5 cycles? */                  \
             break;                                                            \
-                                                                              \
-          case 1:                                                             \
-            /* LDRH rd, [rn], +rm */                                          \
-            arm_access_memory(load, up, post, u16, half_reg);                 \
+          case 1:  /* LDRH rd, [rn], +rm */                                   \
+            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn], +rm */                                         \
-            arm_access_memory(load, up, post, s8, half_reg);                  \
+          case 2:  /* LDRSB rd, [rn], +rm */                                  \
+            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn], +rm */                                         \
-            arm_access_memory(load, up, post, s16, half_reg);                 \
+          case 3:  /* LDRSH rd, [rn], +rm */                                  \
+            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -548,13 +480,9 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x0C:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        if(opcode & 0x20)                                                     \
-        {                                                                     \
-          /* STRH rd, [rn], +imm */                                           \
-          arm_access_memory(store, up, post, u16, half_imm);                  \
-        }                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        if(opcode & 0x20)              /* STRH rd, [rn], +imm */              \
+          ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
         else                                                                  \
         {                                                                     \
           /* SMULL rd, rm, rs */                                              \
@@ -568,29 +496,21 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x0D:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
           case 0:                                                             \
             /* SMULLS rdlo, rdhi, rm, rs */                                   \
             ce.arm_mul64<SetFlags, MulOnly, true>(inst);                      \
             cycle_count += 2;  /* Between 1 and 4 cycles? */                  \
             break;                                                            \
-                                                                              \
-          case 1:                                                             \
-            /* LDRH rd, [rn], +imm */                                         \
-            arm_access_memory(load, up, post, u16, half_imm);                 \
+          case 1:  /* LDRH rd, [rn], +imm */                                  \
+            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn], +imm */                                        \
-            arm_access_memory(load, up, post, s8, half_imm);                  \
+          case 2:  /* LDRSB rd, [rn], +imm */                                 \
+            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn], +imm */                                        \
-            arm_access_memory(load, up, post, s16, half_imm);                 \
+          case 3:  /* LDRSH rd, [rn], +imm */                                 \
+            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -600,13 +520,9 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x0E:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        if(opcode & 0x20)                                                     \
-        {                                                                     \
-          /* STRH rd, [rn], +imm */                                           \
-          arm_access_memory(store, up, post, u16, half_imm);                  \
-        }                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        if(opcode & 0x20)              /* STRH rd, [rn], +imm */              \
+          ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
         else                                                                  \
         {                                                                     \
           /* SMLAL rd, rm, rs */                                              \
@@ -620,29 +536,21 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x0F:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
           case 0:                                                             \
             /* SMLALS rdlo, rdhi, rm, rs */                                   \
             ce.arm_mul64<SetFlags, MulAdd, true>(inst);                       \
             cycle_count += 3;  /* Between 2 and 5 cycles? */                  \
             break;                                                            \
-                                                                              \
-          case 1:                                                             \
-            /* LDRH rd, [rn], +imm */                                         \
-            arm_access_memory(load, up, post, u16, half_imm);                 \
+          case 1:  /* LDRH rd, [rn], +imm */                                  \
+            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn], +imm */                                        \
-            arm_access_memory(load, up, post, s8, half_imm);                  \
+          case 2:  /* LDRSB rd, [rn], +imm */                                 \
+            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn], +imm */                                        \
-            arm_access_memory(load, up, post, s16, half_imm);                 \
+          case 3:  /* LDRSH rd, [rn], +imm */                                 \
+            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -652,13 +560,9 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x10:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        if(opcode & 0x20)                                                     \
-        {                                                                     \
-          /* STRH rd, [rn - rm] */                                            \
-          arm_access_memory(store, down, pre, u16, half_reg);                 \
-        }                                                                     \
+      if((opcode & 0x90) == 0x90) {                                           \
+        if(opcode & 0x20)              /* STRH rd, [rn - rm] */               \
+          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
         else                                                                  \
         {                                                                     \
           /* SWP rd, rm, [rn] */                                              \
@@ -670,23 +574,16 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x11:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn - rm] */                                          \
-            arm_access_memory(load, down, pre, u16, half_reg);                \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn - rm] */                                   \
+            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn - rm] */                                         \
-            arm_access_memory(load, down, pre, s8, half_reg);                 \
+          case 2:  /* LDRSB rd, [rn - rm] */                                  \
+            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn - rm] */                                         \
-            arm_access_memory(load, down, pre, s16, half_reg);                \
+          case 3:  /* LDRSH rd, [rn - rm] */                                  \
+            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -695,11 +592,8 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x12:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        /* STRH rd, [rn - rm]! */                                             \
-        arm_access_memory(store, down, pre_wb, u16, half_reg);                \
-      }                                                                       \
+      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn - rm]! */              \
+        ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
       else                                                                    \
       {                                                                       \
         if(opcode & 0x10)                                                     \
@@ -713,23 +607,16 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x13:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn - rm]! */                                         \
-            arm_access_memory(load, down, pre_wb, u16, half_reg);             \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn - rm]! */                                  \
+            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn - rm]! */                                        \
-            arm_access_memory(load, down, pre_wb, s8, half_reg);              \
+          case 2:  /* LDRSB rd, [rn - rm]! */                                 \
+            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn - rm]! */                                        \
-            arm_access_memory(load, down, pre_wb, s16, half_reg);             \
+          case 3:  /* LDRSH rd, [rn - rm]! */                                 \
+            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -740,11 +627,8 @@ void translate_icache_sync() {
     case 0x14:                                                                \
       if((opcode & 0x90) == 0x90)                                             \
       {                                                                       \
-        if(opcode & 0x20)                                                     \
-        {                                                                     \
-          /* STRH rd, [rn - imm] */                                           \
-          arm_access_memory(store, down, pre, u16, half_imm);                 \
-        }                                                                     \
+        if(opcode & 0x20)              /* STRH rd, [rn - imm] */              \
+          ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
         else                                                                  \
         {                                                                     \
           /* SWPB rd, rm, [rn] */                                             \
@@ -756,23 +640,16 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x15:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn - imm] */                                         \
-            arm_access_memory(load, down, pre, u16, half_imm);                \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn - imm] */                                  \
+            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn - imm] */                                        \
-            arm_access_memory(load, down, pre, s8, half_imm);                 \
+          case 2:  /* LDRSB rd, [rn - imm] */                                 \
+            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn - imm] */                                        \
-            arm_access_memory(load, down, pre, s16, half_imm);                \
+          case 3:  /* LDRSH rd, [rn - imm] */                                 \
+            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -781,33 +658,23 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x16:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        /* STRH rd, [rn - imm]! */                                            \
-        arm_access_memory(store, down, pre_wb, u16, half_imm);                \
-      }                                                                       \
+      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn - imm]! */             \
+        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPreWB>(inst, cycle_count);\
       else     /* MSR spsr, rm */                                             \
         ce.arm_write_psr<RegSPSR, OpReg>(inst);                               \
       break;                                                                  \
                                                                               \
     case 0x17:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn - imm]! */                                        \
-            arm_access_memory(load, down, pre_wb, u16, half_imm);             \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn - imm]! */                                 \
+            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn - imm]! */                                       \
-            arm_access_memory(load, down, pre_wb, s8, half_imm);              \
+          case 2:  /* LDRSB rd, [rn - imm]! */                                \
+            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn - imm]! */                                       \
-            arm_access_memory(load, down, pre_wb, s16, half_imm);             \
+          case 3:  /* LDRSH rd, [rn - imm]! */                                \
+            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -816,34 +683,24 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x18:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        /* STRH rd, [rn + rm] */                                              \
-        arm_access_memory(store, up, pre, u16, half_reg);                     \
-      }                                                                       \
+      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + rm] */               \
+        ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPre>(inst, cycle_count);\
       else         /* ORR rd, rn, reg_op */                                   \
         ce.arm_alureg3<OpOrr, NoFlags>(inst, cycle_count);                    \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x19:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn + rm] */                                          \
-            arm_access_memory(load, up, pre, u16, half_reg);                  \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn + rm] */                                   \
+            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn + rm] */                                         \
-            arm_access_memory(load, up, pre, s8, half_reg);                   \
+          case 2:  /* LDRSB rd, [rn + rm] */                                  \
+            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn + rm] */                                         \
-            arm_access_memory(load, up, pre, s16, half_reg);                  \
+          case 3:  /* LDRSH rd, [rn + rm] */                                  \
+            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -853,33 +710,23 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x1A:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        /* STRH rd, [rn + rm]! */                                             \
-        arm_access_memory(store, up, pre_wb, u16, half_reg);                  \
-      }                                                                       \
+      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + rm]! */              \
+        ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       else         /* MOV rd, reg_op */                                       \
         ce.arm_alureg1<OpMov, NoFlags>(inst, cycle_count);                    \
       break;                                                                  \
                                                                               \
     case 0x1B:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn + rm]! */                                         \
-            arm_access_memory(load, up, pre_wb, u16, half_reg);               \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn + rm]! */                                  \
+            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn + rm]! */                                        \
-            arm_access_memory(load, up, pre_wb, s8, half_reg);                \
+          case 2:  /* LDRSB rd, [rn + rm]! */                                 \
+            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn + rm]! */                                        \
-            arm_access_memory(load, up, pre_wb, s16, half_reg);               \
+          case 3:  /* LDRSH rd, [rn + rm]! */                                 \
+            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -888,34 +735,24 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x1C:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        /* STRH rd, [rn + imm] */                                             \
-        arm_access_memory(store, up, pre, u16, half_imm);                     \
-      }                                                                       \
+      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + imm] */              \
+        ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPre>(inst, cycle_count);\
       else         /* BIC rd, rn, reg_op */                                   \
         ce.arm_alureg3<OpBic, NoFlags>(inst, cycle_count);                    \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x1D:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn + imm] */                                         \
-            arm_access_memory(load, up, pre, u16, half_imm);                  \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn + imm] */                                  \
+            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn + imm] */                                        \
-            arm_access_memory(load, up, pre, s8, half_imm);                   \
+          case 2:  /* LDRSB rd, [rn + imm] */                                 \
+            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn + imm] */                                        \
-            arm_access_memory(load, up, pre, s16, half_imm);                  \
+          case 3:  /* LDRSH rd, [rn + imm] */                                 \
+            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPre>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -925,33 +762,23 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x1E:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        /* STRH rd, [rn + imm]! */                                            \
-        arm_access_memory(store, up, pre_wb, u16, half_imm);                  \
-      }                                                                       \
+      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + imm]! */             \
+        ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       else         /* MVN rd, reg_op */                                       \
         ce.arm_alureg1<OpMvn, NoFlags>(inst, cycle_count);                    \
       break;                                                                  \
                                                                               \
     case 0x1F:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 1:                                                             \
-            /* LDRH rd, [rn + imm]! */                                        \
-            arm_access_memory(load, up, pre_wb, u16, half_imm);               \
+      if((opcode & 0x90) == 0x90) {                                           \
+        switch((opcode >> 5) & 0x03) {                                        \
+          case 1:  /* LDRH rd, [rn + imm]! */                                 \
+            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 2:                                                             \
-            /* LDRSB rd, [rn + imm]! */                                       \
-            arm_access_memory(load, up, pre_wb, s8, half_imm);                \
+          case 2:  /* LDRSB rd, [rn + imm]! */                                \
+            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
-                                                                              \
-          case 3:                                                             \
-            /* LDRSH rd, [rn + imm]! */                                       \
-            arm_access_memory(load, up, pre_wb, s16, half_imm);               \
+          case 3:  /* LDRSH rd, [rn + imm]! */                                \
+            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPreWB>(inst, cycle_count);\
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -1055,229 +882,209 @@ void translate_icache_sync() {
     /* Memops with immediate post-increment/decrement */                      \
     case 0x40:     /* STR  rd, [rn], -imm */                                  \
     case 0x42:     /* STRT rd, [rn], -imm */                                  \
-      arm_access_memory(store, down, post, u32, imm);                         \
+      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x41:     /* LDR  rd, [rn], -imm */                                  \
     case 0x43:     /* LDRT rd, [rn], -imm */                                  \
-      arm_access_memory(load, down, post, u32, imm);                          \
+      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x44:     /* STRB  rd, [rn], -imm */                                 \
     case 0x46:     /* STRBT rd, [rn], -imm */                                 \
-      arm_access_memory(store, down, post, u8, imm);                          \
+      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x45:     /* LDRB  rd, [rn], -imm */                                 \
     case 0x47:     /* LDRBT rd, [rn], -imm */                                 \
-      arm_access_memory(load, down, post, u8, imm);                           \
+      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x48:     /* STR  rd, [rn], +imm */                                  \
     case 0x4A:     /* STRT rd, [rn], +imm */                                  \
-      arm_access_memory(store, up, post, u32, imm);                           \
+      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x49:     /* LDR  rd, [rn], +imm */                                  \
     case 0x4B:     /* LDRT rd, [rn], +imm */                                  \
-      arm_access_memory(load, up, post, u32, imm);                            \
+      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x4C:     /* STRB  rd, [rn], +imm */                                 \
     case 0x4E:     /* STRBT rd, [rn], +imm */                                 \
-      arm_access_memory(store, up, post, u8, imm);                            \
+      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x4D:     /* LDRB  rd, [rn], +imm */                                 \
     case 0x4F:     /* LDRBT rd, [rn], +imm */                                 \
-      arm_access_memory(load, up, post, u8, imm);                             \
+      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     /* Memops with immediate pre-increment/decrement (optional writeback) */  \
     case 0x50:     /* STR rd, [rn - imm] */                                   \
-      arm_access_memory(store, down, pre, u32, imm);                          \
+      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPre>(inst, cycle_count); \
       break;                                                                  \
                                                                               \
     case 0x51:     /* LDR rd, [rn - imm] */                                   \
-      arm_access_memory(load, down, pre, u32, imm);                           \
+      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPre>(inst, cycle_count); \
       break;                                                                  \
                                                                               \
     case 0x52:     /* STR rd, [rn - imm]! */                                  \
-      arm_access_memory(store, down, pre_wb, u32, imm);                       \
+      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPreWB>(inst, cycle_count); \
       break;                                                                  \
                                                                               \
     case 0x53:     /* LDR rd, [rn - imm]! */                                  \
-      arm_access_memory(load, down, pre_wb, u32, imm);                        \
+      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPreWB>(inst, cycle_count); \
       break;                                                                  \
                                                                               \
     case 0x54:     /* STRB rd, [rn - imm] */                                  \
-      arm_access_memory(store, down, pre, u8, imm);                           \
+      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPre>(inst, cycle_count);  \
       break;                                                                  \
                                                                               \
     case 0x55:     /* LDRB rd, [rn - imm] */                                  \
-      arm_access_memory(load, down, pre, u8, imm);                            \
+      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPre>(inst, cycle_count);  \
       break;                                                                  \
                                                                               \
     case 0x56:     /* STRB rd, [rn - imm]! */                                 \
-      arm_access_memory(store, down, pre_wb, u8, imm);                        \
+      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x57:     /* LDRB rd, [rn - imm]! */                                 \
-      arm_access_memory(load, down, pre_wb, u8, imm);                         \
+      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x58:     /* STR rd, [rn + imm] */                                   \
-      arm_access_memory(store, up, pre, u32, imm);                            \
+      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPre>(inst, cycle_count); \
       break;                                                                  \
                                                                               \
     case 0x59:     /* LDR rd, [rn + imm] */                                   \
-      arm_access_memory(load, up, pre, u32, imm);                             \
+      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPre>(inst, cycle_count); \
       break;                                                                  \
                                                                               \
     case 0x5A:     /* STR rd, [rn + imm]! */                                  \
-      arm_access_memory(store, up, pre_wb, u32, imm);                         \
+      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x5B:     /* LDR rd, [rn + imm]! */                                  \
-      arm_access_memory(load, up, pre_wb, u32, imm);                          \
+      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x5C:     /* STRB rd, [rn + imm] */                                  \
-      arm_access_memory(store, up, pre, u8, imm);                             \
+      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPre>(inst, cycle_count);  \
       break;                                                                  \
                                                                               \
     case 0x5D:     /* LDRB rd, [rn + imm] */                                  \
-      arm_access_memory(load, up, pre, u8, imm);                              \
+      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPre>(inst, cycle_count);  \
       break;                                                                  \
                                                                               \
     case 0x5E:     /* STRB rd, [rn + imm]! */                                 \
-      arm_access_memory(store, up, pre_wb, u8, imm);                          \
+      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x5F:     /* LDRB rd, [rn + imm]! */                                 \
-      arm_access_memory(load, up, pre_wb, u8, imm);                           \
+      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     /* Memops with regop as post-increment/decrement */                       \
     case 0x60:     /* STR  rd, [rn], -rm */                                   \
     case 0x62:     /* STRT rd, [rn], -rm */                                   \
-      arm_access_memory(store, down, post, u32, reg);                         \
+      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      break;                                                                  \
+    case 0x64:     /* STRB  rd, [rn], -rm */                                  \
+    case 0x66:     /* STRBT rd, [rn], -rm */                                  \
+      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x61:     /* LDR  rd, [rn], -rm */                                   \
     case 0x63:     /* LDRT rd, [rn], -rm */                                   \
-      arm_access_memory(load, down, post, u32, reg);                          \
+      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
-                                                                              \
-    case 0x64:     /* STRB  rd, [rn], -rm */                                  \
-    case 0x66:     /* STRBT rd, [rn], -rm */                                  \
-      arm_access_memory(store, down, post, u8, reg);                          \
-      break;                                                                  \
-                                                                              \
     case 0x65:     /* LDRB  rd, [rn], -rm */                                  \
     case 0x67:     /* LDRBT rd, [rn], -rm */                                  \
-      arm_access_memory(load, down, post, u8, reg);                           \
+      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x68:     /* STR  rd, [rn], +rm */                                   \
     case 0x6A:     /* STRT rd, [rn], +rm */                                   \
-      arm_access_memory(store, up, post, u32, reg);                           \
+      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      break;                                                                  \
+    case 0x6C:     /* STRB  rd, [rn], +rm */                                  \
+    case 0x6E:     /* STRBT rd, [rn], +rm */                                  \
+      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x69:     /* LDR  rd, [rn], +rm */                                   \
     case 0x6B:     /* LDRT rd, [rn], +rm */                                   \
-      arm_access_memory(load, up, post, u32, reg);                            \
+      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
-                                                                              \
-    case 0x6C:     /* STRB  rd, [rn], +rm */                                  \
-    case 0x6E:     /* STRBT rd, [rn], +rm */                                  \
-      arm_access_memory(store, up, post, u8, reg);                            \
-      break;                                                                  \
-                                                                              \
     case 0x6D:     /* LDRB  rd, [rn], +rm */                                  \
     case 0x6F:     /* LDRBT rd, [rn], +rm */                                  \
-      arm_access_memory(load, up, post, u8, reg);                             \
+      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     /* Memops with regop as pre-increment/decrement (optional writeback) */   \
-    case 0x70:                                                                \
-      /* STR rd, [rn - rm] */                                                 \
-      arm_access_memory(store, down, pre, u32, reg);                          \
+    case 0x70:     /* STR rd, [rn - rm] */                                    \
+      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPre>(inst, cycle_count);\
+      break;                                                                  \
+    case 0x72:     /* STR rd, [rn - rm]! */                                   \
+      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x71:                                                                \
       /* LDR rd, [rn - rm] */                                                 \
-      arm_access_memory(load, down, pre, u32, reg);                           \
+      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPre>(inst, cycle_count);\
       break;                                                                  \
-                                                                              \
-    case 0x72:                                                                \
-      /* STR rd, [rn - rm]! */                                                \
-      arm_access_memory(store, down, pre_wb, u32, reg);                       \
-      break;                                                                  \
-                                                                              \
     case 0x73:                                                                \
       /* LDR rd, [rn - rm]! */                                                \
-      arm_access_memory(load, down, pre_wb, u32, reg);                        \
+      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
-    case 0x74:                                                                \
-      /* STRB rd, [rn - rm] */                                                \
-      arm_access_memory(store, down, pre, u8, reg);                           \
+    case 0x74:     /* STRB rd, [rn - rm] */                                   \
+      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPre>(inst, cycle_count); \
+      break;                                                                  \
+    case 0x76:     /* STRB rd, [rn - rm]! */                                  \
+      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x75:                                                                \
       /* LDRB rd, [rn - rm] */                                                \
-      arm_access_memory(load, down, pre, u8, reg);                            \
+      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPre>(inst, cycle_count); \
       break;                                                                  \
-                                                                              \
-    case 0x76:                                                                \
-      /* STRB rd, [rn - rm]! */                                               \
-      arm_access_memory(store, down, pre_wb, u8, reg);                        \
-      break;                                                                  \
-                                                                              \
     case 0x77:                                                                \
       /* LDRB rd, [rn - rm]! */                                               \
-      arm_access_memory(load, down, pre_wb, u8, reg);                         \
+      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
-    case 0x78:                                                                \
-      /* STR rd, [rn + rm] */                                                 \
-      arm_access_memory(store, up, pre, u32, reg);                            \
+    case 0x78:     /* STR rd, [rn + rm] */                                    \
+      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPre>(inst, cycle_count);\
+      break;                                                                  \
+    case 0x7A:     /* STR rd, [rn + rm]! */                                   \
+      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x79:                                                                \
       /* LDR rd, [rn + rm] */                                                 \
-      arm_access_memory(load, up, pre, u32, reg);                             \
+      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPre>(inst, cycle_count);\
       break;                                                                  \
-                                                                              \
-    case 0x7A:                                                                \
-      /* STR rd, [rn + rm]! */                                                \
-      arm_access_memory(store, up, pre_wb, u32, reg);                         \
-      break;                                                                  \
-                                                                              \
     case 0x7B:                                                                \
       /* LDR rd, [rn + rm]! */                                                \
-      arm_access_memory(load, up, pre_wb, u32, reg);                          \
+      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
-    case 0x7C:                                                                \
-      /* STRB rd, [rn + rm] */                                                \
-      arm_access_memory(store, up, pre, u8, reg);                             \
+    case 0x7C:     /* STRB rd, [rn + rm] */                                   \
+      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPre>(inst, cycle_count); \
+      break;                                                                  \
+    case 0x7E:     /* STRB rd, [rn + rm]! */                                  \
+      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     case 0x7D:                                                                \
       /* LDRB rd, [rn + rm] */                                                \
-      arm_access_memory(load, up, pre, u8, reg);                              \
+      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPre>(inst, cycle_count); \
       break;                                                                  \
-                                                                              \
-    case 0x7E:                                                                \
-      /* STRB rd, [rn + rm]! */                                               \
-      arm_access_memory(store, up, pre_wb, u8, reg);                          \
-      break;                                                                  \
-                                                                              \
     case 0x7F:                                                                \
       /* LDRBT rd, [rn + rm]! */                                              \
-      arm_access_memory(load, up, pre_wb, u8, reg);                           \
+      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
       break;                                                                  \
                                                                               \
     /* Muliple memops */                                                      \

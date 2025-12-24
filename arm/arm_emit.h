@@ -360,15 +360,6 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
   ARM_MOV_REG_IMM(0, ireg, imm, imm_ror)                                      \
 
 
-#define generate_shift_left(ireg, imm)                                        \
-  ARM_MOV_REG_IMMSHIFT(0, ireg, ireg, ARMSHIFT_LSL, imm)                      \
-
-#define generate_shift_right(ireg, imm)                                       \
-  ARM_MOV_REG_IMMSHIFT(0, ireg, ireg, ARMSHIFT_LSR, imm)                      \
-
-#define generate_shift_right_arithmetic(ireg, imm)                            \
-  ARM_MOV_REG_IMMSHIFT(0, ireg, ireg, ARMSHIFT_ASR, imm)                      \
-
 #define generate_rotate_right(ireg, imm)                                      \
   ARM_MOV_REG_IMMSHIFT(0, ireg, ireg, ARMSHIFT_ROR, imm)                      \
 
@@ -961,52 +952,6 @@ u32 execute_spsr_restore_body(u32 pc)
   generate_op_reg_regshift_tflags(TEQ, _rn, _rm, shift_type, _rs)             \
 
 
-#define arm_prepare_load_rn_yes()                                             \
-  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_rn, rn, pc + 8)      \
-
-#define arm_prepare_load_rn_no()                                              \
-
-#define arm_prepare_store_rd_yes()                                            \
-  u32 _rd = arm_prepare_store_reg(reg_rd, rd)                                 \
-
-#define arm_prepare_store_rd_no()                                             \
-
-#define arm_complete_store_rd_yes(flags_op)                                   \
-  arm_complete_store_reg_pc_##flags_op(_rd, rd)                               \
-
-#define arm_complete_store_rd_no(flags_op)                                    \
-
-#define arm_generate_op_reg(name, load_op, store_op, flags_op)                \
-  u32 shift_type = (opcode >> 5) & 0x03;                                      \
-  arm_decode_data_proc_reg(opcode);                                           \
-  arm_prepare_load_rn_##load_op();                                            \
-  arm_prepare_store_rd_##store_op();                                          \
-                                                                              \
-  if((opcode >> 4) & 0x01)                                                    \
-  {                                                                           \
-    u32 rs = ((opcode >> 8) & 0x0F);                                          \
-    u32 _rs = arm_prepare_load_reg(translation_ptr, reg_rs, rs);              \
-    u32 _rm = arm_prepare_load_reg_pc(translation_ptr, reg_rm, rm, pc + 12);  \
-    generate_op_##name##_reg_regshift(_rd, _rn, _rm, shift_type, _rs);        \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    u32 shift_imm = ((opcode >> 7) & 0x1F);                                   \
-    u32 _rm = arm_prepare_load_reg_pc(translation_ptr, reg_rm, rm, pc + 8);   \
-    generate_op_##name##_reg_immshift(_rd, _rn, _rm, shift_type, shift_imm);  \
-  }                                                                           \
-  arm_complete_store_rd_##store_op(flags_op)                                  \
-
-#define arm_generate_op_reg_flags(name, load_op, store_op, flags_op)          \
-  arm_generate_op_reg(name, load_op, store_op, flags_op)                      \
-
-/* imm will be loaded by the called function if necessary. */
-
-#define arm_data_proc(name, type, flags_op)                                   \
-{                                                                             \
-  arm_generate_op_##type(name, yes, yes, flags_op);                           \
-}                                                                             \
-
 
 static void trace_instruction(u32 pc, u32 mode)
 {
@@ -1095,106 +1040,6 @@ static void trace_instruction(u32 pc, u32 mode)
 #define generate_load_call_s16()        generate_load_call(7, 1)
 #define generate_load_call_u32()        generate_load_call(8, 2)
 
-
-#define arm_access_memory_load(mem_type)                                      \
-  cycle_count += 2;                                                           \
-  generate_load_call_##mem_type();                                            \
-  write32(pc);                                                                \
-  arm_generate_store_reg_pc_no_flags(reg_rv, rd)                              \
-
-#define arm_access_memory_store(mem_type)                                     \
-  cycle_count++;                                                              \
-  arm_generate_load_reg_pc(reg_a1, rd, 12);                                   \
-  generate_store_call_##mem_type();                                           \
-  write32((pc + 4))                                                           \
-
-/* Calculate the address into a0 from _rn, _rm */
-
-#define arm_access_memory_adjust_reg_sh_up(ireg)                              \
-  ARM_ADD_REG_IMMSHIFT(0, ireg, _rn, _rm, ((opcode >> 5) & 0x03),             \
-   ((opcode >> 7) & 0x1F))                                                    \
-
-#define arm_access_memory_adjust_reg_sh_down(ireg)                            \
-  ARM_SUB_REG_IMMSHIFT(0, ireg, _rn, _rm, ((opcode >> 5) & 0x03),             \
-   ((opcode >> 7) & 0x1F))                                                    \
-
-#define arm_access_memory_adjust_reg_up(ireg)                                 \
-  ARM_ADD_REG_REG(0, ireg, _rn, _rm)                                          \
-
-#define arm_access_memory_adjust_reg_down(ireg)                               \
-  ARM_SUB_REG_REG(0, ireg, _rn, _rm)                                          \
-
-#define arm_access_memory_adjust_imm(op, ireg)                                \
-{                                                                             \
-  u32 stores[4];                                                              \
-  u32 rotations[4];                                                           \
-  u32 store_count = arm_disect_imm_32bit(offset, stores, rotations);          \
-                                                                              \
-  if(store_count > 1)                                                         \
-  {                                                                           \
-    ARM_##op##_REG_IMM(0, ireg, _rn, stores[0], rotations[0]);                \
-    ARM_##op##_REG_IMM(0, ireg, ireg, stores[1], rotations[1]);               \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    ARM_##op##_REG_IMM(0, ireg, _rn, stores[0], rotations[0]);                \
-  }                                                                           \
-}                                                                             \
-
-#define arm_access_memory_adjust_imm_up(ireg)                                 \
-  arm_access_memory_adjust_imm(ADD, ireg)                                     \
-
-#define arm_access_memory_adjust_imm_down(ireg)                               \
-  arm_access_memory_adjust_imm(SUB, ireg)                                     \
-
-
-#define arm_access_memory_pre(type, direction)                                \
-  arm_access_memory_adjust_##type##_##direction(reg_a0)                       \
-
-#define arm_access_memory_pre_wb(type, direction)                             \
-  arm_access_memory_adjust_##type##_##direction(reg_a0);                      \
-  arm_generate_store_reg(reg_a0, rn)                                          \
-
-#define arm_access_memory_post(type, direction)                               \
-  u32 _rn_dest = arm_prepare_store_reg(reg_a1, rn);                           \
-  if(_rn != reg_a0)                                                           \
-  {                                                                           \
-    arm_generate_load_reg(reg_a0, rn);                                        \
-  }                                                                           \
-  arm_access_memory_adjust_##type##_##direction(_rn_dest);                    \
-  arm_complete_store_reg(_rn_dest, rn)                                        \
-
-
-#define arm_data_trans_reg(adjust_op, direction)                              \
-  arm_decode_data_trans_reg();                                                \
-  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_a0, rn, pc + 8);     \
-  u32 _rm = arm_prepare_load_reg(translation_ptr, reg_a1, rm);                \
-  arm_access_memory_##adjust_op(reg_sh, direction)                            \
-
-#define arm_data_trans_imm(adjust_op, direction)                              \
-  arm_decode_data_trans_imm();                                                \
-  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_a0, rn, pc + 8);     \
-  arm_access_memory_##adjust_op(imm, direction)                               \
-
-
-#define arm_data_trans_half_reg(adjust_op, direction)                         \
-  arm_decode_half_trans_r();                                                  \
-  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_a0, rn, pc + 8);     \
-  u32 _rm = arm_prepare_load_reg(translation_ptr, reg_a1, rm);                \
-  arm_access_memory_##adjust_op(reg, direction)                               \
-
-#define arm_data_trans_half_imm(adjust_op, direction)                         \
-  arm_decode_half_trans_of();                                                 \
-  u32 _rn = arm_prepare_load_reg_pc(translation_ptr, reg_a0, rn, pc + 8);     \
-  arm_access_memory_##adjust_op(imm, direction)                               \
-
-
-#define arm_access_memory(access_type, direction, adjust_op, mem_type,        \
- offset_type)                                                                 \
-{                                                                             \
-  arm_data_trans_##offset_type(adjust_op, direction);                         \
-  arm_access_memory_##access_type(mem_type);                                  \
-}                                                                             \
 
 
 #define word_bit_count(word)                                                  \
@@ -1671,6 +1516,126 @@ public:
     thumb_generate_load_reg(reg_a1, regd);
     ARM_BLX(0, reg_a2);
     write32((it.pc + 2));
+  }
+
+
+  template <ARMMemOffset offt, MemOffDir dir>
+  inline void arm_memaddr(u32 oreg, const ARMInst & it) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    // Load base register if needed
+    u32 breg = arm_prepare_load_reg_pc(oreg, it.rn(), it.pc + 8);
+
+    switch (offt) {
+    case OffImm12:     // [rn +/- imm12]
+      // TODO: Make this more readable
+      if (dir == OffPositive) {
+        if (it.off12() < 256) {
+          ARM_ADD_REG_IMM(0, oreg, breg, it.off12(), 0);
+        } else if (!(it.off12() & 0xF)) {
+          ARM_ADD_REG_IMM(0, oreg, breg, (it.off12() >> 4), arm_imm_lsl_to_rot(4));
+        } else if (!(it.off12() & 0xC03)) {
+          ARM_ADD_REG_IMM(0, oreg, breg, (it.off12() >> 2), arm_imm_lsl_to_rot(2));
+        } else {
+          ARM_ADD_REG_IMM(0, oreg, breg, (it.off12() & 0xFF), 0);
+          ARM_ADD_REG_IMM(0, oreg, oreg, (it.off12() >> 8), arm_imm_lsl_to_rot(8));
+        }
+      } else {
+        if (it.off12() < 256) {
+          ARM_SUB_REG_IMM(0, oreg, breg, it.off12(), 0);
+        } else if (!(it.off12() & 0xF)) {
+          ARM_SUB_REG_IMM(0, oreg, breg, (it.off12() >> 4), arm_imm_lsl_to_rot(4));
+        } else if (!(it.off12() & 0xC03)) {
+          ARM_SUB_REG_IMM(0, oreg, breg, (it.off12() >> 2), arm_imm_lsl_to_rot(2));
+        } else {
+          ARM_SUB_REG_IMM(0, oreg, breg, (it.off12() & 0xFF), 0);
+          ARM_SUB_REG_IMM(0, oreg, oreg, (it.off12() >> 8), arm_imm_lsl_to_rot(8));
+        }
+      }
+      break;
+    case OffHImm8:     // [rn +/- imm8]
+      if (dir == OffPositive) {
+        ARM_ADD_REG_IMM(0, oreg, breg, it.off8(), 0);
+      } else {
+        ARM_SUB_REG_IMM(0, oreg, breg, it.off8(), 0);
+      }
+      break;
+    case OffHReg:      // [rn +/- rm]
+      {
+        u32 secreg = arm_prepare_load_reg_pc(reg_a2, it.rm(), it.pc + 8);
+        if (dir == OffPositive) {
+          ARM_ADD_REG_REG(0, oreg, breg, secreg);
+        } else {
+          ARM_SUB_REG_REG(0, oreg, breg, secreg);
+        }
+      }
+      break;
+    case OffOp2Reg:    // [rn +/- rm shift/rot amount]
+      {
+        u32 secreg = arm_prepare_load_reg_pc(reg_a2, it.rm(), it.pc + 8);
+        if (dir == OffPositive) {
+           generate_op_add_reg_immshift(oreg, breg, secreg, it.op2smode(), it.op2sa());
+        } else {
+           generate_op_sub_reg_immshift(oreg, breg, secreg, it.op2smode(), it.op2sa());
+        }
+      }
+      break;
+    };
+  }
+
+  template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
+  inline void arm_memst(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    cycle_count++;    // TODO: Use proper cycle accounting and honor WAITCNT
+
+    // Generate the final address and base address, and write back if necessary
+    if (idxm == MemIdxPostWB) {
+      // Load the base reg to a0
+      arm_force_load_reg(reg_a0, it.rn(), it.pc + 4);
+      // Calculate the final value to the final reg.
+      u32 wbreg = arm_prepare_store_reg(reg_a1, it.rn());
+      arm_memaddr<offt, dir>(wbreg, it);
+      arm_complete_store_reg(wbreg, it.rn());
+    }
+    else {
+      arm_memaddr<offt, dir>(reg_a0, it);  // Calculate final addr to a0
+      if (idxm == MemIdxPreWB) {
+        arm_generate_store_reg(reg_a0, it.rn());
+      }
+    }
+
+    // Generate call to handler, load the value to write to a1
+    arm_force_load_reg(reg_a1, it.rd(), it.pc + 12);
+    generate_store_call(str_handler_offset<memtype>());
+    write32((it.pc + 4));
+  }
+
+  template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
+  inline void arm_memld(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u8 condition = it.cond();        // TODO remove this
+    cycle_count += 2;    // TODO: Use proper cycle accounting and honor WAITCNT
+
+    // Generate the final address and base address, and write back if necessary
+    if (idxm == MemIdxPostWB) {
+      // Load the base reg to a0
+      arm_force_load_reg(reg_a0, it.rn(), it.pc + 4);
+      // Calculate the final value to the final reg.
+      u32 wbreg = arm_prepare_store_reg(reg_a1, it.rn());
+      arm_memaddr<offt, dir>(wbreg, it);
+      arm_complete_store_reg(wbreg, it.rn());
+    }
+    else {
+      arm_memaddr<offt, dir>(reg_a0, it);  // Calculate final addr to a0
+      if (idxm == MemIdxPreWB) {
+        arm_generate_store_reg(reg_a0, it.rn());
+      }
+    }
+
+    // Generate call to handler, load the value to write to a1
+    generate_store_call(ldr_handler_offset<memtype>());
+    write32(it.pc);
+    arm_generate_store_reg_pc_no_flags(reg_rv, it.rd());
   }
 
 

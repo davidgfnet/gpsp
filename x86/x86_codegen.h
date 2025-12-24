@@ -117,6 +117,7 @@ typedef enum
   x86_opcode_test_rm_imm                = 0x00F7,
   x86_opcode_test_reg_rm                = 0x85,
   x86_opcode_not_rm                     = 0x02F7,
+  x86_opcode_neg_rm                     = 0x03F7,
   x86_opcode_mul_eax_rm                 = 0x04F7,
   x86_opcode_imul_eax_rm                = 0x05F7,
   x86_opcode_idiv_eax_rm                = 0x07F7,
@@ -413,12 +414,18 @@ typedef enum
 #define x86_emit_not_reg(srcdst)                                              \
   x86_emit_opcode_1b_ext_reg(not_rm, srcdst)                                  \
 
+#define x86_emit_neg_reg(srcdst)                                              \
+  x86_emit_opcode_1b_ext_reg(neg_rm, srcdst)                                  \
+
 #define x86_emit_call_offset(relative_offset)                                 \
   x86_emit_byte(x86_opcode_call_offset);                                      \
   x86_emit_dword(relative_offset)                                             \
 
 #define x86_emit_lea_reg_mem(dest, base, offset)                              \
   x86_emit_opcode_1b_mem(lea_reg_rm, dest, base, offset)                      \
+
+#define x86_emit_lea_reg_mem_idx(dest, base, ridx, scale, offset)             \
+  x86_emit_opcode_1b_mem_sib(lea_reg_rm, dest, base, ridx, scale, offset)     \
 
 #define x86_emit_jecxz_filler(writeback_location)                             \
   x86_emit_byte(x86_opcode_jecxz);                                            \

@@ -1185,8 +1185,7 @@ public:
     const u32 stored_pc = this->block_pc;     // TODO: Remove this
 
     const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
-    const u32 numops_lo = bit_count[rlist & 0xFF];   // TODO: For cycle compatibility with previous changes
-    cycle_count += numops_lo;    // TODO: Use proper cycle accounting.
+    cycle_count += numops;    // TODO: Use proper cycle accounting.
 
     const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
     const s32 endoff = stpoff * numops;

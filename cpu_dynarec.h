@@ -23,6 +23,8 @@
 
 #include "decoder.h"
 
+// Whether the CPU is running in ARM or Thumb mode
+typedef enum { ModeARM, ModeThumb } CPUInstMode;
 // Whether the CPU flags are updated or no.
 typedef enum { NoFlags, SetFlags } FlagOperation;
 // Memory access type

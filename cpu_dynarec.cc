@@ -1057,164 +1057,140 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     /* Muliple memops */                                                      \
-    case 0x80:                                                                \
-      /* STMDA rn, rlist */                                                   \
-      arm_block_memory(store, down_a, no, no);                                \
+    case 0x80:     /* STMDA rn, rlist */                                      \
+      ce.mem_multi<ModeARM, AccStore, AddrPostDec, false, false>(             \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x82:     /* STMDA rn!, rlist */                                     \
+      ce.mem_multi<ModeARM, AccStore, AddrPostDec, true, false>(              \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x84:     /* STMDA rn, rlist^ */                                     \
+      ce.mem_multi<ModeARM, AccStore, AddrPostDec, false, true>(              \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x86:     /* STMDA rn!, rlist^ */                                    \
+      ce.mem_multi<ModeARM, AccStore, AddrPostDec, true, true>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
-    case 0x81:                                                                \
-      /* LDMDA rn, rlist */                                                   \
-      arm_block_memory(load, down_a, no, no);                                 \
+    case 0x81:     /* LDMDA rn, rlist */                                      \
+      ce.mem_multi<ModeARM, AccLoad, AddrPostDec, false, false>(              \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x83:     /* LDMDA rn!, rlist */                                     \
+      ce.mem_multi<ModeARM, AccLoad, AddrPostDec, true, false>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x85:     /* LDMDA rn, rlist^ */                                     \
+      ce.mem_multi<ModeARM, AccLoad, AddrPostDec, false, true>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x87:     /* LDMDA rn!, rlist^ */                                    \
+      ce.mem_multi<ModeARM, AccLoad, AddrPostDec, true, true>(                \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
-    case 0x82:                                                                \
-      /* STMDA rn!, rlist */                                                  \
-      arm_block_memory(store, down_a, down, no);                              \
+    case 0x88:     /* STMIA rn, rlist */                                      \
+      ce.mem_multi<ModeARM, AccStore, AddrPostInc, false, false>(             \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x8A:     /* STMIA rn!, rlist */                                     \
+      ce.mem_multi<ModeARM, AccStore, AddrPostInc, true, false>(              \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x8C:     /* STMIA rn, rlist^ */                                     \
+      ce.mem_multi<ModeARM, AccStore, AddrPostInc, false, true>(              \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x8E:     /* STMIA rn!, rlist^ */                                    \
+      ce.mem_multi<ModeARM, AccStore, AddrPostInc, true, true>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
-    case 0x83:                                                                \
-      /* LDMDA rn!, rlist */                                                  \
-      arm_block_memory(load, down_a, down, no);                               \
+    case 0x89:     /* LDMIA rn, rlist */                                      \
+      ce.mem_multi<ModeARM, AccLoad, AddrPostInc, false, false>(              \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x8B:     /* LDMIA rn!, rlist */                                     \
+      ce.mem_multi<ModeARM, AccLoad, AddrPostInc, true, false>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x8D:     /* LDMIA rn, rlist^ */                                     \
+      ce.mem_multi<ModeARM, AccLoad, AddrPostInc, false, true>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x8F:     /* LDMIA rn!, rlist^ */                                    \
+      ce.mem_multi<ModeARM, AccLoad, AddrPostInc, true, true>(                \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
-    case 0x84:                                                                \
-      /* STMDA rn, rlist^ */                                                  \
-      arm_block_memory(store, down_a, no, yes);                               \
+    case 0x90:     /* STMDB rn, rlist */                                      \
+      ce.mem_multi<ModeARM, AccStore, AddrPreDec, false, false>(              \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x92:     /* STMDB rn!, rlist */                                     \
+      ce.mem_multi<ModeARM, AccStore, AddrPreDec, true, false>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x94:     /* STMDB rn, rlist^ */                                     \
+      ce.mem_multi<ModeARM, AccStore, AddrPreDec, false, true>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x96:     /* STMDB rn!, rlist^ */                                    \
+      ce.mem_multi<ModeARM, AccStore, AddrPreDec, true, true>(                \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
-    case 0x85:                                                                \
-      /* LDMDA rn, rlist^ */                                                  \
-      arm_block_memory(load, down_a, no, yes);                                \
+    case 0x91:     /* LDMDB rn, rlist */                                      \
+      ce.mem_multi<ModeARM, AccLoad, AddrPreDec, false, false>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x93:     /* LDMDB rn!, rlist */                                     \
+      ce.mem_multi<ModeARM, AccLoad, AddrPreDec, true, false>(                \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x95:     /* LDMDB rn, rlist^ */                                     \
+      ce.mem_multi<ModeARM, AccLoad, AddrPreDec, false, true>(                \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x97:     /* LDMDB rn!, rlist^ */                                    \
+      ce.mem_multi<ModeARM, AccLoad, AddrPreDec, true, true>(                 \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
-    case 0x86:                                                                \
-      /* STMDA rn!, rlist^ */                                                 \
-      arm_block_memory(store, down_a, down, yes);                             \
+    case 0x98:     /* STMIB rn, rlist */                                      \
+      ce.mem_multi<ModeARM, AccStore, AddrPreInc, false, false>(              \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x9A:     /* STMIB rn!, rlist */                                     \
+      ce.mem_multi<ModeARM, AccStore, AddrPreInc, true, false>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x9C:     /* STMIB rn, rlist^ */                                     \
+      ce.mem_multi<ModeARM, AccStore, AddrPreInc, false, true>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+      break;                                                                  \
+    case 0x9E:     /* STMIB rn!, rlist^ */                                    \
+      ce.mem_multi<ModeARM, AccStore, AddrPreInc, true, true>(                \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
-    case 0x87:                                                                \
-      /* LDMDA rn!, rlist^ */                                                 \
-      arm_block_memory(load, down_a, down, yes);                              \
+    case 0x99:     /* LDMIB rn, rlist */                                      \
+      ce.mem_multi<ModeARM, AccLoad, AddrPreInc, false, false>(               \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
-                                                                              \
-    case 0x88:                                                                \
-      /* STMIA rn, rlist */                                                   \
-      arm_block_memory(store, no, no, no);                                    \
+    case 0x9B:     /* LDMIB rn!, rlist */                                     \
+      ce.mem_multi<ModeARM, AccLoad, AddrPreInc, true, false>(                \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
-                                                                              \
-    case 0x89:                                                                \
-      /* LDMIA rn, rlist */                                                   \
-      arm_block_memory(load, no, no, no);                                     \
+    case 0x9D:     /* LDMIB rn, rlist^ */                                     \
+      ce.mem_multi<ModeARM, AccLoad, AddrPreInc, false, true>(                \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
-                                                                              \
-    case 0x8A:                                                                \
-      /* STMIA rn!, rlist */                                                  \
-      arm_block_memory(store, no, up, no);                                    \
-      break;                                                                  \
-                                                                              \
-    case 0x8B:                                                                \
-      /* LDMIA rn!, rlist */                                                  \
-      arm_block_memory(load, no, up, no);                                     \
-      break;                                                                  \
-                                                                              \
-    case 0x8C:                                                                \
-      /* STMIA rn, rlist^ */                                                  \
-      arm_block_memory(store, no, no, yes);                                   \
-      break;                                                                  \
-                                                                              \
-    case 0x8D:                                                                \
-      /* LDMIA rn, rlist^ */                                                  \
-      arm_block_memory(load, no, no, yes);                                    \
-      break;                                                                  \
-                                                                              \
-    case 0x8E:                                                                \
-      /* STMIA rn!, rlist^ */                                                 \
-      arm_block_memory(store, no, up, yes);                                   \
-      break;                                                                  \
-                                                                              \
-    case 0x8F:                                                                \
-      /* LDMIA rn!, rlist^ */                                                 \
-      arm_block_memory(load, no, up, yes);                                    \
-      break;                                                                  \
-                                                                              \
-    case 0x90:                                                                \
-      /* STMDB rn, rlist */                                                   \
-      arm_block_memory(store, down_b, no, no);                                \
-      break;                                                                  \
-                                                                              \
-    case 0x91:                                                                \
-      /* LDMDB rn, rlist */                                                   \
-      arm_block_memory(load, down_b, no, no);                                 \
-      break;                                                                  \
-                                                                              \
-    case 0x92:                                                                \
-      /* STMDB rn!, rlist */                                                  \
-      arm_block_memory(store, down_b, down, no);                              \
-      break;                                                                  \
-                                                                              \
-    case 0x93:                                                                \
-      /* LDMDB rn!, rlist */                                                  \
-      arm_block_memory(load, down_b, down, no);                               \
-      break;                                                                  \
-                                                                              \
-    case 0x94:                                                                \
-      /* STMDB rn, rlist^ */                                                  \
-      arm_block_memory(store, down_b, no, yes);                               \
-      break;                                                                  \
-                                                                              \
-    case 0x95:                                                                \
-      /* LDMDB rn, rlist^ */                                                  \
-      arm_block_memory(load, down_b, no, yes);                                \
-      break;                                                                  \
-                                                                              \
-    case 0x96:                                                                \
-      /* STMDB rn!, rlist^ */                                                 \
-      arm_block_memory(store, down_b, down, yes);                             \
-      break;                                                                  \
-                                                                              \
-    case 0x97:                                                                \
-      /* LDMDB rn!, rlist^ */                                                 \
-      arm_block_memory(load, down_b, down, yes);                              \
-      break;                                                                  \
-                                                                              \
-    case 0x98:                                                                \
-      /* STMIB rn, rlist */                                                   \
-      arm_block_memory(store, up, no, no);                                    \
-      break;                                                                  \
-                                                                              \
-    case 0x99:                                                                \
-      /* LDMIB rn, rlist */                                                   \
-      arm_block_memory(load, up, no, no);                                     \
-      break;                                                                  \
-                                                                              \
-    case 0x9A:                                                                \
-      /* STMIB rn!, rlist */                                                  \
-      arm_block_memory(store, up, up, no);                                    \
-      break;                                                                  \
-                                                                              \
-    case 0x9B:                                                                \
-      /* LDMIB rn!, rlist */                                                  \
-      arm_block_memory(load, up, up, no);                                     \
-      break;                                                                  \
-                                                                              \
-    case 0x9C:                                                                \
-      /* STMIB rn, rlist^ */                                                  \
-      arm_block_memory(store, up, no, yes);                                   \
-      break;                                                                  \
-                                                                              \
-    case 0x9D:                                                                \
-      /* LDMIB rn, rlist^ */                                                  \
-      arm_block_memory(load, up, no, yes);                                    \
-      break;                                                                  \
-                                                                              \
-    case 0x9E:                                                                \
-      /* STMIB rn!, rlist^ */                                                 \
-      arm_block_memory(store, up, up, yes);                                   \
-      break;                                                                  \
-                                                                              \
-    case 0x9F:                                                                \
-      /* LDMIB rn!, rlist^ */                                                 \
-      arm_block_memory(load, up, up, yes);                                    \
+    case 0x9F:     /* LDMIB rn!, rlist^ */                                    \
+      ce.mem_multi<ModeARM, AccLoad, AddrPreInc, true, true>(                 \
+        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
     case 0xA0 ... 0xAF:                                                       \
@@ -1453,28 +1429,28 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0xB4:               /* PUSH rlist */                                 \
-      ce.mem_multi<AccStore, AddrPreDec, true, false>(                        \
-        inst, REG_SP, inst.rlist(), cycle_count);                             \
+      ce.mem_multi<ModeThumb, AccStore, AddrPreDec, true, false>(             \
+        inst.pc, 0, REG_SP, inst.rlist(), cycle_count);                       \
       break;                                                                  \
     case 0xB5:               /* PUSH rlist, lr */                             \
-      ce.mem_multi<AccStore, AddrPreDec, true, false>(                        \
-        inst, REG_SP, inst.rlist() | (1 << REG_LR), cycle_count);             \
+      ce.mem_multi<ModeThumb, AccStore, AddrPreDec, true, false>(             \
+        inst.pc, 0, REG_SP, inst.rlist() | (1 << REG_LR), cycle_count);       \
       break;                                                                  \
     case 0xBC:               /* POP rlist */                                  \
-      ce.mem_multi<AccLoad, AddrPostInc, true, false>(                        \
-        inst, REG_SP, inst.rlist(), cycle_count);                             \
+      ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
+        inst.pc, 0, REG_SP, inst.rlist(), cycle_count);                       \
       break;                                                                  \
     case 0xBD:               /* POP rlist, pc */                              \
-      ce.mem_multi<AccLoad, AddrPostInc, true, false>(                        \
-        inst, REG_SP, inst.rlist() | (1 << REG_PC), cycle_count);             \
+      ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
+        inst.pc, 0, REG_SP, inst.rlist() | (1 << REG_PC), cycle_count);       \
       break;                                                                  \
     case 0xC0 ... 0xC7:      /* STMIA r0-7!, rlist */                         \
-      ce.mem_multi<AccStore, AddrPostInc, true, false>(                       \
-        inst, inst.rptr(), inst.rlist(), cycle_count);                        \
+      ce.mem_multi<ModeThumb, AccStore, AddrPostInc, true, false>(            \
+        inst.pc, 0, inst.rptr(), inst.rlist(), cycle_count);                  \
       break;                                                                  \
     case 0xC8 ... 0xCF:      /* LDMIA r0-7!, rlist */                         \
-      ce.mem_multi<AccLoad, AddrPostInc, true, false>(                        \
-        inst, inst.rptr(), inst.rlist(), cycle_count);                        \
+      ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
+        inst.pc, 0, inst.rptr(), inst.rlist(), cycle_count);                  \
       break;                                                                  \
                                                                               \
     case 0xD0:     /* BEQ label */                                            \

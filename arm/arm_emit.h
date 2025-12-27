@@ -1042,108 +1042,6 @@ static void trace_instruction(u32 pc, u32 mode)
 
 
 
-#define word_bit_count(word)                                                  \
-  (bit_count[word >> 8] + bit_count[word & 0xFF])                             \
-
-/* TODO: Make these use cached registers. Implement iwram_stack_optimize. */
-
-#define arm_block_memory_load()                                               \
-  generate_load_call_u32();                                                   \
-  write32((pc + 8));                                                          \
-  arm_generate_store_reg(reg_rv, i)                                           \
-
-#define arm_block_memory_store()                                              \
-  arm_generate_load_reg_pc(reg_a1, i, 8);                                     \
-  generate_store_call_u32_safe()                                              \
-
-#define arm_block_memory_final_load(writeback_type)                           \
-  arm_block_memory_load()                                                     \
-
-#define arm_block_memory_final_store(writeback_type)                          \
-  arm_generate_load_reg_pc(reg_a1, i, 12);                                    \
-  arm_block_memory_writeback_post_store(writeback_type);                      \
-  generate_store_call_u32();                                                  \
-  write32((pc + 4))                                                           \
-
-#define arm_block_memory_adjust_pc_store()                                    \
-
-#define arm_block_memory_adjust_pc_load()                                     \
-  if(reg_list & 0x8000)                                                       \
-  {                                                                           \
-    generate_indirect_branch_arm();                                           \
-  }                                                                           \
-
-#define arm_block_memory_offset_down_a()                                      \
-  generate_sub_imm(reg_s0, ((word_bit_count(reg_list) * 4) - 4), 0)           \
-
-#define arm_block_memory_offset_down_b()                                      \
-  generate_sub_imm(reg_s0, (word_bit_count(reg_list) * 4), 0)                 \
-
-#define arm_block_memory_offset_no()                                          \
-
-#define arm_block_memory_offset_up()                                          \
-  generate_add_imm(reg_s0, 4, 0)                                              \
-
-#define arm_block_memory_writeback_down()                                     \
-  arm_generate_load_reg(reg_a2, rn);                                          \
-  generate_sub_imm(reg_a2, (word_bit_count(reg_list) * 4), 0);                \
-  arm_generate_store_reg(reg_a2, rn)                                          \
-
-#define arm_block_memory_writeback_up()                                       \
-  arm_generate_load_reg(reg_a2, rn);                                          \
-  generate_add_imm(reg_a2, (word_bit_count(reg_list) * 4), 0);                \
-  arm_generate_store_reg(reg_a2, rn)                                          \
-
-#define arm_block_memory_writeback_no()
-
-/* Only emit writeback if the register is not in the list */
-
-#define arm_block_memory_writeback_pre_load(writeback_type)                   \
-  if(!((reg_list >> rn) & 0x01))                                              \
-  {                                                                           \
-    arm_block_memory_writeback_##writeback_type();                            \
-  }                                                                           \
-
-#define arm_block_memory_writeback_post_store(writeback_type)                 \
-  arm_block_memory_writeback_##writeback_type()                               \
-
-#define arm_block_memory_writeback_pre_store(writeback_type)
-
-#define arm_block_memory(access_type, offset_type, writeback_type, s_bit)     \
-{                                                                             \
-  arm_decode_block_trans();                                                   \
-  u32 offset = 0;                                                             \
-  u32 i;                                                                      \
-                                                                              \
-  arm_generate_load_reg(reg_s0, rn);                                          \
-  arm_block_memory_offset_##offset_type();                                    \
-  arm_block_memory_writeback_pre_##access_type(writeback_type);               \
-  ARM_BIC_REG_IMM(0, reg_s0, reg_s0, 0x03, 0);                                \
-  arm_generate_store_reg(reg_s0, REG_SAVE);                                   \
-                                                                              \
-  for(i = 0; i < 16; i++)                                                     \
-  {                                                                           \
-    if((reg_list >> i) & 0x01)                                                \
-    {                                                                         \
-      cycle_count++;                                                          \
-      arm_generate_load_reg(reg_s0, REG_SAVE);                                \
-      generate_add_reg_reg_imm(reg_a0, reg_s0, offset, 0);                    \
-      if(reg_list & ~((2 << i) - 1))                                          \
-      {                                                                       \
-        arm_block_memory_##access_type();                                     \
-        offset += 4;                                                          \
-      }                                                                       \
-      else                                                                    \
-      {                                                                       \
-        arm_block_memory_final_##access_type(writeback_type);                 \
-        break;                                                                \
-      }                                                                       \
-    }                                                                         \
-  }                                                                           \
-                                                                              \
-  arm_block_memory_adjust_pc_##access_type();                                 \
-}                                                                             \
-
 #define complete_store_reg_pc_thumb()                                         \
   if (it.rd_hi() == REG_PC)                                                   \
   {                                                                           \
@@ -1642,13 +1540,14 @@ public:
     write32((it.pc + 4));
   }
 
-  template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
-  inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {
+  template <CPUInstMode cpum, AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
+  inline void mem_multi(u32 pc, u32 condition, u32 basereg, u16 rlist, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
     const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
     cycle_count += numops;    // TODO: Use proper cycle accounting.
 
+    const u32 itsize = (cpum == ModeARM) ? 4 : 2;
     const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
     const s32 endoff = stpoff * numops;
     const s32 inioff = (addrmode == AddrPreInc)  ? 4 :
@@ -1657,10 +1556,10 @@ public:
                                                    endoff + 4;
 
     // Load base register, clear its lower bits.
-    // TODO make this compatible with ARM mode as well
-    u32 nreg = thumb_prepare_load_reg_pc(reg_a1, basereg, it.pc + 4);
+    u32 nreg = (cpum == ModeThumb) ? thumb_prepare_load_reg_pc(reg_a1, basereg, pc + 4) :
+                                     arm_prepare_load_reg_pc(reg_a1, basereg, pc + 8);
     ARM_BIC_REG_IMM(0, reg_a0, nreg, 0x03, 0);
-    arm_generate_store_reg(reg_a0, REG_SAVE);
+    arm_generate_store_reg(reg_a0, REG_SAVE);   // TODO: Eliminate stores to "extended" regsiters
 
     // If base is in the reglist and writeback is enabled, the value of the
     // written register depends on the write cycle (ARM7TDM manual 4.11.6).
@@ -1673,9 +1572,16 @@ public:
 
     // This is the most common case by far.
     if (writeback && writeback_first) {
-      u32 scratch = thumb_prepare_store_reg(reg_a2, basereg);
-      generate_addsubi(scratch, nreg, endoff);
-      thumb_generate_store_reg(scratch, basereg);
+      // TODO: Improve this!
+      if (cpum == ModeThumb) {
+        u32 scratch = thumb_prepare_store_reg(reg_a2, basereg);
+        generate_addsubi(scratch, nreg, endoff);
+        thumb_generate_store_reg(scratch, basereg);
+      } else {
+        u32 scratch = arm_prepare_store_reg(reg_a2, basereg);
+        generate_addsubi(scratch, nreg, endoff);
+        arm_generate_store_reg(scratch, basereg);
+      }
     }
 
     u32 aoff = 0;
@@ -1689,16 +1595,30 @@ public:
           generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
           ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);
           ARM_BLX(0, reg_a2);
-          write32(it.pc + 2);   // TODO FIX for ARM MODE?
-          thumb_generate_store_reg(reg_rv, i);
+          write32(pc + itsize);
+          if (cpum == ModeThumb) {
+            thumb_generate_store_reg(reg_rv, i);
+          } else {
+            arm_generate_store_reg(reg_rv, i);
+          }
         } else {
-          thumb_generate_load_reg(reg_a1, i);   // TODO Make this ARM compat (use PC variant too!)
+          if (cpum == ModeThumb) {
+            thumb_generate_load_reg(reg_a1, i);
+          } else {
+            arm_generate_load_reg_pc(reg_a1, i, pc + 12);
+          }
 
           // Update the base register right after the first read if necessary
           if (writeback && !writeback_first) {
-            u32 scratch = thumb_prepare_store_reg(reg_a2, basereg);
-            generate_addsubi(scratch, nreg, endoff);
-            thumb_generate_store_reg(scratch, basereg);
+            if (cpum == ModeThumb) {
+              u32 scratch = thumb_prepare_load_reg_pc(reg_a2, basereg, pc + 4);
+              generate_addsubi(scratch, scratch, endoff);
+              thumb_generate_store_reg(scratch, basereg);
+            } else {
+              u32 scratch = arm_prepare_load_reg_pc(reg_a2, basereg, pc + 8);
+              generate_addsubi(scratch, scratch, endoff);
+              arm_generate_store_reg(scratch, basereg);
+            }
             writeback_first = true;
           }
 
@@ -1706,7 +1626,7 @@ public:
             generate_store_call_u32_safe();
           } else {
             generate_store_call_u32();
-            write32(it.pc + 2);
+            write32(pc + itsize);
           }
         }
         aoff += 4;
@@ -1715,8 +1635,11 @@ public:
 
     // Load PC requires an indirect branch
     if (amode == AccLoad && (rlist & (1 << REG_PC))) {
-      // TODO: allow thumb/arm modes here!
-      generate_indirect_branch_cycle_update(thumb);
+      if (cpum == ModeARM) {
+        generate_indirect_branch_arm();
+      } else {
+        generate_indirect_branch_cycle_update(thumb);
+      }
     }
   }
 

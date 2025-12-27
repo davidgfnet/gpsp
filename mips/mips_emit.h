@@ -603,152 +603,6 @@ u32 execute_spsr_restore_body(u32 address)
 #define thumb_load_pc_pool_const(rd, value)                                   \
   generate_load_imm(arm_to_mips_reg[rd], (value));                            \
 
-
-#define word_bit_count(word)                                                  \
-  (bit_count[word >> 8] + bit_count[word & 0xFF])                             \
-
-#define arm_block_memory_load()                                               \
-  generate_function_call_swap_delay(execute_aligned_load32);                  \
-  generate_store_reg(reg_rv, i)                                               \
-
-#define arm_block_memory_store()                                              \
-  generate_load_reg_pc(reg_a1, i, 8);                                         \
-  generate_function_call_swap_delay(execute_aligned_store32)                  \
-
-#define arm_block_memory_final_load(writeback_type)                           \
-  arm_block_memory_load()                                                     \
-
-#define arm_block_memory_final_store(writeback_type)                          \
-  generate_load_pc(reg_a2, (pc + 4));                                         \
-  generate_load_reg(reg_a1, i);                                               \
-  arm_block_memory_writeback_post_store(writeback_type);                      \
-  generate_function_call_swap_delay(execute_store_u32);                       \
-
-#define arm_block_memory_adjust_pc_store()                                    \
-
-#define arm_block_memory_adjust_pc_load()                                     \
-  if(reg_list & 0x8000)                                                       \
-  {                                                                           \
-    generate_mov(reg_a0, reg_rv);                                             \
-    generate_indirect_branch_arm();                                           \
-  }                                                                           \
-
-#define arm_block_memory_sp_load()                                            \
-  mips_emit_lw(arm_to_mips_reg[i], reg_a1, offset);                           \
-
-#define arm_block_memory_sp_store()                                           \
-{                                                                             \
-  u32 store_reg = i;                                                          \
-  check_load_reg_pc(arm_reg_a0, store_reg, 8);                                \
-  mips_emit_sw(arm_to_mips_reg[store_reg], reg_a1, offset);                   \
-}                                                                             \
-
-#define arm_block_memory_sp_adjust_pc_store()                                 \
-
-#define arm_block_memory_sp_adjust_pc_load()                                  \
-  if(reg_list & 0x8000)                                                       \
-  {                                                                           \
-    generate_indirect_branch_arm();                                           \
-  }                                                                           \
-
-#define arm_block_memory_offset_down_a()                                      \
-  mips_emit_addiu(reg_a2, base_reg, (-((word_bit_count(reg_list) * 4) - 4)))  \
-
-#define arm_block_memory_offset_down_b()                                      \
-  mips_emit_addiu(reg_a2, base_reg, (word_bit_count(reg_list) * -4))          \
-
-#define arm_block_memory_offset_no()                                          \
-  mips_emit_addu(reg_a2, base_reg, reg_zero)                                  \
-
-#define arm_block_memory_offset_up()                                          \
-  mips_emit_addiu(reg_a2, base_reg, 4)                                        \
-
-#define arm_block_memory_writeback_down()                                     \
-  mips_emit_addiu(base_reg, base_reg, (-(word_bit_count(reg_list) * 4)))      \
-
-#define arm_block_memory_writeback_up()                                       \
-  mips_emit_addiu(base_reg, base_reg, (word_bit_count(reg_list) * 4))         \
-
-#define arm_block_memory_writeback_no()
-
-// Only emit writeback if the register is not in the list
-
-#define arm_block_memory_writeback_post_load(writeback_type)
-#define arm_block_memory_writeback_pre_load(writeback_type)                   \
-  if(!((reg_list >> rn) & 0x01))                                              \
-  {                                                                           \
-    arm_block_memory_writeback_##writeback_type();                            \
-  }                                                                           \
-
-#define arm_block_memory_writeback_pre_store(writeback_type)
-#define arm_block_memory_writeback_post_store(writeback_type)                 \
-  arm_block_memory_writeback_##writeback_type()                               \
-
-#define arm_block_memory(access_type, offset_type, writeback_type, s_bit)     \
-{                                                                             \
-  arm_decode_block_trans();                                                   \
-  u32 i;                                                                      \
-  u32 offset = 0;                                                             \
-  u32 base_reg = arm_to_mips_reg[rn];                                         \
-                                                                              \
-  arm_block_memory_offset_##offset_type();                                    \
-  arm_block_memory_writeback_pre_##access_type(writeback_type);               \
-                                                                              \
-  if(rn == REG_SP)                                                            \
-  {                                                                           \
-    /* Assume IWRAM, the most common path by far */                           \
-    mips_emit_andi(reg_a1, reg_a2, 0x7FFC);                                   \
-    /* Check the 23rd bit to differenciate IW/EW RAMs */                      \
-    mips_emit_srl(reg_temp, reg_a2, 24);                                      \
-    mips_emit_sll(reg_temp, reg_temp, 31);                                    \
-    mips_emit_bgezal(reg_temp,                                                \
-                mips_relative_offset(translation_ptr, spaccess_trampoline));  \
-    /* Delay slot, will be overwritten anyway */                              \
-    mips_emit_lui(reg_a0, ((u32)(iwram + 0x8000 + 0x8000) >> 16));            \
-    mips_emit_addu(reg_a1, reg_a1, reg_a0);                                   \
-    offset = (u32)(iwram + 0x8000) & 0xFFFF;                                  \
-                                                                              \
-    for(i = 0; i < 16; i++)                                                   \
-    {                                                                         \
-      if((reg_list >> i) & 0x01)                                              \
-      {                                                                       \
-        cycle_count++;                                                        \
-        arm_block_memory_sp_##access_type();                                  \
-        offset += 4;                                                          \
-      }                                                                       \
-    }                                                                         \
-                                                                              \
-    arm_block_memory_writeback_post_##access_type(writeback_type);            \
-    arm_block_memory_sp_adjust_pc_##access_type();                            \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    emit_align_reg(reg_a2, 2);                                                \
-                                                                              \
-    for(i = 0; i < 16; i++)                                                   \
-    {                                                                         \
-      if((reg_list >> i) & 0x01)                                              \
-      {                                                                       \
-        cycle_count++;                                                        \
-        mips_emit_addiu(reg_a0, reg_a2, offset);                              \
-        if(reg_list & ~((2 << i) - 1))                                        \
-        {                                                                     \
-          arm_block_memory_##access_type();                                   \
-          offset += 4;                                                        \
-        }                                                                     \
-        else                                                                  \
-        {                                                                     \
-          arm_block_memory_final_##access_type(writeback_type);               \
-          break;                                                              \
-        }                                                                     \
-      }                                                                       \
-    }                                                                         \
-                                                                              \
-    arm_block_memory_adjust_pc_##access_type();                               \
-  }                                                                           \
-}                                                                             \
-
-
 #define check_store_reg_pc_thumb(_rd)                                         \
   if(_rd == REG_PC)                                                           \
   {                                                                           \
@@ -1340,14 +1194,15 @@ public:
     generate_function_call_swap_delay(call_str_handler<memtype>());
   }
 
-  template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
-  inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {
+  template <CPUInstMode cpum, AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
+  inline void mem_multi(u32 pc, u32 condition, u32 basereg, u16 rlist, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 stored_pc = this->block_pc;     // TODO: Remove this
 
     const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
     cycle_count += numops;    // TODO: Use proper cycle accounting.
 
+    const u32 itsize = (cpum == ModeARM) ? 4 : 2;
     const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
     const s32 endoff = stpoff * numops;
     const s32 inioff = (addrmode == AddrPreInc)  ? 4 :
@@ -1382,7 +1237,7 @@ public:
           generate_function_call_swap_delay(execute_aligned_load32);
           generate_store_reg(reg_rv, i);
         } else {
-          generate_load_reg(reg_a1, i);  // TODO fix for arm mode
+          generate_load_reg_pc(reg_a1, i, 2*itsize);
 
           // Update the base register right after the first read if necessary
           if (writeback && !writeback_first) {
@@ -1395,7 +1250,7 @@ public:
           } else {
             // Only the last store can produce side-effects
             // TODO: Evaluate if this is enough or we should improve it.
-            generate_load_pc(reg_a2, (it.pc + 2));
+            generate_load_pc(reg_a2, (pc + itsize));
             generate_function_call_swap_delay(execute_store_u32);
           }
         }
@@ -1408,8 +1263,11 @@ public:
       // Move ret load value to arg0
       generate_mov(reg_a0, reg_rv);
 
-      // TODO: allow thumb/arm modes here!
-      generate_indirect_branch_cycle_update(thumb);
+      if (cpum == ModeARM) {
+        generate_indirect_branch_arm();
+      } else {
+        generate_indirect_branch_cycle_update(thumb);
+      }
     }
   }
 

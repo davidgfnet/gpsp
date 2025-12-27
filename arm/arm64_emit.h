@@ -559,113 +559,15 @@ u32 execute_spsr_restore_body(u32 address)
      block_exits[block_exit_position].branch_target);                         \
   }                                                                           \
   block_exit_position++;                                                      \
-}                  
+}
 
 
 #define load_c_flag()                                                         \
   aa64_emit_movne(reg_temp, 0);                                               \
   aa64_emit_adds(reg_temp, reg_temp, reg_c_cache);                            \
 
-
 #define thumb_load_pc_pool_const(rd, value)                                   \
   generate_load_imm(arm_to_a64_reg[rd], (value));                             \
-
-#define word_bit_count(word)                                                  \
-  (bit_count[word >> 8] + bit_count[word & 0xFF])                             \
-
-#define arm_block_memory_load()                                               \
-  generate_function_call(execute_aligned_load32);                             \
-  generate_store_reg(reg_res, i)                                              \
-
-#define arm_block_memory_store()                                              \
-  generate_load_reg_pc(reg_a1, i, 8);                                         \
-  generate_function_call(execute_aligned_store32)                             \
-
-#define arm_block_memory_final_load(writeback_type)                           \
-  arm_block_memory_load()                                                     \
-
-#define arm_block_memory_final_store(writeback_type)                          \
-  generate_load_pc(reg_a2, (pc + 4));                                         \
-  generate_load_reg(reg_a1, i)                                                \
-  arm_block_memory_writeback_post_store(writeback_type);                      \
-  generate_function_call(execute_store_u32);                                  \
-
-#define arm_block_memory_adjust_pc_store()                                    \
-
-#define arm_block_memory_adjust_pc_load()                                     \
-  if(reg_list & 0x8000)                                                       \
-  {                                                                           \
-    generate_indirect_branch_arm();                                           \
-  }                                                                           \
-
-#define arm_block_memory_offset_down_a()                                      \
-  aa64_emit_subi(reg_save0, base_reg, ((word_bit_count(reg_list)-1) * 4))     \
-
-#define arm_block_memory_offset_down_b()                                      \
-  aa64_emit_subi(reg_save0, base_reg, (word_bit_count(reg_list) * 4))         \
-
-#define arm_block_memory_offset_no()                                          \
-  aa64_emit_addi(reg_save0, base_reg, 0)                                      \
-
-#define arm_block_memory_offset_up()                                          \
-  aa64_emit_addi(reg_save0, base_reg, 4)                                      \
-
-#define arm_block_memory_writeback_down()                                     \
-  aa64_emit_subi(base_reg, base_reg, (word_bit_count(reg_list) * 4))          \
-
-#define arm_block_memory_writeback_up()                                       \
-  aa64_emit_addi(base_reg, base_reg, (word_bit_count(reg_list) * 4))          \
-
-#define arm_block_memory_writeback_no()
-
-// Only emit writeback if the register is not in the list
-
-#define arm_block_memory_writeback_pre_load(writeback_type)                   \
-  if(!((reg_list >> rn) & 0x01))                                              \
-  {                                                                           \
-    arm_block_memory_writeback_##writeback_type();                            \
-  }                                                                           \
-
-#define arm_block_memory_writeback_pre_store(writeback_type)
-#define arm_block_memory_writeback_post_store(writeback_type)                 \
-  arm_block_memory_writeback_##writeback_type()                               \
-
-#define arm_block_memory(access_type, offset_type, writeback_type, s_bit)     \
-{                                                                             \
-  arm_decode_block_trans();                                                   \
-  u32 i;                                                                      \
-  u32 offset = 0;                                                             \
-  u32 base_reg = arm_to_a64_reg[rn];                                          \
-                                                                              \
-  arm_block_memory_offset_##offset_type();                                    \
-  arm_block_memory_writeback_pre_##access_type(writeback_type);               \
-                                                                              \
-  {                                                                           \
-    aa64_emit_andi(reg_save0, reg_save0, 30, 29);  /* clear 2 LSB */          \
-                                                                              \
-    for(i = 0; i < 16; i++)                                                   \
-    {                                                                         \
-      if((reg_list >> i) & 0x01)                                              \
-      {                                                                       \
-        cycle_count++;                                                        \
-        aa64_emit_addi(reg_a0, reg_save0, offset);                            \
-        if(reg_list & ~((2 << i) - 1))                                        \
-        {                                                                     \
-          arm_block_memory_##access_type();                                   \
-          offset += 4;                                                        \
-        }                                                                     \
-        else                                                                  \
-        {                                                                     \
-          arm_block_memory_final_##access_type(writeback_type);               \
-          break;                                                              \
-        }                                                                     \
-      }                                                                       \
-    }                                                                         \
-                                                                              \
-    arm_block_memory_adjust_pc_##access_type();                               \
-  }                                                                           \
-}                                                                             \
-
 
 #define check_store_reg_pc_thumb(_rd)                                         \
   if(_rd == REG_PC)                                                           \
@@ -1179,14 +1081,15 @@ public:
     generate_function_call(call_str_handler<memtype>());
   }
 
-  template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
-  inline void mem_multi(const BaseInst & it, u32 basereg, u16 rlist, u32 & cycle_count) {
+  template <CPUInstMode cpum, AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
+  inline void mem_multi(u32 pc, u32 condition, u32 basereg, u16 rlist, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 stored_pc = this->block_pc;     // TODO: Remove this
 
     const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
     cycle_count += numops;    // TODO: Use proper cycle accounting.
 
+    const u32 itsize = (cpum == ModeARM) ? 4 : 2;
     const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
     const s32 endoff = stpoff * numops;
     const s32 inioff = (addrmode == AddrPreInc)  ? 4 :
@@ -1195,7 +1098,8 @@ public:
                                                    endoff + 4;
 
     // Load base register, clearing the lowest 2 bits (align)
-    aa64_emit_andi(reg_save0, arm_to_a64_reg[basereg], 30, 29);  /* clear 2 LSB */
+    u32 screg = load_alloc_reg(basereg, reg_save0, pc + 2*itsize);
+    aa64_emit_andi(reg_save0, screg, 30, 29);  /* clear 2 LSB */
 
     // If base is in the reglist and writeback is enabled, the value of the
     // written register depends on the write cycle (ARM7TDM manual 4.11.6).
@@ -1219,7 +1123,7 @@ public:
           generate_function_call(execute_aligned_load32);
           generate_store_reg(reg_res, i);
         } else {
-          force_load_reg(i, reg_a1, it.pc + 4);
+          force_load_reg(i, reg_a1, pc + 2*itsize);
 
           // Update the base register right after the first read if necessary
           if (writeback && !writeback_first) {
@@ -1232,7 +1136,7 @@ public:
           } else {
             // Only the last store can produce side-effects
             // TODO: Evaluate if this is enough or we should improve it.
-            generate_load_pc(reg_a2, (it.pc + 2));
+            generate_load_pc(reg_a2, (pc + itsize));
             generate_function_call(execute_store_u32);
           }
         }
@@ -1242,8 +1146,11 @@ public:
 
     // Load PC requires an indirect branch
     if (amode == AccLoad && (rlist & (1 << REG_PC))) {
-      // TODO: allow thumb/arm modes here!
-      generate_indirect_branch_cycle_update(thumb);
+      if (cpum == ModeARM) {
+        generate_indirect_branch_arm();
+      } else {
+        generate_indirect_branch_cycle_update(thumb);
+      }
     }
   }
 

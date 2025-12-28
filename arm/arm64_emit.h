@@ -309,10 +309,6 @@ const u32 arm_to_a64_reg[] =
 #define generate_indirect_branch_no_cycle_update(type)                        \
   aa64_emit_branch(aa64_br_offset(a64_indirect_branch_##type));               \
 
-#define block_prologue_size 0
-#define generate_block_prologue()                                             \
-  generate_load_imm(reg_pc, stored_pc)                                        \
-
 #define generate_load_reg_pc(ireg, reg_index, pc_offset)                      \
   if(reg_index == REG_PC)                                                     \
   {                                                                           \
@@ -611,6 +607,14 @@ public:
    : CodeEmitterBase(emit_ptr, emit_end), block_pc(pc) {}
 
   u32 block_pc;              // PC address for the block base
+  u8 *update_trampoline;     // TODO: Unused, remove!
+
+  static unsigned block_prologue_size() { return 0; }
+
+  inline void emit_block_prologue() {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    generate_load_imm(reg_pc, this->block_pc);
+  }
 
   // Register allocation (for registers that could contain PC)
   inline u32 load_alloc_reg(u32 regn, u32 tmp_reg, u32 pcvalue) {
@@ -906,6 +910,76 @@ public:
       aa64_emit_subi(reg_r13, reg_r13, -offset * 4);
     }
   }
+
+  inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    force_load_reg(regn, reg_a0, pc + 4);
+    generate_indirect_branch_cycle_update(dual);
+  }
+
+  inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    switch (num) {
+    case 6:
+    case 7:
+      {
+        u32 regA = (num == 6) ? reg_r0 : reg_r1;
+        u32 regB = (num == 6) ? reg_r1 : reg_r0;
+
+        aa64_emit_sdiv(reg_r3, regA, regB);
+        aa64_emit_msub(reg_r1, regA, regB, reg_r3);
+        aa64_emit_mov(reg_r0, reg_r3);
+        aa64_emit_cmpi(reg_r3, 0);
+        aa64_emit_csneg(reg_r3, reg_r3, reg_r3, ccode_ge);
+      }
+      cycle_count += 64;    // Big under-estimation here
+      return true;
+    default:
+      return false;
+    };
+    return false;
+  }
+
+  inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_load_pc(reg_a0, (pc + 2));
+    generate_function_call(execute_swi);
+    generate_branch_cycle_update(brtgt, 0x00000008);
+
+    return brtgt;
+  }
+
+  inline u8* thumb_b(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+    generate_branch_cycle_update(brtgt, target);
+    return brtgt;
+  }
+
+  inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_load_pc(reg_r14, ((pc + 2) | 0x01));
+    generate_branch_cycle_update(brtgt, target);
+    return brtgt;
+  }
+
+  inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+
+    generate_alu_imm(addi, add, reg_a0, reg_r14, offset);
+    generate_load_pc(reg_r14, ((pc + 2) | 0x01));
+    generate_indirect_branch_cycle_update(thumb);
+  }
+
 
   // ============= Memory functions =================
   template <typename memtype, ThumbMemOffset offt>
@@ -1756,35 +1830,6 @@ public:
   generate_function_call(execute_swi);                                        \
   generate_branch()                                                           \
 
-#define thumb_b()                                                             \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
-
-#define thumb_bl()                                                            \
-  generate_load_pc(reg_r14, ((pc + 2) | 0x01));                               \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
-
-#define thumb_blh()                                                           \
-{                                                                             \
-  thumb_decode_branch();                                                      \
-  generate_alu_imm(addi, add, reg_a0, reg_r14, (offset * 2));                 \
-  generate_load_pc(reg_r14, ((pc + 2) | 0x01));                               \
-  generate_indirect_branch_cycle_update(thumb);                               \
-  break;                                                                      \
-}                                                                             \
-
-#define thumb_bx()                                                            \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  generate_load_reg_pc(reg_a0, rs, 4);                                        \
-  generate_indirect_branch_cycle_update(dual);                                \
-}                                                                             \
-
 #define thumb_process_cheats()                                                \
   generate_function_call(a64_cheat_hook);
 
@@ -1815,14 +1860,6 @@ public:
   #define emit_trace_thumb_instruction(pc)
   #define emit_trace_arm_instruction(pc)
 #endif
-
-#define thumb_swi()                                                           \
-  generate_load_pc(reg_a0, (pc + 2));                                         \
-  generate_function_call(execute_swi);                                        \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
 
 #define arm_hle_div(cpu_mode)                                                 \
   aa64_emit_sdiv(reg_r3, reg_r0, reg_r1);                                     \

@@ -243,8 +243,6 @@ extern "C" {
   x86_emit_call_offset(x86_relative_offset(translation_ptr,                   \
    x86_indirect_branch_##type, 4))                                            \
 
-#define block_prologue_size 0
-#define generate_block_prologue()
 #define generate_block_extra_vars_arm()
 #define generate_block_extra_vars_thumb()
 
@@ -328,16 +326,6 @@ extern "C" {
 // It should be okay to still generate result flags, spsr will overwrite them.
 // This is pretty infrequent (returning from interrupt handlers, et al) so
 // probably not worth optimizing for.
-
-#define generate_load_reg_pc(ireg, reg_index, pc_offset)                      \
-  if(reg_index == 15)                                                         \
-  {                                                                           \
-    generate_load_pc(ireg, pc + pc_offset);                                   \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_load_reg(ireg, reg_index);                                       \
-  }                                                                           \
 
 #define generate_store_reg_pc_no_flags(ireg, reg_index)                       \
   generate_store_reg(ireg, reg_index);                                        \
@@ -537,12 +525,6 @@ u32 function_cc execute_spsr_restore(u32 address)
 }                                                                             \
 
 
-#define thumb_rn_op_reg(_rn)                                                  \
-  generate_load_reg(a0, _rn)                                                  \
-
-#define thumb_rn_op_imm(_imm)                                                 \
-  generate_load_imm(a0, _imm)                                                 \
-
 // Types: add_sub, add_sub_imm, alu_op, imm
 // Affects N/Z/C/V flags
 
@@ -614,52 +596,11 @@ static void function_cc execute_swi(u32 pc)
   generate_function_call(execute_swi);                                        \
   generate_branch()                                                           \
 
-#define thumb_b()                                                             \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
-
-#define thumb_bl()                                                            \
-  generate_load_pc(a0, ((pc + 2) | 0x01));                                    \
-  generate_store_reg(a0, REG_LR);                                             \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
-
-#define thumb_blh()                                                           \
-{                                                                             \
-  thumb_decode_branch();                                                      \
-  generate_load_pc(a0, ((pc + 2) | 0x01));                                    \
-  generate_load_reg(a1, REG_LR);                                              \
-  generate_store_reg(a0, REG_LR);                                             \
-  generate_mov(a0, a1);                                                       \
-  generate_add_imm(a0, (offset * 2));                                         \
-  generate_indirect_branch_cycle_update(thumb);                               \
-}                                                                             \
-
-#define thumb_bx()                                                            \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  generate_load_reg_pc(a0, rs, 4);                                            \
-  generate_indirect_branch_cycle_update(dual);                                \
-}                                                                             \
-
 #define thumb_process_cheats()                                                \
   generate_function_call(process_cheats);
 
 #define arm_process_cheats()                                                  \
   generate_function_call(process_cheats);
-
-#define thumb_swi()                                                           \
-  collapse_flags(a0, a1);                                                     \
-  generate_load_pc(arg0, (pc + 2));                                           \
-  generate_function_call(execute_swi);                                        \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
 
 
 /* Just loads the LSB byte of the desired register */
@@ -705,6 +646,11 @@ class CodeEmitter : public CodeEmitterBase {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
    : CodeEmitterBase(emit_ptr, emit_end) {}
+
+  u8 *update_trampoline;     // TODO: Unused, remove!
+
+  static unsigned block_prologue_size() { return 0; }
+  inline void emit_block_prologue() {}
 
   template <FlagOperation flgmode>
   inline void upd_nz_flags(const BaseInst & it) {
@@ -998,6 +944,83 @@ public:
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     generate_add_mem((offset * 4), base, REG_SP * 4);
   }
+
+  inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    load_reg(reg_a0, regn, pc + 4);
+    generate_indirect_branch_cycle_update(dual);
+  }
+
+  inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *jmpinst;
+
+    switch (num) {
+    case 6:
+    case 7:
+      generate_load_reg(a0, ((num == 6) ? 0 : 1));   // Same SWI but swapped operands
+      generate_load_reg(a2, ((num == 6) ? 1 : 0));
+      generate_cmp_imm(a2, 0);
+      x86_emit_j_filler(x86_condition_code_z, jmpinst);
+      x86_emit_cdq();
+      x86_emit_idiv_eax_reg(reg_a2);
+      generate_store_reg(a0, 0);
+      generate_store_reg(a1, 1);
+      generate_mov(a1, a0);
+      x86_emit_sar_reg_imm(reg_a1, 31);
+      generate_xor(a0, a1);
+      x86_emit_sub_reg_reg(reg_a0, reg_a1);
+      generate_store_reg(a0, 3);
+      generate_branch_patch_conditional(jmpinst, translation_ptr);
+      cycle_count += 64;    // Big under-estimation here
+      return true;
+    default:
+      return false;
+    };
+    return false;
+  }
+
+  inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    collapse_flags(a0, a1);
+    generate_load_pc(arg0, (pc + 2));
+    generate_function_call(execute_swi);
+    generate_branch_cycle_update(brtgt, 0x00000008);
+
+    return brtgt;
+  }
+
+  inline u8* thumb_b(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+    generate_branch_cycle_update(brtgt, target);
+    return brtgt;
+  }
+
+  inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_load_pc(a0, ((pc + 2) | 0x01));
+    generate_store_reg(a0, REG_LR);
+
+    generate_branch_cycle_update(brtgt, target);
+    return brtgt;
+  }
+
+  inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    generate_load_pc(a0, ((pc + 2) | 0x01));
+    generate_load_reg(a1, REG_LR);
+    generate_store_reg(a0, REG_LR);
+    generate_mov(a0, a1);
+    generate_add_imm(a0, offset);
+    generate_indirect_branch_cycle_update(thumb);
+  }
+
 
   // ======== Memory instructions ===================================
   template <typename memtype, ThumbMemOffset offt>

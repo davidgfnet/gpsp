@@ -256,16 +256,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
   mips_emit_j(mips_absolute_offset(mips_indirect_branch_##type));             \
   mips_emit_nop()                                                             \
 
-#define block_prologue_size   16
-
-#define generate_block_prologue()                                             \
-  update_trampoline = translation_ptr;                                        \
-  mips_emit_j(mips_absolute_offset(mips_update_gba));                         \
-  mips_emit_nop();                                                            \
-  spaccess_trampoline = translation_ptr;                                      \
-  mips_emit_j(mips_absolute_offset(&rom_translation_cache[EWRAM_SPM_OFF]));   \
-  mips_emit_nop();                                                            \
-  generate_load_imm(reg_pc, stored_pc)                                        \
 
 #define check_generate_n_flag (flag_status & 0x08)
 #define check_generate_z_flag (flag_status & 0x04)
@@ -305,8 +295,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 
 #define generate_block_extra_vars()                                           \
   u32 stored_pc = pc;                                                         \
-  u8 *update_trampoline;                                                      \
-  u8 *spaccess_trampoline;                                                    \
 
 #define generate_block_extra_vars_arm()                                       \
   generate_block_extra_vars();                                                \
@@ -739,12 +727,32 @@ inline bool isimm16s(u32 imm) {
   return si >= -32768 && si  <= 32767;
 }
 
+#define SMC_WRITE_OFF    (10*16*4)   /* 10 handlers (16 insts) */
+#define IOEPILOGUE_OFF   (SMC_WRITE_OFF + 4*2)   /* Trampolines are two insts */
+#define EWRAM_SPM_OFF    (IOEPILOGUE_OFF + 4*2)
+
 class CodeEmitter : public CodeEmitterBase {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
    : CodeEmitterBase(emit_ptr, emit_end), block_pc(pc) {}
 
   u32 block_pc;              // PC address for the block base
+  u8 *update_trampoline;
+  u8 *spaccess_trampoline;
+
+  static unsigned block_prologue_size() { return 16; }  // 4 trampoline insts.
+
+  inline void emit_block_prologue() {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    update_trampoline = this->emit_ptr;
+    mips_emit_j(mips_absolute_offset(mips_update_gba));
+    mips_emit_nop();
+    spaccess_trampoline = this->emit_ptr;
+    mips_emit_j(mips_absolute_offset(&rom_translation_cache[EWRAM_SPM_OFF]));
+    mips_emit_nop();
+    generate_load_imm(reg_pc, block_pc)
+  }
 
   inline u32 load_alloc_reg(u32 regn, u32 tmp_reg, u32 pcvalue) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
@@ -1018,6 +1026,76 @@ public:
   inline void thumb_spadj(s8 offset) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     mips_emit_addiu(reg_r13, reg_r13, (offset * 4));
+  }
+
+  inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    force_load_reg(regn, reg_a0, pc + 4);
+    generate_indirect_branch_cycle_update(dual);
+  }
+
+  inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    switch (num) {
+    case 6:
+    case 7:
+      {
+        u32 regA = (num == 6) ? reg_r0 : reg_r1;
+        u32 regB = (num == 6) ? reg_r1 : reg_r0;
+
+        mips_emit_div(regA, regB);
+        mips_emit_mflo(reg_r0);
+        mips_emit_mfhi(reg_r1);
+        mips_emit_sra(reg_a0, reg_r0, 31);
+        mips_emit_xor(reg_r3, reg_r0, reg_a0);
+        mips_emit_subu(reg_r3, reg_r3, reg_a0);
+      }
+      cycle_count += 64;    // Big under-estimation here
+      return true;
+    default:
+      return false;
+    };
+    return false;
+  }
+
+  inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_load_pc(reg_a0, (pc + 2));
+    generate_function_call_swap_delay(execute_swi);
+    generate_branch_cycle_update(brtgt, 0x00000008);
+
+    return brtgt;
+  }
+
+  inline u8* thumb_b(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+    generate_branch_cycle_update(brtgt, target);
+    return brtgt;
+  }
+
+  inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_load_pc(reg_r14, ((pc + 2) | 0x01));
+    generate_branch_cycle_update(brtgt, target);
+    return brtgt;
+  }
+
+  inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+
+    mips_emit_addiu(reg_a0, reg_r14, offset);
+    generate_load_pc(reg_r14, ((pc + 2) | 0x01));
+    generate_indirect_branch_cycle_update(thumb);
   }
 
   // ============= Memory functions =================
@@ -1906,35 +1984,6 @@ public:
   generate_function_call_swap_delay(execute_swi);                             \
   generate_branch()                                                           \
 
-#define thumb_b()                                                             \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
-
-#define thumb_bl()                                                            \
-  generate_load_pc(reg_r14, ((pc + 2) | 0x01));                               \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
-
-#define thumb_blh()                                                           \
-{                                                                             \
-  thumb_decode_branch();                                                      \
-  mips_emit_addiu(reg_a0, reg_r14, (offset * 2));                             \
-  generate_load_pc(reg_r14, ((pc + 2) | 0x01));                               \
-  generate_indirect_branch_cycle_update(thumb);                               \
-}                                                                             \
-
-#define thumb_bx()                                                            \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  generate_load_reg_pc(reg_a0, rs, 4);                                        \
-  /*generate_load_pc(reg_a2, pc);*/                                           \
-  generate_indirect_branch_cycle_update(dual);                                \
-}                                                                             \
-
 #define thumb_process_cheats()                                                \
   generate_function_call(mips_cheat_hook);
 
@@ -1966,14 +2015,6 @@ public:
   #define emit_trace_thumb_instruction(pc)
   #define emit_trace_arm_instruction(pc)
 #endif
-
-#define thumb_swi()                                                           \
-  generate_load_pc(reg_a0, (pc + 2));                                         \
-  generate_function_call_swap_delay(execute_swi);                             \
-  generate_branch_cycle_update(                                               \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  block_exit_position++                                                       \
 
 #define arm_hle_div(cpu_mode)                                                 \
   mips_emit_div(reg_r0, reg_r1);                                              \
@@ -2103,10 +2144,6 @@ static void emit_mem_access_loadop(
 #else
   #define genccall(fn) mips_emit_jal(((u32)fn) >> 2);
 #endif
-
-#define SMC_WRITE_OFF    (10*16*4)   /* 10 handlers (16 insts) */
-#define IOEPILOGUE_OFF   (SMC_WRITE_OFF + 4*2)   /* Trampolines are two insts */
-#define EWRAM_SPM_OFF    (IOEPILOGUE_OFF + 4*2)
 
 // Describes a "plain" memory are, that is, an area that is just accessed
 // as normal memory (with some caveats tho).

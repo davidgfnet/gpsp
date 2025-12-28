@@ -134,15 +134,6 @@ typedef enum {
   u32 imm = opcode & 0xFF;                                                    \
   (void)imm
 
-#define thumb_decode_alu_op()                                                 \
-  u32 rs = (opcode >> 3) & 0x07;                                              \
-  u32 rd = opcode & 0x07                                                      \
-
-#define thumb_decode_hireg_op()                                               \
-  u32 rs = (opcode >> 3) & 0x0F;                                              \
-  u32 rd = ((opcode >> 4) & 0x08) | (opcode & 0x07);                          \
-  (void)rd;
-
 #define thumb_decode_branch_cond()                                            \
   s32 offset = (s8)(opcode & 0xFF)                                            \
 
@@ -1345,9 +1336,8 @@ void translate_icache_sync() {
       ce.thumb_aluhi<OpMov>(inst, cycle_count);                               \
       break;                                                                  \
                                                                               \
-    case 0x47:                                                                \
-      /* BX rs */                                                             \
-      thumb_bx();                                                             \
+    case 0x47:     /* BX rs */                                                \
+      ce.thumb_bx(inst.pc, inst.rs_hi(), cycle_count);                        \
       break;                                                                  \
                                                                               \
     case 0x48 ... 0x4F:                                                       \
@@ -1497,52 +1487,33 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0xDF:                                                                \
-    {                                                                         \
-      u32 swinum = opcode & 0xFF;                                             \
-      if (swinum == 6) {                                                      \
-        cycle_count += 64;   /* Big under-estimation here */                  \
-        arm_hle_div(thumb);                                                   \
-      }                                                                       \
-      else if (swinum == 7) {                                                 \
-        cycle_count += 64;   /* Big under-estimation here */                  \
-        arm_hle_div_arm(thumb);                                               \
-      }                                                                       \
-      else {                                                                  \
-        thumb_swi();                                                          \
+      if (!ce.thumb_emu_swi(inst.pc, opcode & 0xFF, cycle_count)) {           \
+        block_exits[block_exit_position++].branch_source = ce.thumb_swi(inst.pc, cycle_count); \
       }                                                                       \
       break;                                                                  \
-    }                                                                         \
                                                                               \
-    case 0xE0 ... 0xE7:                                                       \
-    {                                                                         \
-      /* B label */                                                           \
-      thumb_b();                                                              \
+    case 0xE0 ... 0xE7:      /* B label */                                    \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_b(inst.pc, block_exits[block_exit_position].branch_target, cycle_count);  \
+      block_exit_position++;                                                  \
       break;                                                                  \
-    }                                                                         \
                                                                               \
-    case 0xF0 ... 0xF7:                                                       \
-    {                                                                         \
-      /* (low word) BL label */                                               \
+    case 0xF0 ... 0xF7:      /* (low word) BL label */                        \
       /* This should possibly generate code if not in conjunction with a BLH  \
          next, but I don't think anyone will do that. */                      \
       break;                                                                  \
-    }                                                                         \
                                                                               \
-    case 0xF8 ... 0xFF:                                                       \
-    {                                                                         \
-      /* (high word) BL label */                                              \
+    case 0xF8 ... 0xFF:      /* (high word) BL label */                       \
       /* This might not be preceeding a BL low word (Golden Sun 2), if so     \
          it must be handled like an indirect branch. */                       \
-      if((last_opcode >= 0xF000) && (last_opcode < 0xF800))                   \
-      {                                                                       \
-        thumb_bl();                                                           \
+      if((last_opcode >= 0xF000) && (last_opcode < 0xF800)) {                 \
+        block_exits[block_exit_position].branch_source =                      \
+          ce.thumb_bl(inst.pc, block_exits[block_exit_position].branch_target, cycle_count);  \
+        block_exit_position++;                                                \
       }                                                                       \
       else                                                                    \
-      {                                                                       \
-        thumb_blh();                                                          \
-      }                                                                       \
+        ce.thumb_blh(inst.pc, inst.abr_offset_lo(), cycle_count);             \
       break;                                                                  \
-    }                                                                         \
   }                                                                           \
                                                                               \
   pc += 2                                                                     \
@@ -1776,7 +1747,7 @@ u8 function_cc *block_lookup_translate_##type(u32 pc)                         \
                                                                               \
       if (!trentry->offset_##type) {                                          \
         bool result;                                                          \
-        u8 *blkptr = ram_translation_ptr + block_prologue_size;               \
+        u8 *blkptr = ram_translation_ptr + CodeEmitter::block_prologue_size();\
         trentry->offset_##type = blkptr - ram_translation_cache;              \
         result = translate_block_##type(pc, true);                            \
                                                                               \
@@ -1803,7 +1774,8 @@ u8 function_cc *block_lookup_translate_##type(u32 pc)                         \
         bhdr = (hashhdr_type*)&rom_translation_cache[blk_offset];             \
         if(bhdr->pc_value == key)                                             \
           return &rom_translation_cache[                                      \
-                  blk_offset + sizeof(hashhdr_type) + block_prologue_size];   \
+                  blk_offset + sizeof(hashhdr_type) +                         \
+                  CodeEmitter::block_prologue_size()];                        \
                                                                               \
         blk_offset = bhdr->next_entry;                                        \
         blk_offset_addr = &bhdr->next_entry;                                  \
@@ -1817,7 +1789,7 @@ u8 function_cc *block_lookup_translate_##type(u32 pc)                         \
         bhdr->next_entry = 0;                                                 \
         *blk_offset_addr = (u32)(rom_translation_ptr - rom_translation_cache);\
         rom_translation_ptr += sizeof(hashhdr_type);                          \
-        blkptr = rom_translation_ptr + block_prologue_size;                   \
+        blkptr = rom_translation_ptr + CodeEmitter::block_prologue_size();    \
         result = translate_block_##type(pc, false);                           \
                                                                               \
         if (result)                                                           \
@@ -2273,9 +2245,10 @@ bool translate_block_arm(u32 pc, bool ram_region)
        ROM_TRANSLATION_CACHE_SIZE - TRANSLATION_CACHE_LIMIT_THRESHOLD];
 
   CodeEmitter ce(jitbuf, jitend, block_start_pc);
-  u8 * &translation_ptr = ce.emit_ptr;    // TODO: get rid of this!
+  ce.emit_block_prologue();
 
-  generate_block_prologue();
+  u8 *update_trampoline = ce.update_trampoline;  // TODO: get rid of this
+  u8 * &translation_ptr = ce.emit_ptr;    // TODO: get rid of this!
 
   for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
@@ -2425,9 +2398,10 @@ bool translate_block_thumb(u32 pc, bool ram_region)
        ROM_TRANSLATION_CACHE_SIZE - TRANSLATION_CACHE_LIMIT_THRESHOLD];
 
   CodeEmitter ce(jitbuf, jitend, block_start_pc);
-  u8 * &translation_ptr = ce.emit_ptr;    // TODO: get rid of this!
+  ce.emit_block_prologue();
 
-  generate_block_prologue();
+  u8 *update_trampoline = ce.update_trampoline;  // TODO: get rid of this
+  u8 * &translation_ptr = ce.emit_ptr;    // TODO: get rid of this!
 
   for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;

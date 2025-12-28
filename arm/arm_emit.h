@@ -637,8 +637,6 @@ inline u32 thumb_prepare_load_reg(u8 * &translation_ptr, u32 scratch_reg, u32 re
   }                                                                           \
 }
 
-#define block_prologue_size 0
-#define generate_block_prologue()
 #define generate_block_extra_vars_arm()
 #define generate_block_extra_vars_thumb()
 
@@ -951,7 +949,7 @@ u32 execute_spsr_restore_body(u32 pc)
 #define generate_op_teq_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
   generate_op_reg_regshift_tflags(TEQ, _rn, _rm, shift_type, _rs)             \
 
-
+void *div6, *divarm7;
 
 static void trace_instruction(u32 pc, u32 mode)
 {
@@ -1079,6 +1077,11 @@ class CodeEmitter : public CodeEmitterBase {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
    : CodeEmitterBase(emit_ptr, emit_end) {}
+
+  u8 *update_trampoline;     // TODO: Unused, remove!
+
+  static unsigned block_prologue_size() { return 0; }
+  inline void emit_block_prologue() {}
 
   // Register loading/allocation
   inline u32 thumb_prepare_load_reg_pc(u32 scratch_reg, u32 reg_index, u32 pc_value) {
@@ -1342,6 +1345,76 @@ public:
       ARM_SUB_REG_IMM(0, sp, sp, -offset, arm_imm_lsl_to_rot(2));
     }
     thumb_complete_store_reg(reg_a0, REG_SP);
+  }
+
+  inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    thumb_generate_load_reg_pc(reg_a0, regn, 4);
+    generate_indirect_branch_cycle_update(dual_thumb);
+  }
+
+  inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    switch (num) {
+    case 6:
+      cycle_count += 64;
+      cycle_count += 11 + 32;    // TODO just 64 cycles like other archs.
+      generate_function_call(div6);
+      return true;
+    case 7:
+      cycle_count += 64;
+      cycle_count += 14 + 32;    // TODO just 64 cycles like other archs.
+      generate_function_call(divarm7);
+      return true;
+    default:
+      return false;
+    };
+    return false;
+  }
+
+  inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_function_far_call(armfn_swi_thumb);
+    write32((pc + 2));
+    generate_branch_cycle_update(brtgt, 0x00000008, arm);
+
+    return brtgt;
+  }
+
+  inline u8* thumb_b(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+    generate_branch_cycle_update(brtgt, target, thumb);
+    return brtgt;
+  }
+
+  inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_update_pc(((pc + 2) | 0x01));
+    thumb_generate_store_reg(reg_a0, REG_LR);
+    generate_branch_cycle_update(brtgt, target, thumb);
+    return brtgt;
+  }
+
+  inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
+    u32 offlo = (offset) & 0xFF;
+    u32 offhi = (offset) >> 8;
+
+    generate_update_pc(((pc + 2) | 0x01));
+    thumb_generate_load_reg(reg_a1, REG_LR);
+    thumb_generate_store_reg(reg_a0, REG_LR);
+    generate_add_reg_reg_imm(reg_a0, reg_a1, offlo, 0);
+    if (offhi) {
+      generate_add_reg_reg_imm(reg_a0, reg_a0, offhi, arm_imm_lsl_to_rot(8));
+    }
+    generate_indirect_branch_cycle_update(thumb);
   }
 
   // ============= Memory functions =================
@@ -2211,50 +2284,14 @@ public:
   write32((pc + 4));                                                          \
   generate_branch(arm)                                                        \
 
-#define thumb_b()                                                             \
-  generate_branch(thumb)                                                      \
-
-#define thumb_bl()                                                            \
-  generate_update_pc(((pc + 2) | 0x01));                                      \
-  thumb_generate_store_reg(reg_a0, REG_LR);                                   \
-  generate_branch(thumb)                                                      \
-
-#define thumb_blh()                                                           \
-{                                                                             \
-  thumb_decode_branch();                                                      \
-  u32 offlo = (offset * 2) & 0xFF;                                            \
-  u32 offhi = (offset * 2) >> 8;                                              \
-  generate_update_pc(((pc + 2) | 0x01));                                      \
-  thumb_generate_load_reg(reg_a1, REG_LR);                                    \
-  thumb_generate_store_reg(reg_a0, REG_LR);                                   \
-  generate_add_reg_reg_imm(reg_a0, reg_a1, offlo, 0);                         \
-  if (offhi) {                                                                \
-    generate_add_reg_reg_imm(reg_a0, reg_a0, offhi, arm_imm_lsl_to_rot(8));   \
-  }                                                                           \
-  generate_indirect_branch_cycle_update(thumb);                               \
-}                                                                             \
-
-#define thumb_bx()                                                            \
-{                                                                             \
-  thumb_decode_hireg_op();                                                    \
-  thumb_generate_load_reg_pc(reg_a0, rs, 4);                                  \
-  generate_indirect_branch_cycle_update(dual_thumb);                          \
-}                                                                             \
-
 #define thumb_process_cheats()                                                \
   generate_function_far_call(armfn_cheat_thumb);
 
 #define arm_process_cheats()                                                  \
   generate_function_far_call(armfn_cheat_arm);
 
-#define thumb_swi()                                                           \
-  generate_function_far_call(armfn_swi_thumb);                              \
-  write32((pc + 2));                                                          \
-  /* We're in ARM mode now */                                                 \
-  generate_branch(arm)                                                        \
 
 // Use software division
-void *div6, *divarm7;
 #define arm_hle_div(cpu_mode)                                                 \
   cycle_count += 11 + 32;                                                     \
   generate_function_call(div6);

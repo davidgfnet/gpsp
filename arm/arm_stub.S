@@ -283,7 +283,7 @@ defsymbl(arm_indirect_branch_dual_arm)
   str r1, [reg_base, #REG_CPSR]           @ store flags
   call_c_function(block_lookup_address_thumb)
   restore_flags()
-  bx r0       
+  bx r0
 .size arm_indirect_branch_dual_arm, .-arm_indirect_branch_dual_arm
 
 defsymbl(arm_indirect_branch_dual_thumb)

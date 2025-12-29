@@ -577,17 +577,6 @@ u32 execute_spsr_restore_body(u32 address)
   aa64_emit_brcond(condition_code, 0);                                        \
 
 
-#define thumb_conditional_branch(condition)                                   \
-{                                                                             \
-  generate_cycle_update();                                                    \
-  generate_condition_##condition();                                           \
-  generate_branch_no_cycle_update(                                            \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  generate_branch_patch_conditional(backpatch_address, translation_ptr);      \
-  block_exit_position++;                                                      \
-}                                                                             \
-
 
 inline bool isimm12(u32 imm) {
   return (imm & 0xFFFFF000) == 0;
@@ -697,6 +686,87 @@ public:
         aa64_emit_movlo(reg_n_cache, (imm >> 31));
       }
     }
+  }
+
+  // Condition code generation
+  template <ARMCondCode ccode>
+  inline u8 *emit_opp_condbranch() {
+    // TODO Take reg num as input.
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    // We emit a branch that branches on the opposite condition.
+    // Returns the patching address (so the branch offset can be filled)
+    u8 *ret;
+
+    switch (ccode) {
+    case CondEQ:
+      ret = translation_ptr;
+      aa64_emit_cbz(reg_z_cache, 0);
+      break;
+    case CondNE:
+      ret = translation_ptr;
+      aa64_emit_cbnz(reg_z_cache, 0);
+      break;
+    case CondCS:
+      ret = translation_ptr;
+      aa64_emit_cbz(reg_c_cache, 0);
+      break;
+    case CondCC:
+      ret = translation_ptr;
+      aa64_emit_cbnz(reg_c_cache, 0);
+      break;
+    case CondMI:
+      ret = translation_ptr;
+      aa64_emit_cbz(reg_n_cache, 0);
+      break;
+    case CondPL:
+      ret = translation_ptr;
+      aa64_emit_cbnz(reg_n_cache, 0);
+      break;
+    case CondVS:
+      ret = translation_ptr;
+      aa64_emit_cbz(reg_v_cache, 0);
+      break;
+    case CondVC:
+      ret = translation_ptr;
+      aa64_emit_cbnz(reg_v_cache, 0);
+      break;
+    case CondHI:
+      aa64_emit_eori(reg_temp, reg_c_cache, 0, 0);  /* imm=1 */
+      aa64_emit_orr(reg_temp, reg_temp, reg_z_cache);
+      ret = translation_ptr;
+      aa64_emit_cbnz(reg_temp, 0);
+      break;
+    case CondLS:
+      aa64_emit_eori(reg_temp, reg_c_cache, 0, 0);  /* imm=1 */
+      aa64_emit_orr(reg_temp, reg_temp, reg_z_cache);
+      ret = translation_ptr;
+      aa64_emit_cbz(reg_temp, 0);
+      break;
+    case CondGE:
+      aa64_emit_sub(reg_temp, reg_n_cache, reg_v_cache);
+      ret = translation_ptr;
+      aa64_emit_cbnz(reg_temp, 0);
+      break;
+    case CondLT:
+      aa64_emit_sub(reg_temp, reg_n_cache, reg_v_cache);
+      ret = translation_ptr;
+      aa64_emit_cbz(reg_temp, 0);
+      break;
+    case CondGT:
+      aa64_emit_xor(reg_temp, reg_n_cache, reg_v_cache);
+      aa64_emit_orr(reg_temp, reg_temp, reg_z_cache);
+      ret = translation_ptr;
+      aa64_emit_cbnz(reg_temp, 0);
+      break;
+    case CondLE:
+      aa64_emit_xor(reg_temp, reg_n_cache, reg_v_cache);
+      aa64_emit_orr(reg_temp, reg_temp, reg_z_cache);
+      ret = translation_ptr;
+      aa64_emit_cbz(reg_temp, 0);
+      break;
+    };
+
+    return ret;
   }
 
   // ======== Thumb instructions ======================================
@@ -950,6 +1020,19 @@ public:
     generate_function_call(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
 
+    return brtgt;
+  }
+
+  template <ARMCondCode ccode>
+  inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_cycle_update();
+    u8 *ptch = emit_opp_condbranch<ccode>();
+    generate_branch_no_cycle_update(brtgt, target);
+    generate_branch_patch_conditional(ptch, translation_ptr);
     return brtgt;
   }
 

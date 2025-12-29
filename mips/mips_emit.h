@@ -597,16 +597,6 @@ u32 execute_spsr_restore_body(u32 address)
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
 
-#define thumb_conditional_branch(condition)                                   \
-{                                                                             \
-  generate_condition_##condition();                                           \
-  generate_branch_no_cycle_update(                                            \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  generate_branch_patch_conditional(backpatch_address, translation_ptr);      \
-  block_exit_position++;                                                      \
-}                                                                             \
-
 #define update_nz_flags_macro(_rd)                                            \
   if (it.gen_flag_n()) {                                                      \
     mips_emit_srl(reg_n_cache, _rd, 31);                                      \
@@ -827,6 +817,86 @@ public:
     if (it.gen_flag_z()) {
       mips_emit_sltiu(reg_z_cache, reg, 1);
     }
+  }
+
+  // Condition code generation
+  template <ARMCondCode ccode>
+  inline u8 *emit_opp_condbranch(u32 & cycle_count) {
+    // TODO Take reg num as input.
+    // TODO We emit cycle updating in the dedlay slot, not ideal (vs other archs)
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    // We emit a branch that branches on the opposite condition.
+    // Returns the patching address (so the branch offset can be filled)
+    u8 *ret;
+
+    switch (ccode) {
+    case CondEQ:
+      mips_emit_b_filler(beq, reg_z_cache, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondNE:
+      mips_emit_b_filler(bne, reg_z_cache, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondCS:
+      mips_emit_b_filler(beq, reg_c_cache, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondCC:
+      mips_emit_b_filler(bne, reg_c_cache, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondMI:
+      mips_emit_b_filler(beq, reg_n_cache, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondPL:
+      mips_emit_b_filler(bne, reg_n_cache, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondVS:
+      mips_emit_b_filler(beq, reg_v_cache, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondVC:
+      mips_emit_b_filler(bne, reg_v_cache, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondHI:
+      mips_emit_xori(reg_temp, reg_c_cache, 1);
+      mips_emit_or(reg_temp, reg_temp, reg_z_cache);
+      mips_emit_b_filler(bne, reg_temp, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondLS:
+      mips_emit_xori(reg_temp, reg_c_cache, 1);
+      mips_emit_or(reg_temp, reg_temp, reg_z_cache);
+      mips_emit_b_filler(beq, reg_temp, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondGE:
+      mips_emit_b_filler(bne, reg_n_cache, reg_v_cache, ret);
+      generate_cycle_update_force();
+      break;
+    case CondLT:
+      mips_emit_b_filler(beq, reg_n_cache, reg_v_cache, ret);
+      generate_cycle_update_force();
+      break;
+    case CondGT:
+      mips_emit_xor(reg_temp, reg_n_cache, reg_v_cache);
+      mips_emit_or(reg_temp, reg_temp, reg_z_cache);
+      mips_emit_b_filler(bne, reg_temp, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    case CondLE:
+      mips_emit_xor(reg_temp, reg_n_cache, reg_v_cache);
+      mips_emit_or(reg_temp, reg_temp, reg_z_cache);
+      mips_emit_b_filler(beq, reg_temp, reg_zero, ret);
+      generate_cycle_update_force();
+      break;
+    };
+
+    return ret;
   }
 
 
@@ -1068,6 +1138,18 @@ public:
     generate_function_call_swap_delay(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
 
+    return brtgt;
+  }
+
+  template <ARMCondCode ccode>
+  inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    u8 *ptch = emit_opp_condbranch<ccode>(cycle_count);
+    generate_branch_no_cycle_update(brtgt, target);
+    generate_branch_patch_conditional(ptch, translation_ptr);
     return brtgt;
   }
 

@@ -542,17 +542,6 @@ u32 function_cc execute_spsr_restore(u32 address)
   generate_store_reg_i32(value, reg_rd)                                       \
 
 
-#define thumb_conditional_branch(condition)                                   \
-{                                                                             \
-  generate_cycle_update();                                                    \
-  generate_condition_##condition(a0);                                         \
-  generate_branch_no_cycle_update(                                            \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target);                           \
-  generate_branch_patch_conditional(backpatch_address, translation_ptr);      \
-  block_exit_position++;                                                      \
-}                                                                             \
-
 // Borrow flag in ARM is opposite to carry flag in x86
 
 #define load_c_flag()                                                         \
@@ -719,6 +708,88 @@ public:
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     x86_emit_mov_mem_reg(dreg, reg_base, regnum * 4)
   }
+
+  // Condition code generation
+  template <ARMCondCode ccode>
+  inline u8 *emit_opp_condbranch() {
+    // TODO Take reg num as input.
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    // We emit a branch that branches on the opposite condition.
+    // Returns the patching address (so the branch offset can be filled)
+    u8 *ret;
+
+    switch (ccode) {
+    case CondEQ:
+      generate_and_mem(1, base, REG_Z_FLAG * 4);
+      x86_emit_j_filler(x86_condition_code_z, ret);
+      break;
+    case CondNE:
+      generate_and_mem(1, base, REG_Z_FLAG * 4);
+      x86_emit_j_filler(x86_condition_code_nz, ret);
+      break;
+    case CondCS:
+      generate_and_mem(1, base, REG_C_FLAG * 4);
+      x86_emit_j_filler(x86_condition_code_z, ret);
+      break;
+    case CondCC:
+      generate_and_mem(1, base, REG_C_FLAG * 4);
+      x86_emit_j_filler(x86_condition_code_nz, ret);
+      break;
+    case CondMI:
+      generate_and_mem(1, base, REG_N_FLAG * 4);
+      x86_emit_j_filler(x86_condition_code_z, ret);
+      break;
+    case CondPL:
+      generate_and_mem(1, base, REG_N_FLAG * 4);
+      x86_emit_j_filler(x86_condition_code_nz, ret);
+      break;
+    case CondVS:
+      generate_and_mem(1, base, REG_V_FLAG * 4);
+      x86_emit_j_filler(x86_condition_code_z, ret);
+      break;
+    case CondVC:
+      generate_and_mem(1, base, REG_V_FLAG * 4);
+      x86_emit_j_filler(x86_condition_code_nz, ret);
+      break;
+    case CondHI:
+      generate_load_reg(a0, REG_C_FLAG);
+      generate_xor_imm(a0, 1);
+      generate_or_mem(a0, REG_Z_FLAG);
+      x86_emit_j_filler(x86_condition_code_nz, ret);
+      break;
+    case CondLS:
+      generate_load_reg(a0, REG_C_FLAG);
+      generate_xor_imm(a0, 1);
+      generate_or_mem(a0, REG_Z_FLAG);
+      x86_emit_j_filler(x86_condition_code_z, ret);
+      break;
+    case CondGE:
+      generate_load_reg(a0, REG_N_FLAG);
+      generate_cmp_memreg(a0, REG_V_FLAG);
+      x86_emit_j_filler(x86_condition_code_nz, ret);
+      break;
+    case CondLT:
+      generate_load_reg(a0, REG_N_FLAG);
+      generate_cmp_memreg(a0, REG_V_FLAG);
+      x86_emit_j_filler(x86_condition_code_z, ret);
+      break;
+    case CondGT:
+      generate_load_reg(a0, REG_N_FLAG);
+      generate_xor_mem(a0, REG_V_FLAG);
+      generate_or_mem(a0, REG_Z_FLAG);
+      x86_emit_j_filler(x86_condition_code_nz, ret);
+      break;
+    case CondLE:
+      generate_load_reg(a0, REG_N_FLAG);
+      generate_xor_mem(a0, REG_V_FLAG);
+      generate_or_mem(a0, REG_Z_FLAG);
+      x86_emit_j_filler(x86_condition_code_z, ret);
+      break;
+    };
+
+    return ret;
+  }
+
 
   // ======== Thumb instructions ====================================
   template <AluOperation aluop>
@@ -989,6 +1060,18 @@ public:
     generate_function_call(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
 
+    return brtgt;
+  }
+
+  template <ARMCondCode ccode>
+  inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_cycle_update();
+    u8 *ptch = emit_opp_condbranch<ccode>();
+    generate_branch_no_cycle_update(brtgt, target);
+    generate_branch_patch_conditional(ptch, translation_ptr);
     return brtgt;
   }
 

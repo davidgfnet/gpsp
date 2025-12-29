@@ -706,23 +706,6 @@ u32 execute_spsr_restore_body(u32 pc)
 #define generate_restore_flags()                                              \
   ARM_MSR_REG(0, ARM_PSR_F, reg_flags, ARM_CPSR)                              \
 
-#define condition_opposite_eq ARMCOND_NE
-#define condition_opposite_ne ARMCOND_EQ
-#define condition_opposite_cs ARMCOND_CC
-#define condition_opposite_cc ARMCOND_CS
-#define condition_opposite_mi ARMCOND_PL
-#define condition_opposite_pl ARMCOND_MI
-#define condition_opposite_vs ARMCOND_VC
-#define condition_opposite_vc ARMCOND_VS
-#define condition_opposite_hi ARMCOND_LS
-#define condition_opposite_ls ARMCOND_HI
-#define condition_opposite_ge ARMCOND_LT
-#define condition_opposite_lt ARMCOND_GE
-#define condition_opposite_gt ARMCOND_LE
-#define condition_opposite_le ARMCOND_GT
-#define condition_opposite_al ARMCOND_NV
-#define condition_opposite_nv ARMCOND_AL
-
 #define generate_branch(mode)                                                 \
 {                                                                             \
   generate_branch_cycle_update(                                               \
@@ -1061,17 +1044,6 @@ static void trace_instruction(u32 pc, u32 mode)
 
 /* TODO: Make these use cached registers. Implement iwram_stack_optimize. */
 
-#define thumb_conditional_branch(condition)                                   \
-{                                                                             \
-  generate_cycle_update();                                                    \
-  generate_branch_filler(condition_opposite_##condition, backpatch_address);  \
-  generate_branch_no_cycle_update(                                            \
-   block_exits[block_exit_position].branch_source,                            \
-   block_exits[block_exit_position].branch_target, thumb);                    \
-  generate_branch_patch_conditional(backpatch_address, translation_ptr);      \
-  block_exit_position++;                                                      \
-}                                                                             \
-
 
 class CodeEmitter : public CodeEmitterBase {
 public:
@@ -1381,6 +1353,21 @@ public:
     write32((pc + 2));
     generate_branch_cycle_update(brtgt, 0x00000008, arm);
 
+    return brtgt;
+  }
+
+  template <ARMCondCode ccode>
+  inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+    u8 *ptch = NULL;
+
+    u32 oppcode = (ccode ^ 0x01);   // Simple opposite code conversion!
+
+    generate_cycle_update();
+    generate_branch_filler(oppcode, ptch);
+    generate_branch_no_cycle_update(brtgt, target, thumb);
+    generate_branch_patch_conditional(ptch, translation_ptr);
     return brtgt;
   }
 

@@ -1444,46 +1444,88 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0xD0:     /* BEQ label */                                            \
-      thumb_conditional_branch(eq);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondEQ>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD1:     /* BNE label */                                            \
-      thumb_conditional_branch(ne);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondNE>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD2:     /* BCS label */                                            \
-      thumb_conditional_branch(cs);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondCS>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD3:     /* BCC label */                                            \
-      thumb_conditional_branch(cc);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondCC>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD4:     /* BMI label */                                            \
-      thumb_conditional_branch(mi);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondMI>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD5:     /* BPL label */                                            \
-      thumb_conditional_branch(pl);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondPL>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD6:     /* BVS label */                                            \
-      thumb_conditional_branch(vs);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondVS>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD7:     /* BVC label */                                            \
-      thumb_conditional_branch(vc);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondVC>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD8:     /* BHI label */                                            \
-      thumb_conditional_branch(hi);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondHI>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD9:     /* BLS label */                                            \
-      thumb_conditional_branch(ls);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondLS>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xDA:     /* BGE label */                                            \
-      thumb_conditional_branch(ge);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondGE>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xDB:     /* BLT label */                                            \
-      thumb_conditional_branch(lt);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondLT>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xDC:     /* BGT label */                                            \
-      thumb_conditional_branch(gt);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondGT>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
     case 0xDD:     /* BLE label */                                            \
-      thumb_conditional_branch(le);                                           \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.thumb_brcond<CondLE>(inst.pc,                                      \
+        block_exits[block_exit_position].branch_target, cycle_count);         \
+      block_exit_position++;                                                  \
       break;                                                                  \
                                                                               \
     case 0xDF:                                                                \
@@ -2371,7 +2413,6 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   u32 branch_target;
   u32 cycle_count = 0;
   u8 *translation_target;
-  u8 *backpatch_address = NULL;
   u32 flag_status;
   block_exit_type external_block_exits[MAX_EXITS];
   generate_block_extra_vars_thumb();

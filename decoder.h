@@ -23,6 +23,26 @@
 // ARM and Thumb decoding code, for convenience and to unify all the decoding
 // paths existing in the emulator.
 
+// ARM condition codes
+typedef enum {
+  CondEQ = 0,
+  CondNE = 1,
+  CondHS = 2, CondCS = 2,
+  CondLO = 3, CondCC = 3,
+  CondMI = 4,
+  CondPL = 5,
+  CondVS = 6,
+  CondVC = 7,
+  CondHI = 8,
+  CondLS = 9,
+  CondGE = 10,
+  CondLT = 11,
+  CondGT = 12,
+  CondLE = 13,
+  CondAL = 14,
+  CondNV = 15,
+} ARMCondCode;
+
 class ThumbInstDec {
 public:
   u16 opcode;

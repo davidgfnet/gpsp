@@ -1346,7 +1346,7 @@ cpu_alert_type execute_arm_instruction(u32 opcode, s32 &cyccnt) {
          else {
             if(opcode & 0x10) {
                /* BX rn */
-               u32 newpc = reg[inst.rm()];
+               u32 newpc = read_reg<8>(inst.rm());
                if (newpc & 0x01) {
                   reg[REG_PC] = newpc - 1;
                   reg[REG_CPSR] |= 0x20;

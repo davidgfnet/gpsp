@@ -1104,6 +1104,13 @@ public:
     generate_indirect_branch_cycle_update(dual);
   }
 
+  inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u8 condition = it.cond();        // TODO remove this
+    force_load_reg(it.rm(), reg_a0, it.pc + 8);
+    generate_indirect_branch_dual();
+  }
+
   inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
@@ -1129,12 +1136,28 @@ public:
     return false;
   }
 
+  inline bool arm_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
+    return thumb_emu_swi(pc, num, cycle_count);
+  }
+
   inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 stored_pc = this->block_pc;     // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_load_pc(reg_a0, (pc + 2));
+    generate_function_call_swap_delay(execute_swi);
+    generate_branch_cycle_update(brtgt, 0x00000008);
+
+    return brtgt;
+  }
+
+  inline u8* arm_swi(u32 pc, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_load_pc(reg_a0, pc + 4);
     generate_function_call_swap_delay(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
 
@@ -1161,6 +1184,19 @@ public:
     return brtgt;
   }
 
+  inline u8* arm_b(const ARMInst & it, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 pc = it.pc;  // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    u8 *brtgt = NULL;
+    if (it.cond() == CondAL) {
+      generate_branch_cycle_update(brtgt, target);
+    } else {
+      generate_branch_no_cycle_update(brtgt, target);
+    }
+    return brtgt;
+  }
+
   inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 stored_pc = this->block_pc;     // TODO: Remove this
@@ -1168,6 +1204,20 @@ public:
 
     generate_load_pc(reg_r14, ((pc + 2) | 0x01));
     generate_branch_cycle_update(brtgt, target);
+    return brtgt;
+  }
+
+  inline u8* arm_bl(const ARMInst & it, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 stored_pc = this->block_pc;     // TODO: Remove this
+    const u32 pc = it.pc;  // TODO: Remove this
+    u8 *brtgt = NULL;
+    generate_load_pc(reg_r14, ((pc + 4)));
+    if (it.cond() == CondAL) {
+      generate_branch_cycle_update(brtgt, target);
+    } else {
+      generate_branch_no_cycle_update(brtgt, target);
+    }
     return brtgt;
   }
 
@@ -2048,24 +2098,6 @@ public:
 #define arm_conditional_block_header()                                        \
   generate_condition();                                                       \
 
-#define arm_b()                                                               \
-  generate_branch()                                                           \
-
-#define arm_bl()                                                              \
-  generate_load_pc(reg_r14, (pc + 4));                                        \
-  generate_branch()                                                           \
-
-#define arm_bx()                                                              \
-  arm_decode_branchx(opcode);                                                 \
-  generate_load_reg(reg_a0, rn);                                              \
-  /*generate_load_pc(reg_a2, pc);*/                                           \
-  generate_indirect_branch_dual()                                             \
-
-#define arm_swi()                                                             \
-  generate_load_pc(reg_a0, (pc + 4));                                         \
-  generate_function_call_swap_delay(execute_swi);                             \
-  generate_branch()                                                           \
-
 #define thumb_process_cheats()                                                \
   generate_function_call(mips_cheat_hook);
 
@@ -2097,22 +2129,6 @@ public:
   #define emit_trace_thumb_instruction(pc)
   #define emit_trace_arm_instruction(pc)
 #endif
-
-#define arm_hle_div(cpu_mode)                                                 \
-  mips_emit_div(reg_r0, reg_r1);                                              \
-  mips_emit_mflo(reg_r0);                                                     \
-  mips_emit_mfhi(reg_r1);                                                     \
-  mips_emit_sra(reg_a0, reg_r0, 31);                                          \
-  mips_emit_xor(reg_r3, reg_r0, reg_a0);                                      \
-  mips_emit_subu(reg_r3, reg_r3, reg_a0);                                     \
-
-#define arm_hle_div_arm(cpu_mode)                                             \
-  mips_emit_div(reg_r1, reg_r0);                                              \
-  mips_emit_mflo(reg_r0);                                                     \
-  mips_emit_mfhi(reg_r1);                                                     \
-  mips_emit_sra(reg_a0, reg_r0, 31);                                          \
-  mips_emit_xor(reg_r3, reg_r0, reg_a0);                                      \
-  mips_emit_subu(reg_r3, reg_r3, reg_a0);                                     \
 
 
 #define generate_translation_gate(type)                                       \

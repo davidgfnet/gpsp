@@ -198,9 +198,6 @@ extern "C" {
   x86_emit_call_offset(x86_relative_offset(translation_ptr,                   \
    function_location, 4));                                                    \
 
-#define generate_exit_block()                                                 \
-  x86_emit_ret();                                                             \
-
 #define generate_cycle_update()                                               \
   generate_sub_imm(cycles, cycle_count);                                      \
   cycle_count = 0                                                             \
@@ -507,23 +504,6 @@ u32 function_cc execute_spsr_restore(u32 address)
       break;                                                                  \
   }                                                                           \
 
-#define generate_branch()                                                     \
-{                                                                             \
-  if(condition == 0x0E)                                                       \
-  {                                                                           \
-    generate_branch_cycle_update(                                             \
-     block_exits[block_exit_position].branch_source,                          \
-     block_exits[block_exit_position].branch_target);                         \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_branch_no_cycle_update(                                          \
-     block_exits[block_exit_position].branch_source,                          \
-     block_exits[block_exit_position].branch_target);                         \
-  }                                                                           \
-  block_exit_position++;                                                      \
-}                                                                             \
-
 
 // Types: add_sub, add_sub_imm, alu_op, imm
 // Affects N/Z/C/V flags
@@ -565,25 +545,6 @@ static void function_cc execute_swi(u32 pc)
 #define arm_conditional_block_header()                                        \
   generate_cycle_update();                                                    \
   generate_condition(a0);                                                     \
-
-#define arm_b()                                                               \
-  generate_branch()                                                           \
-
-#define arm_bl()                                                              \
-  generate_load_pc(a0, (pc + 4));                                             \
-  generate_store_reg(a0, REG_LR);                                             \
-  generate_branch()                                                           \
-
-#define arm_bx()                                                              \
-  arm_decode_branchx(opcode);                                                 \
-  generate_load_reg(a0, rn);                                                  \
-  generate_indirect_branch_dual();                                            \
-
-#define arm_swi()                                                             \
-  collapse_flags(a0, a1);                                                     \
-  generate_load_pc(arg0, (pc + 4));                                           \
-  generate_function_call(execute_swi);                                        \
-  generate_branch()                                                           \
 
 #define thumb_process_cheats()                                                \
   generate_function_call(process_cheats);
@@ -1022,6 +983,13 @@ public:
     generate_indirect_branch_cycle_update(dual);
   }
 
+  inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u8 condition = it.cond();        // TODO remove this
+    load_reg(reg_a0, it.rm(), it.pc + 8);
+    generate_indirect_branch_dual();
+  }
+
   inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *jmpinst;
@@ -1051,12 +1019,28 @@ public:
     return false;
   }
 
+  inline bool arm_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
+    return thumb_emu_swi(pc, num, cycle_count);
+  }
+
   inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
 
     collapse_flags(a0, a1);
     generate_load_pc(arg0, (pc + 2));
+    generate_function_call(execute_swi);
+    generate_branch_cycle_update(brtgt, 0x00000008);
+
+    return brtgt;
+  }
+
+  inline u8* arm_swi(u32 pc, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    collapse_flags(a0, a1);
+    generate_load_pc(arg0, (pc + 4));
     generate_function_call(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
 
@@ -1082,6 +1066,18 @@ public:
     return brtgt;
   }
 
+  inline u8* arm_b(const ARMInst & it, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 pc = it.pc;  // TODO: Remove this
+    u8 *brtgt = NULL;
+    if (it.cond() == CondAL) {
+      generate_branch_cycle_update(brtgt, target);
+    } else {
+      generate_branch_no_cycle_update(brtgt, target);
+    }
+    return brtgt;
+  }
+
   inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
@@ -1090,6 +1086,20 @@ public:
     generate_store_reg(a0, REG_LR);
 
     generate_branch_cycle_update(brtgt, target);
+    return brtgt;
+  }
+
+  inline u8* arm_bl(const ARMInst & it, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 pc = it.pc;  // TODO: Remove this
+    u8 *brtgt = NULL;
+    generate_load_pc(a0, (pc + 4));
+    generate_store_reg(a0, REG_LR);
+    if (it.cond() == CondAL) {
+      generate_branch_cycle_update(brtgt, target);
+    } else {
+      generate_branch_no_cycle_update(brtgt, target);
+    }
     return brtgt;
   }
 
@@ -1854,44 +1864,6 @@ public:
 
 };
 
-
-#define arm_hle_div(cpu_mode)                                                 \
-{                                                                             \
-  u8 *jmpinst;                                                                \
-  generate_load_reg(a0, 0);                                                   \
-  generate_load_reg(a2, 1);                                                   \
-  generate_cmp_imm(a2, 0);                                                    \
-  x86_emit_j_filler(x86_condition_code_z, jmpinst);                           \
-  x86_emit_cdq();                                                             \
-  x86_emit_idiv_eax_reg(reg_a2);                                              \
-  generate_store_reg(a0, 0);                                                  \
-  generate_store_reg(a1, 1);                                                  \
-  generate_mov(a1, a0);                                                       \
-  generate_shift_right_arithmetic(a1, 31);                                    \
-  generate_xor(a0, a1);                                                       \
-  x86_emit_sub_reg_reg(reg_a0, reg_a1);                                       \
-  generate_store_reg(a0, 3);                                                  \
-  generate_branch_patch_conditional(jmpinst, translation_ptr);                \
-}
-
-#define arm_hle_div_arm(cpu_mode)                                             \
-{                                                                             \
-  u8 *jmpinst;                                                                \
-  generate_load_reg(a0, 1);                                                   \
-  generate_load_reg(a2, 0);                                                   \
-  generate_cmp_imm(a2, 0);                                                    \
-  x86_emit_j_filler(x86_condition_code_z, jmpinst);                           \
-  x86_emit_cdq();                                                             \
-  x86_emit_idiv_eax_reg(reg_a2);                                              \
-  generate_store_reg(a0, 0);                                                  \
-  generate_store_reg(a1, 1);                                                  \
-  generate_mov(a1, a0);                                                       \
-  generate_shift_right_arithmetic(a1, 31);                                    \
-  generate_xor(a0, a1);                                                       \
-  x86_emit_sub_reg_reg(reg_a0, reg_a1);                                       \
-  generate_store_reg(a0, 3);                                                  \
-  generate_branch_patch_conditional(jmpinst, translation_ptr);                \
-}
 
 #define generate_translation_gate(type)                                       \
   generate_load_pc(a0, pc);                                                   \

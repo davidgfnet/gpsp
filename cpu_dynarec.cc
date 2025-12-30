@@ -120,25 +120,12 @@ typedef enum {
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
 
-#define arm_decode_branchx(opcode)                                            \
-  u32 rn = opcode & 0x0F                                                      \
-
-#define arm_decode_block_trans()                                              \
-  u32 rn = (opcode >> 16) & 0x0F;                                             \
-  u32 reg_list = opcode & 0xFFFF                                              \
-
 #define arm_decode_branch()                                                   \
   s32 offset = ((s32)(opcode & 0xFFFFFF) << 8) >> 6                           \
 
 #define thumb_decode_imm()                                                    \
   u32 imm = opcode & 0xFF;                                                    \
   (void)imm
-
-#define thumb_decode_branch_cond()                                            \
-  s32 offset = (s8)(opcode & 0xFF)                                            \
-
-#define thumb_decode_branch()                                                 \
-  u32 offset = opcode & 0x07FF                                                \
 
 /* Include the right emitter headers */
 #if defined(MIPS_ARCH)
@@ -557,13 +544,9 @@ void translate_icache_sync() {
     case 0x12:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn - rm]! */              \
         ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
-      else                                                                    \
-      {                                                                       \
-        if(opcode & 0x10)                                                     \
-        {                                                                     \
-          /* BX rn */                                                         \
-          arm_bx();                                                           \
-        }                                                                     \
+      else {                                                                  \
+        if (opcode & 0x10)   /* BX rm */                                      \
+          ce.arm_bx(inst, cycle_count);                                       \
         else     /* MSR cpsr, rm */                                           \
           ce.arm_write_psr<RegCPSR, OpReg>(inst);                             \
       }                                                                       \
@@ -1184,36 +1167,23 @@ void translate_icache_sync() {
         inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
       break;                                                                  \
                                                                               \
-    case 0xA0 ... 0xAF:                                                       \
-    {                                                                         \
-      /* B offset */                                                          \
-      arm_b();                                                                \
+    case 0xA0 ... 0xAF:      /* B label */                                    \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.arm_b(inst, block_exits[block_exit_position].branch_target, cycle_count);  \
+      block_exit_position++;                                                  \
       break;                                                                  \
-    }                                                                         \
                                                                               \
-    case 0xB0 ... 0xBF:                                                       \
-    {                                                                         \
-      /* BL offset */                                                         \
-      arm_bl();                                                               \
+    case 0xB0 ... 0xBF:      /* BL label */                                   \
+      block_exits[block_exit_position].branch_source =                        \
+        ce.arm_bl(inst, block_exits[block_exit_position].branch_target, cycle_count);  \
+      block_exit_position++;                                                  \
       break;                                                                  \
-    }                                                                         \
                                                                               \
-    case 0xF0 ... 0xFF:                                                       \
-    {                                                                         \
-      u32 swinum = (opcode >> 16) & 0xFF;                                     \
-      if (swinum == 6) {                                                      \
-        cycle_count += 64;   /* Big under-estimation here */                  \
-        arm_hle_div(arm);                                                     \
-      }                                                                       \
-      else if (swinum == 7) {                                                 \
-        cycle_count += 64;   /* Big under-estimation here */                  \
-        arm_hle_div_arm(arm);                                                 \
-      }                                                                       \
-      else {                                                                  \
-        arm_swi();                                                            \
+    case 0xF0 ... 0xFF:      /* SWI number */                                 \
+      if (!ce.arm_emu_swi(inst.pc, (opcode >> 16) & 0xFF, cycle_count)) {     \
+        block_exits[block_exit_position++].branch_source = ce.arm_swi(inst.pc, cycle_count); \
       }                                                                       \
       break;                                                                  \
-    }                                                                         \
   }                                                                           \
                                                                               \
   pc += 4                                                                     \

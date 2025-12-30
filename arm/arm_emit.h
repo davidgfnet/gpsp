@@ -1325,6 +1325,13 @@ public:
     generate_indirect_branch_cycle_update(dual_thumb);
   }
 
+  inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u8 condition = it.cond();        // TODO remove this
+    arm_force_load_reg(reg_a0, it.rm(), it.pc + 8);
+    generate_indirect_branch_dual();
+  }
+
   inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
@@ -1345,12 +1352,27 @@ public:
     return false;
   }
 
+  inline bool arm_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
+    return thumb_emu_swi(pc, num, cycle_count);
+  }
+
   inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_function_far_call(armfn_swi_thumb);
     write32((pc + 2));
+    generate_branch_cycle_update(brtgt, 0x00000008, arm);
+
+    return brtgt;
+  }
+
+  inline u8* arm_swi(u32 pc, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    u8 *brtgt = NULL;
+
+    generate_function_far_call(armfn_swi_arm);
+    write32((pc + 4));
     generate_branch_cycle_update(brtgt, 0x00000008, arm);
 
     return brtgt;
@@ -1378,6 +1400,18 @@ public:
     return brtgt;
   }
 
+  inline u8* arm_b(const ARMInst & it, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 pc = it.pc;  // TODO: Remove this
+    u8 *brtgt = NULL;
+    if (it.cond() == CondAL) {
+      generate_branch_cycle_update(brtgt, target, arm);
+    } else {
+      generate_branch_no_cycle_update(brtgt, target, arm);
+    }
+    return brtgt;
+  }
+
   inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
     u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
@@ -1385,6 +1419,20 @@ public:
     generate_update_pc(((pc + 2) | 0x01));
     thumb_generate_store_reg(reg_a0, REG_LR);
     generate_branch_cycle_update(brtgt, target, thumb);
+    return brtgt;
+  }
+
+  inline u8* arm_bl(const ARMInst & it, u32 target, u32 & cycle_count) {
+    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+    const u32 pc = it.pc;  // TODO: Remove this
+    u8 *brtgt = NULL;
+    generate_update_pc(pc + 4);
+    arm_generate_store_reg(reg_a0, REG_LR);
+    if (it.cond() == CondAL) {
+      generate_branch_cycle_update(brtgt, target, arm);
+    } else {
+      generate_branch_no_cycle_update(brtgt, target, arm);
+    }
     return brtgt;
   }
 
@@ -2253,38 +2301,12 @@ public:
   condition ^= 0x01;                                                          \
   generate_branch_filler(condition, backpatch_address)                        \
 
-#define arm_b()                                                               \
-  generate_branch(arm)                                                        \
-
-#define arm_bl()                                                              \
-  generate_update_pc((pc + 4));                                               \
-  arm_generate_store_reg(reg_a0, REG_LR);                                     \
-  generate_branch(arm)                                                        \
-
-#define arm_bx()                                                              \
-  arm_decode_branchx(opcode);                                                 \
-  arm_generate_load_reg(reg_a0, rn);                                          \
-  generate_indirect_branch_dual();                                            \
-
-#define arm_swi()                                                             \
-  generate_function_far_call(armfn_swi_arm);                                  \
-  write32((pc + 4));                                                          \
-  generate_branch(arm)                                                        \
-
 #define thumb_process_cheats()                                                \
   generate_function_far_call(armfn_cheat_thumb);
 
 #define arm_process_cheats()                                                  \
   generate_function_far_call(armfn_cheat_arm);
 
-
-// Use software division
-#define arm_hle_div(cpu_mode)                                                 \
-  cycle_count += 11 + 32;                                                     \
-  generate_function_call(div6);
-#define arm_hle_div_arm(cpu_mode)                                             \
-  cycle_count += 14 + 32;                                                     \
-  generate_function_call(divarm7);
 
 #define generate_translation_gate(type)                                       \
   generate_update_pc(pc);                                                     \

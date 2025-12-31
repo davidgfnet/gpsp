@@ -195,7 +195,7 @@ extern "C" {
 
 
 #define generate_function_call(function_location)                             \
-  x86_emit_call_offset(x86_relative_offset(translation_ptr,                   \
+  x86_emit_call_offset(x86_relative_offset(this->emit_ptr,                    \
    function_location, 4));                                                    \
 
 #define generate_cycle_update()                                               \
@@ -233,11 +233,11 @@ extern "C" {
 
 #define generate_indirect_branch_cycle_update(type)                           \
   generate_cycle_update();                                                    \
-  x86_emit_call_offset(x86_relative_offset(translation_ptr,                   \
+  x86_emit_call_offset(x86_relative_offset(this->emit_ptr,                    \
    x86_indirect_branch_##type, 4))                                            \
 
 #define generate_indirect_branch_no_cycle_update(type)                        \
-  x86_emit_call_offset(x86_relative_offset(translation_ptr,                   \
+  x86_emit_call_offset(x86_relative_offset(this->emit_ptr,                    \
    x86_indirect_branch_##type, 4))                                            \
 
 #define generate_block_extra_vars_arm()
@@ -268,12 +268,8 @@ extern "C" {
   }                                                                           \
 
 
-#define get_shift_imm()                                                       \
-  u32 shift = (opcode >> 7) & 0x1F                                            \
-
-
 #ifdef TRACE_INSTRUCTIONS
-  void function_cc trace_instruction(u32 pc, u32 mode)
+  void function_cc trace_instruction_hook(u32 pc, u32 mode)
   {
     if (mode)
       printf("Executed arm %x\n", pc);
@@ -283,42 +279,8 @@ extern "C" {
     print_regs();
     #endif
   }
-
-  #define emit_trace_instruction(pc, mode)         \
-    x86_emit_mov_reg_imm(reg_arg0, pc);            \
-    x86_emit_mov_reg_imm(reg_arg1, mode);          \
-    generate_function_call(trace_instruction);
-  #define emit_trace_arm_instruction(pc)           \
-    emit_trace_instruction(pc, 1)
-  #define emit_trace_thumb_instruction(pc)         \
-    emit_trace_instruction(pc, 0)
-#else
-  #define emit_trace_thumb_instruction(pc)
-  #define emit_trace_arm_instruction(pc)
 #endif
 
-#define extract_flags()                                                       \
-  reg[REG_N_FLAG] = reg[REG_CPSR] >> 31;                                      \
-  reg[REG_Z_FLAG] = (reg[REG_CPSR] >> 30) & 0x01;                             \
-  reg[REG_C_FLAG] = (reg[REG_CPSR] >> 29) & 0x01;                             \
-  reg[REG_V_FLAG] = (reg[REG_CPSR] >> 28) & 0x01;                             \
-
-#define collapse_flags(ireg, tmpreg)                                          \
-  generate_load_reg(ireg, REG_V_FLAG);                                        \
-  generate_load_reg(tmpreg, REG_C_FLAG);                                      \
-  generate_shift_left(tmpreg, 1);                                             \
-  generate_or(ireg, tmpreg);                                                  \
-  generate_load_reg(tmpreg, REG_Z_FLAG);                                      \
-  generate_shift_left(tmpreg, 2);                                             \
-  generate_or(ireg, tmpreg);                                                  \
-  generate_load_reg(tmpreg, REG_N_FLAG);                                      \
-  generate_shift_left(tmpreg, 3);                                             \
-  generate_or(ireg, tmpreg);                                                  \
-  generate_load_reg(tmpreg, REG_CPSR);                                        \
-  generate_shift_left(ireg, 28);                                              \
-  generate_and_imm(tmpreg, 0xFF);                                             \
-  generate_or(ireg, tmpreg);                                                  \
-  generate_store_reg(ireg, REG_CPSR);                                         \
 
 // It should be okay to still generate result flags, spsr will overwrite them.
 // This is pretty infrequent (returning from interrupt handlers, et al) so
@@ -337,7 +299,13 @@ u32 function_cc execute_spsr_restore(u32 address)
   if(reg[CPU_MODE] != MODE_USER && reg[CPU_MODE] != MODE_SYSTEM)
   {
     reg[REG_CPSR] = REG_SPSR(reg[CPU_MODE]);
-    extract_flags();
+
+    // Extract flags from CPSR to the flag cache
+    reg[REG_N_FLAG] = (reg[REG_CPSR] >> 31) & 0x01;
+    reg[REG_Z_FLAG] = (reg[REG_CPSR] >> 30) & 0x01;
+    reg[REG_C_FLAG] = (reg[REG_CPSR] >> 29) & 0x01;
+    reg[REG_V_FLAG] = (reg[REG_CPSR] >> 28) & 0x01;
+
     set_cpu_mode(cpu_modes[reg[REG_CPSR] & 0xF]);
 
     if((io_registers[REG_IE] & io_registers[REG_IF]) &&
@@ -442,55 +410,42 @@ u32 function_cc execute_spsr_restore(u32 address)
     case 0x0:                                                                 \
       generate_condition_eq(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x1:                                                                 \
       generate_condition_ne(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x2:                                                                 \
       generate_condition_cs(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x3:                                                                 \
       generate_condition_cc(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x4:                                                                 \
       generate_condition_mi(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x5:                                                                 \
       generate_condition_pl(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x6:                                                                 \
       generate_condition_vs(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x7:                                                                 \
       generate_condition_vc(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x8:                                                                 \
       generate_condition_hi(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0x9:                                                                 \
       generate_condition_ls(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0xA:                                                                 \
       generate_condition_ge(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0xB:                                                                 \
       generate_condition_lt(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0xC:                                                                 \
       generate_condition_gt(ireg);                                            \
       break;                                                                  \
-                                                                              \
     case 0xD:                                                                 \
       generate_condition_le(ireg);                                            \
       break;                                                                  \
@@ -516,11 +471,6 @@ u32 function_cc execute_spsr_restore(u32 address)
   }                                                                           \
 
 
-// Operation types: imm, mem_reg, mem_imm
-
-#define thumb_load_pc_pool_const(reg_rd, value)                               \
-  generate_store_reg_i32(value, reg_rd)                                       \
-
 
 // Borrow flag in ARM is opposite to carry flag in x86
 
@@ -531,8 +481,15 @@ u32 function_cc execute_spsr_restore(u32 address)
   x86_emit_mem_bittest(0, reg_base, REG_C_FLAG * 4)                           \
   x86_emit_cmc()
 
-static void function_cc execute_swi(u32 pc)
-{
+static void function_cc execute_swi(u32 pc) {
+  // Consolidate CPSR before updating CPSR
+  u32 flgs = (reg[REG_N_FLAG] << 31) |
+             (reg[REG_Z_FLAG] << 30) |
+             (reg[REG_C_FLAG] << 29) |
+             (reg[REG_V_FLAG] << 28);
+
+  reg[REG_CPSR] = (reg[REG_CPSR] & 0xFF) | flgs;
+
   // Open bus value after SWI
   reg[REG_BUS_VALUE] = 0xe3a02004;
   REG_MODE(MODE_SUPERVISOR)[6] = pc;
@@ -542,16 +499,6 @@ static void function_cc execute_swi(u32 pc)
   set_cpu_mode(MODE_SUPERVISOR);
 }
 
-#define arm_conditional_block_header()                                        \
-  generate_cycle_update();                                                    \
-  generate_condition(a0);                                                     \
-
-#define thumb_process_cheats()                                                \
-  generate_function_call(process_cheats);
-
-#define arm_process_cheats()                                                  \
-  generate_function_call(process_cheats);
-
 
 /* Just loads the LSB byte of the desired register */
 #define emit_load_reg_pc_lsb(ireg, regnum, pcvalue)                           \
@@ -560,7 +507,6 @@ static void function_cc execute_swi(u32 pc)
   } else {                                                                    \
     x86_emit_mem_movzxb(ireg, reg_base, (regnum) * 4);                        \
   }                                                                           \
-
 
 #define update_cv_add_flags()                                                 \
   if (it.gen_flag_c()) {                                                      \
@@ -604,7 +550,6 @@ public:
 
   template <FlagOperation flgmode>
   inline void upd_nz_flags(const BaseInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
       if (it.gen_flag_z()) {
         generate_update_flag(z, REG_Z_FLAG);
@@ -618,7 +563,6 @@ public:
   template <FlagOperation flgmode>
   inline void upd_nz_flags_imm(const ARMInst & it, u32 imm) {
     if (flgmode == SetFlags) {
-      u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
       if (it.gen_flag_z()) {
         generate_store_reg_i32((imm ? 0 : 1), REG_Z_FLAG);
       }
@@ -631,7 +575,6 @@ public:
   template <FlagOperation flgmode>
   inline void upd_nzcv_add_flags(const BaseInst & it) {
     upd_nz_flags<flgmode>(it);
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
       if (it.gen_flag_c()) {
         generate_update_flag(c, REG_C_FLAG);
@@ -645,7 +588,6 @@ public:
   template <FlagOperation flgmode>
   inline void upd_nzcv_sub_flags(const BaseInst & it) {
     upd_nz_flags<flgmode>(it);
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
       if (it.gen_flag_c()) {
         generate_update_flag(nc, REG_C_FLAG);
@@ -657,7 +599,6 @@ public:
   }
 
   inline void load_reg(u32 dreg, u32 regnum, u32 pc_value) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (regnum == REG_PC) {
       x86_emit_mov_reg_imm(dreg, pc_value);
     } else {
@@ -666,15 +607,42 @@ public:
   }
 
   inline void store_reg(u32 dreg, u32 regnum) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     x86_emit_mov_mem_reg(dreg, reg_base, regnum * 4)
   }
+
+  template <CPUInstMode cm>
+  inline void generate_translation_gate(u32 pc) {
+    generate_load_pc(a0, pc);
+    if (cm == ModeARM) {
+      generate_indirect_branch_no_cycle_update(arm);
+    } else {
+      generate_indirect_branch_no_cycle_update(thumb);
+    }
+  }
+
+  inline void emit_cycle_update(u32 & cycle_count) {
+    generate_cycle_update();
+  }
+
+  template <CPUInstMode cm>
+  inline void emit_cheat_hook() {
+    generate_function_call(process_cheats);
+  }
+
+  inline void emit_load_const_pool(u32 regn, u32 value) {
+    generate_store_reg_i32(value, regn);
+  }
+
+  inline void arm_conditional_block_header(u32 condition, u32 & cycle_count, u8 * & backpatch_address) {
+    generate_cycle_update();
+    generate_condition(a0);
+  }
+
 
   // Condition code generation
   template <ARMCondCode ccode>
   inline u8 *emit_opp_condbranch() {
     // TODO Take reg num as input.
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     // We emit a branch that branches on the opposite condition.
     // Returns the patching address (so the branch offset can be filled)
     u8 *ret;
@@ -755,7 +723,6 @@ public:
   // ======== Thumb instructions ====================================
   template <AluOperation aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     generate_load_reg(a0, it.rd());    // Load operands
     generate_load_reg(a1, it.rs());
 
@@ -803,8 +770,6 @@ public:
 
   template <OpType stype, ShiftType st>
   inline void thumb_shft(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (stype == OpImm) {
       if (it.gen_flag_c())
         emit_op2_shimm<SetFlags>(reg_a0, it.rs(), st, it.imm5(), 0);
@@ -832,7 +797,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluop1(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     generate_load_reg(a0, it.rs());   // Load operand
 
     switch (aluop) {
@@ -853,7 +817,6 @@ public:
 
   template <AluOperation testop>
   inline void thumb_testop(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     generate_load_reg(a0, it.rd());    // Load operands
     generate_load_reg(a1, it.rs());
 
@@ -875,8 +838,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluimm2(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     switch (aluop) {
     case OpMov:
       generate_store_reg_i32(it.imm8(), it.rd8());
@@ -902,7 +863,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluimm3(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     generate_load_reg(a0, it.rs());
 
     switch (aluop) {
@@ -921,7 +881,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     generate_load_reg(a0, it.rs());
 
     switch (aluop) {
@@ -940,7 +899,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     load_reg(reg_a0, it.rs_hi(), it.pc + 4);
 
     switch (aluop) {
@@ -962,7 +920,6 @@ public:
 
   template <u32 ref_reg>
   inline void thumb_regoff(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (ref_reg == REG_PC) {
       generate_store_reg_i32((it.pc & ~2) + 4 + 4 * it.imm8(), it.rd8());
     } else {
@@ -973,25 +930,21 @@ public:
   }
 
   inline void thumb_spadj(s8 offset) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     generate_add_mem((offset * 4), base, REG_SP * 4);
   }
 
   inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     load_reg(reg_a0, regn, pc + 4);
     generate_indirect_branch_cycle_update(dual);
   }
 
   inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u8 condition = it.cond();        // TODO remove this
     load_reg(reg_a0, it.rm(), it.pc + 8);
     generate_indirect_branch_dual();
   }
 
   inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *jmpinst;
 
     switch (num) {
@@ -1010,7 +963,7 @@ public:
       generate_xor(a0, a1);
       x86_emit_sub_reg_reg(reg_a0, reg_a1);
       generate_store_reg(a0, 3);
-      generate_branch_patch_conditional(jmpinst, translation_ptr);
+      generate_branch_patch_conditional(jmpinst, this->emit_ptr);
       cycle_count += 64;    // Big under-estimation here
       return true;
     default:
@@ -1024,10 +977,8 @@ public:
   }
 
   inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
 
-    collapse_flags(a0, a1);
     generate_load_pc(arg0, (pc + 2));
     generate_function_call(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
@@ -1036,10 +987,8 @@ public:
   }
 
   inline u8* arm_swi(u32 pc, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
 
-    collapse_flags(a0, a1);
     generate_load_pc(arg0, (pc + 4));
     generate_function_call(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
@@ -1049,25 +998,22 @@ public:
 
   template <ARMCondCode ccode>
   inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_cycle_update();
     u8 *ptch = emit_opp_condbranch<ccode>();
     generate_branch_no_cycle_update(brtgt, target);
-    generate_branch_patch_conditional(ptch, translation_ptr);
+    generate_branch_patch_conditional(ptch, this->emit_ptr);
     return brtgt;
   }
 
   inline u8* thumb_b(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
     generate_branch_cycle_update(brtgt, target);
     return brtgt;
   }
 
   inline u8* arm_b(const ARMInst & it, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     if (it.cond() == CondAL) {
@@ -1079,7 +1025,6 @@ public:
   }
 
   inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_load_pc(a0, ((pc + 2) | 0x01));
@@ -1090,7 +1035,6 @@ public:
   }
 
   inline u8* arm_bl(const ARMInst & it, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     generate_load_pc(a0, (pc + 4));
@@ -1104,8 +1048,6 @@ public:
   }
 
   inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     generate_load_pc(a0, ((pc + 2) | 0x01));
     generate_load_reg(a1, REG_LR);
     generate_store_reg(a0, REG_LR);
@@ -1118,7 +1060,6 @@ public:
   // ======== Memory instructions ===================================
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     // Generate the memory address to a0
     if (offt == OffPC) {
       // PC-relative offset. It is word aligned.
@@ -1137,7 +1078,6 @@ public:
 
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     cycle_count += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
@@ -1149,7 +1089,6 @@ public:
 
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     cycle_count++;  // TODO: Use proper cycle accounting and honor WAITCNT
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
@@ -1161,8 +1100,6 @@ public:
 
   template <ARMMemOffset offt, MemOffDir dir>
   inline void arm_memaddr(u32 faddr_reg, u32 baddr_reg, const ARMInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     // Load base register
     load_reg(baddr_reg, it.rn(), it.pc + 8);
 
@@ -1198,7 +1135,6 @@ public:
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
   inline void arm_memst(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     cycle_count++;    // TODO: Use proper cycle accounting and honor WAITCNT
 
     // Generate the final address and base address, and write back if necessary
@@ -1221,7 +1157,6 @@ public:
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
   inline void arm_memld(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u8 condition = it.cond();        // TODO remove this
     cycle_count += 2;    // TODO: Use proper cycle accounting and honor WAITCNT
 
@@ -1245,7 +1180,6 @@ public:
 
   template <typename memtype>
   inline void arm_swap(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     cycle_count += 3;   // TODO: Some more accurate accounting :)
 
     // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
@@ -1264,7 +1198,6 @@ public:
 
   template <CPUInstMode cpum, AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
   inline void mem_multi(u32 pc, u32 condition, u32 basereg, u16 rlist, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
     cycle_count += numops;    // TODO: Use proper cycle accounting.
 
@@ -1338,7 +1271,6 @@ public:
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     load_reg(reg_a0, it.rn(), it.pc + 8);
 
     // Immediate is a 8 bit rotated immediate
@@ -1418,7 +1350,6 @@ public:
 
   template <AluOperation aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     load_reg(reg_a0, it.rn(), it.pc + 8);
 
     // Immediate is a 8 bit rotated immediate
@@ -1452,8 +1383,6 @@ public:
 
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     // Immediate is a 8 bit rotated immediate
     u32 sa = it.rot4() * 2;
     u32 imm = rotr32(it.imm8(), sa);
@@ -1482,7 +1411,6 @@ public:
   // NOTE: dreg is a native reg, sreg an ARM reg
   template<FlagOperation c_flg>
   inline void emit_op2_shimm(u32 dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     // Uses X86 similarities to ARM to calculate the carry flag
 
     switch (st) {
@@ -1549,7 +1477,6 @@ public:
   // Calculates operand 2 when register is shifted/rotated by another register.
   template<FlagOperation c_flg>
   inline void emit_op2_shreg(u32 dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     load_reg(dreg, sreg, pc);
     emit_load_reg_pc_lsb(reg_a2, areg, pc);   // Loads the LSB byte only! Into ECX
 
@@ -1567,7 +1494,7 @@ public:
           x86_emit_j_filler(x86_condition_code_l, jmpz32);
             x86_emit_mov_reg_imm(dreg, 0);
             generate_store_reg_i32(0, REG_C_FLAG);
-          generate_branch_patch_conditional(jmpz32, translation_ptr);
+          generate_branch_patch_conditional(jmpz32, this->emit_ptr);
           break;
         case ShiftLSR:
           generate_sub_imm(a2, 1);
@@ -1579,7 +1506,7 @@ public:
           x86_emit_j_filler(x86_condition_code_l, jmpz32);
             x86_emit_mov_reg_imm(dreg, 0);
             generate_store_reg_i32(0, REG_C_FLAG);
-          generate_branch_patch_conditional(jmpz32, translation_ptr);
+          generate_branch_patch_conditional(jmpz32, this->emit_ptr);
           break;
         case ShiftASR:
           x86_emit_sar_reg_reg(dreg);
@@ -1589,7 +1516,7 @@ public:
           x86_emit_sar_reg_imm(dreg, 16);
           x86_emit_sar_reg_imm(dreg, 16);
           generate_update_flag(c, REG_C_FLAG);
-          generate_branch_patch_conditional(jmpz32, translation_ptr);
+          generate_branch_patch_conditional(jmpz32, this->emit_ptr);
           break;
         case ShiftROR:
           x86_emit_rot_reg_reg(ror, dreg);
@@ -1597,7 +1524,7 @@ public:
           generate_update_flag(c, REG_C_FLAG);
           break;
       };
-      generate_branch_patch_jecxz(iszeroj, translation_ptr);
+      generate_branch_patch_jecxz(iszeroj, this->emit_ptr);
     } else {
       switch (st) {
         case ShiftLSL:
@@ -1645,8 +1572,6 @@ public:
   // 3 regs (with op2) instructions
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     // Generate op2 to a0, op1 to a1
     if (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
         aluop == OpAdc || aluop == OpSbc || aluop == OpRsc)
@@ -1720,8 +1645,6 @@ public:
 
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     emit_arm_aluop2<flg>(it);   // Generate op2 to a0
     switch (aluop) {
     case OpMvn:
@@ -1747,8 +1670,6 @@ public:
   // compare/test instructions
   template <AluOperation aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
     load_reg(reg_a1, it.rn(), it.pc + (it.op2imm() ? 8 : 12));
 
@@ -1775,8 +1696,6 @@ public:
   // Performs 32 bit multiplications (rd and rn are swapped)
   template<FlagOperation flg, MulMode mm>
   inline void arm_mul32(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     load_reg(reg_a0, it.rm(), it.pc + 8);
     load_reg(reg_a1, it.rs(), it.pc + 8);
     generate_multiply(a1);
@@ -1795,8 +1714,6 @@ public:
   // Performs 64 bit multiplications
   template<FlagOperation flg, MulMode mm, bool signmul>
   inline void arm_mul64(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     load_reg(reg_a0, it.rm(), it.pc + 8);
     load_reg(reg_a1, it.rs(), it.pc + 8);
 
@@ -1828,8 +1745,6 @@ public:
   // PSR register read
   template<PSReg reg>
   inline void arm_read_psr(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (reg == RegCPSR) {
       generate_function_call(execute_read_cpsr);
     } else {
@@ -1842,8 +1757,6 @@ public:
   // PSR register write
   template<PSReg reg, OpType opt>
   inline void arm_write_psr(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (opt == OpReg) {
       generate_load_reg(a0, it.rm());
     } else {
@@ -1862,12 +1775,17 @@ public:
     }
   }
 
+  template <CPUInstMode cm>
+  void trace_instruction(u32 pc) {
+    #ifdef TRACE_INSTRUCTIONS
+    x86_emit_mov_reg_imm(reg_arg0, pc);
+    x86_emit_mov_reg_imm(reg_arg1, (cm == ModeThumb ? 0 : 1));
+    generate_function_call(trace_instruction_hook);
+    #endif
+  }
+
 };
 
-
-#define generate_translation_gate(type)                                       \
-  generate_load_pc(a0, pc);                                                   \
-  generate_indirect_branch_no_cycle_update(type)                              \
 
 extern void* x86_table_data[9][16];
 extern void* x86_table_info[9][16];

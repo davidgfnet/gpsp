@@ -58,16 +58,16 @@ typedef enum
 
 
 #define aa64_br_offset(label)                                                 \
-  (((uintptr_t)(label) - (uintptr_t)(translation_ptr)) >> 2)                  \
+  (((uintptr_t)(label) - (uintptr_t)(this->emit_ptr)) >> 2)                   \
 
 #define aa64_br_offset_from(label, from)                                      \
   (((uintptr_t)(label) - (uintptr_t)(from)) >> 2)                             \
 
 #define aa64_emit_inst(opcode, ope, rd, rs, extra)                            \
 {                                                                             \
-  *((u32 *)translation_ptr) = (aa64_opcode_##opcode << 24) | ((ope) << 29) |  \
+  *((u32 *)this->emit_ptr) = (aa64_opcode_##opcode << 24) | ((ope) << 29) |   \
                                  ((rs) << 5) | (rd) | (extra);                \
-  translation_ptr += 4;                                                       \
+  this->emit_ptr += 4;                                                        \
 }
 
 #define aa64_emit_ldr(rv, rb, offset)                                         \

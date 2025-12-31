@@ -137,6 +137,33 @@ template <> inline uintptr_t call_str_handler<u32>() { return (uintptr_t)execute
 template <> inline uintptr_t call_str_handler<u16>() { return (uintptr_t)execute_store_u16; }
 template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute_store_u8 ; }
 
+// Palette conversion functions. a1 contains the palette value (16 LSB)
+// Places the result in reg_temp, can use a0 as temporary register
+#if defined(USE_XBGR1555_FORMAT)
+  /* PS2's native format */
+  #define palette_convert()                       \
+    mips_emit_andi(reg_temp, reg_a1, 0x7FFF);
+#else
+  /* 0BGR to RGB565 (clobbers a0) */
+  #ifdef MIPS_HAS_R2_INSTS
+    #define palette_convert()                       \
+      mips_emit_ext(reg_temp, reg_a1, 10, 5);       \
+      mips_emit_ins(reg_temp, reg_a1, 11, 5);       \
+      mips_emit_ext(reg_a0, reg_a1, 5, 5);          \
+      mips_emit_ins(reg_temp, reg_a0, 6, 5);
+  #else
+    #define palette_convert()                       \
+      mips_emit_srl(reg_a0, reg_a1, 10);            \
+      mips_emit_andi(reg_temp, reg_a0, 0x1F);       \
+      mips_emit_sll(reg_a0, reg_a1, 1);             \
+      mips_emit_andi(reg_a0, reg_a0, 0x7C0);        \
+      mips_emit_or(reg_temp, reg_temp, reg_a0);     \
+      mips_emit_andi(reg_a0, reg_a1, 0x1F);         \
+      mips_emit_sll(reg_a0, reg_a0, 11);            \
+      mips_emit_or(reg_temp, reg_temp, reg_a0);
+  #endif
+#endif
+
 
 #define generate_load_reg(ireg, reg_index)                                    \
   mips_emit_addu(ireg, arm_to_mips_reg[reg_index], reg_zero)                  \
@@ -155,7 +182,7 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 
 #define generate_load_pc(ireg, new_pc)                                        \
 {                                                                             \
-  s32 pc_delta = (new_pc) - (stored_pc);                                      \
+  s32 pc_delta = (new_pc) - (this->block_pc);                                 \
   if((pc_delta >= -32768) && (pc_delta <= 32767)) {                           \
     mips_emit_addiu(ireg, reg_pc, pc_delta);                                  \
   } else {                                                                    \
@@ -174,35 +201,35 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
   mips_emit_nop()                                                             \
 
 #define generate_raw_u32(value)                                               \
-  *((u32 *)translation_ptr) = (value);                                        \
-  translation_ptr += 4                                                        \
+  *((u32 *)this->emit_ptr) = (value);                                         \
+  this->emit_ptr += 4                                                         \
 
 #define generate_function_call_swap_delay(function_location)                  \
 {                                                                             \
-  u32 delay_instruction = address32(translation_ptr, -4);                     \
-  translation_ptr -= 4;                                                       \
+  u32 delay_instruction = address32(this->emit_ptr, -4);                      \
+  this->emit_ptr -= 4;                                                        \
   mips_emit_jal(mips_absolute_offset(function_location));                     \
-  address32(translation_ptr, 0) = delay_instruction;                          \
-  translation_ptr += 4;                                                       \
+  address32(this->emit_ptr, 0) = delay_instruction;                           \
+  this->emit_ptr += 4;                                                        \
 }                                                                             \
 
 #define generate_function_return_swap_delay()                                 \
 {                                                                             \
-  u32 delay_instruction = address32(translation_ptr, -4);                     \
-  translation_ptr -= 4;                                                       \
+  u32 delay_instruction = address32(this->emit_ptr, -4);                      \
+  this->emit_ptr -= 4;                                                        \
   mips_emit_jr(mips_reg_ra);                                                  \
-  address32(translation_ptr, 0) = delay_instruction;                          \
-  translation_ptr += 4;                                                       \
+  address32(this->emit_ptr, 0) = delay_instruction;                           \
+  this->emit_ptr += 4;                                                        \
 }                                                                             \
 
 #define generate_swap_delay()                                                 \
 {                                                                             \
-  u32 delay_instruction = address32(translation_ptr, -8);                     \
-  u32 branch_instruction = address32(translation_ptr, -4);                    \
+  u32 delay_instruction = address32(this->emit_ptr, -8);                      \
+  u32 branch_instruction = address32(this->emit_ptr, -4);                     \
   branch_instruction = (branch_instruction & 0xFFFF0000) |                    \
    (((branch_instruction & 0x0000FFFF) + 1) & 0x0000FFFF);                    \
-  address32(translation_ptr, -8) = branch_instruction;                        \
-  address32(translation_ptr, -4) = delay_instruction;                         \
+  address32(this->emit_ptr, -8) = branch_instruction;                         \
+  address32(this->emit_ptr, -4) = delay_instruction;                          \
 }                                                                             \
 
 #define generate_cycle_update()                                               \
@@ -236,7 +263,7 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
   {                                                                           \
     generate_load_pc(reg_a0, new_pc);                                         \
     mips_emit_bltzal(reg_cycles,                                              \
-     mips_relative_offset(translation_ptr, update_trampoline));               \
+      mips_relative_offset(this->emit_ptr, update_trampoline));               \
     generate_swap_delay();                                                    \
     mips_emit_j_filler(writeback_location);                                   \
     mips_emit_nop();                                                          \
@@ -294,7 +321,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 
 
 #define generate_block_extra_vars()                                           \
-  u32 stored_pc = pc;                                                         \
 
 #define generate_block_extra_vars_arm()                                       \
   generate_block_extra_vars();                                                \
@@ -704,6 +730,119 @@ u32 execute_spsr_restore_body(u32 address)
 #endif
 
 
+#ifdef TRACE_INSTRUCTIONS
+  void trace_instruction_hook(u32 pc, u32 mode)
+  {
+    if (mode)
+      printf("Executed arm %x\n", pc);
+    else
+      printf("Executed thumb %x\n", pc);
+    #ifdef TRACE_REGISTERS
+    print_regs();
+    #endif
+  }
+#endif
+
+
+#define generate_update_pc_reg()                                              \
+  generate_load_pc(reg_a0, pc);                                               \
+  mips_emit_sw(reg_a0, reg_base, (REG_PC * 4))                                \
+
+
+// Register save layout as follows:
+#define ReOff_RegPC    (REG_PC    * 4) // REG_PC
+#define ReOff_CPSR     (REG_CPSR  * 4) // REG_CPSR
+#define ReOff_SaveR1   (REG_SAVE  * 4) // 3 save scratch regs
+#define ReOff_SaveR2   (REG_SAVE2 * 4)
+#define ReOff_SaveR3   (REG_SAVE3 * 4)
+#define ReOff_OamUpd   (OAM_UPDATED*4) // OAM_UPDATED
+#define ReOff_GP_Save  (REG_SAVE5 * 4) // GP_SAVE
+
+// Saves all regs to their right slot and loads gp
+#define emit_save_regs(save_a2) {                                             \
+  int i;                                                                      \
+  for (i = 0; i < 15; i++) {                                                  \
+    mips_emit_sw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
+  }                                                                           \
+  if (save_a2) {                                                              \
+    mips_emit_sw(reg_a2, reg_base, ReOff_SaveR2);                             \
+  }                                                                           \
+  /* Load the gp pointer, used by C code */                                   \
+  mips_emit_lw(mips_reg_gp, reg_base, ReOff_GP_Save);                         \
+}
+
+// Restores the registers from their slot
+#define emit_restore_regs(restore_a2) {                                       \
+  int i;                                                                      \
+  if (restore_a2) {                                                           \
+    mips_emit_lw(reg_a2, reg_base, ReOff_SaveR2);                             \
+  }                                                                           \
+  for (i = 0; i < 15; i++) {                                                  \
+    mips_emit_lw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
+  }                                                                           \
+}
+
+// Emits a function call for a read or a write (for special stuff like flash)
+#define emit_mem_call_ds(fnptr, mask)                                         \
+  mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR1);                          \
+  emit_save_regs(true);                                                       \
+  genccall(fnptr);                                                            \
+  mips_emit_andi(reg_a0, reg_a0, (mask));                                     \
+  mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR1);                          \
+  emit_restore_regs(true);
+
+#define emit_mem_call(fnptr, mask)      \
+  emit_mem_call_ds(fnptr, mask)         \
+  mips_emit_jr(mips_reg_ra);            \
+  mips_emit_nop();
+
+// This is a pointer table to the open load stubs, used by the BIOS (optimization)
+u32* openld_core_ptrs[11];
+
+const u8 ldopmap[6][2] = { {0, 1}, {1, 2}, {2, 4}, {4, 6}, {6, 10}, {10, 11} };
+const u8 ldhldrtbl[11] = {0, 1, 2, 2, 3, 3, 4, 4, 4, 4, 5};
+#define ld_phndlr_branch(memop) \
+  (((u32*)&rom_translation_cache[ldhldrtbl[(memop)]*16*4]) - ((u32*)this->emit_ptr + 1))
+
+#define st_phndlr_branch(memop) \
+  (((u32*)&rom_translation_cache[((memop) + 6)*16*4]) - ((u32*)this->emit_ptr + 1))
+
+#define branch_handlerid(phndlrid) \
+  (((u32*)&rom_translation_cache[(phndlrid)*16*4]) - ((u32*)this->emit_ptr + 1))
+
+#define branch_offset(ptr) \
+  (((u32*)ptr) - ((u32*)this->emit_ptr + 1))
+
+
+#ifdef PIC
+  #define genccall(fn)                                         \
+    mips_emit_lui(mips_reg_t9, ((u32)fn) >> 16);               \
+    mips_emit_ori(mips_reg_t9, mips_reg_t9, ((u32)fn));        \
+    mips_emit_jalr(mips_reg_t9);
+#else
+  #define genccall(fn) mips_emit_jal(((u32)fn) >> 2);
+#endif
+
+// Describes a "plain" memory are, that is, an area that is just accessed
+// as normal memory (with some caveats tho).
+typedef struct {
+  unsigned region;      // Region ID (top 8 bits)
+  unsigned memsize;     // 0 byte, 1 halfword, 2 word
+  bool check_smc;       // Whether the memory can contain code
+  bool bus16;           // Whether it can only be accessed at 16bit
+  u32 baseptr;          // Memory base address.
+  u32 baseoff;          // Offset from base_reg
+} t_stub_meminfo;
+
+typedef void (*sthldr_t)(
+  unsigned memop_number, const t_stub_meminfo *meminfo,
+  unsigned size, bool aligned);
+
+typedef void (*ldhldr_t)(
+  unsigned memop_number, const t_stub_meminfo *meminfo,
+  bool signext, unsigned size,
+  unsigned alignment, bool aligned, bool must_swap);
+
 inline bool isimm16(u32 imm) {
   return (imm & 0xFFFF0000) == 0;
 }
@@ -733,8 +872,6 @@ public:
   static unsigned block_prologue_size() { return 16; }  // 4 trampoline insts.
 
   inline void emit_block_prologue() {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     update_trampoline = this->emit_ptr;
     mips_emit_j(mips_absolute_offset(mips_update_gba));
     mips_emit_nop();
@@ -745,8 +882,6 @@ public:
   }
 
   inline u32 load_alloc_reg(u32 regn, u32 tmp_reg, u32 pcvalue) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     if (regn == REG_PC) {
       generate_load_pc(tmp_reg, pcvalue);
       return tmp_reg;
@@ -761,7 +896,6 @@ public:
   }
 
   inline void load_alloc_reg_lsb(u32 regn, u32 native_reg, u32 pcvalue) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (regn == REG_PC) {
       mips_emit_addiu(native_reg, reg_zero, (pcvalue & 0xFF));
     } else {
@@ -771,8 +905,6 @@ public:
 
   // Forces a register load!
   inline void force_load_reg(u32 regn, u32 outreg, u32 pcvalue) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     if (regn == REG_PC) {
       generate_load_pc(outreg, pcvalue);
     } else {
@@ -782,8 +914,6 @@ public:
 
   // Aux functions used to emit certain common sequences
   inline void emit_load_imm_reg(u32 regn, u32 imm) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (isimm16(imm)) {
       mips_emit_ori(regn, reg_zero, imm);    // Loads 0x0000XXXX
     } else if (isimm16s(imm)) {
@@ -798,7 +928,6 @@ public:
 
   template <FlagOperation flgmode>
   inline void update_nz_flags(const ARMInst & it, u32 reg) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (flgmode == SetFlags) {
       if (it.gen_flag_n()) {
         mips_emit_srl(reg_n_cache, reg, 31);
@@ -810,7 +939,6 @@ public:
   }
 
   inline void update_nz_flags(const ThumbInst & it, u32 reg) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (it.gen_flag_n()) {
       mips_emit_srl(reg_n_cache, reg, 31);
     }
@@ -819,12 +947,42 @@ public:
     }
   }
 
+
+  template <CPUInstMode cm>
+  inline void generate_translation_gate(u32 pc) {
+    generate_load_pc(reg_a0, pc);
+    if (cm == ModeARM) {
+      mips_emit_j(mips_absolute_offset(mips_indirect_branch_arm));
+    } else {
+      mips_emit_j(mips_absolute_offset(mips_indirect_branch_thumb));
+    }
+    mips_emit_nop();
+  }
+
+  inline void emit_cycle_update(u32 & cycle_count) {
+    generate_cycle_update();
+  }
+
+  template <CPUInstMode cm>
+  inline void emit_cheat_hook() {
+    generate_function_call(mips_cheat_hook);
+  }
+
+  inline void emit_load_const_pool(u32 regn, u32 value) {
+    generate_load_imm(arm_to_mips_reg[regn], (value));
+  }
+
+  inline void arm_conditional_block_header(u32 condition, u32 & cycle_count, u8 * & backpatch_address) {
+    // TODO: Fix cycle generation
+    generate_condition();
+  }
+
   // Condition code generation
   template <ARMCondCode ccode>
   inline u8 *emit_opp_condbranch(u32 & cycle_count) {
     // TODO Take reg num as input.
     // TODO We emit cycle updating in the dedlay slot, not ideal (vs other archs)
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
+
     // We emit a branch that branches on the opposite condition.
     // Returns the patching address (so the branch offset can be filled)
     u8 *ret;
@@ -902,7 +1060,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
     u32 rs = arm_to_mips_reg[it.rs()];
     u32 rn = arm_to_mips_reg[it.rn()];
@@ -923,7 +1080,6 @@ public:
     u32 rs = arm_to_mips_reg[it.rs()];
     u32 rd = arm_to_mips_reg[it.rd()];
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
     switch (aluop) {
     case OpOrr:
@@ -987,7 +1143,6 @@ public:
     u32 rs = arm_to_mips_reg[it.rs()];
     u32 rd = arm_to_mips_reg[it.rd()];
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
     switch (aluop) {
     case OpNeg:
@@ -1005,7 +1160,6 @@ public:
     u32 rs = arm_to_mips_reg[it.rs()];
     u32 rd = arm_to_mips_reg[it.rd()];
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
     switch (testop) {
     case OpTst:
@@ -1024,7 +1178,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluimm2(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 rd = arm_to_mips_reg[it.rd8()];
 
     switch (aluop) {
@@ -1047,7 +1200,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluimm3(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rs = arm_to_mips_reg[it.rs()];
     u32 rd = arm_to_mips_reg[it.rd()];
 
@@ -1065,7 +1217,6 @@ public:
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
     u32 rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
 
     // TODO Improve and make PC writes clearer!
     if (aluop == OpAdd) {
@@ -1084,8 +1235,6 @@ public:
 
   template <u32 ref_reg>
   inline void thumb_regoff(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     if (ref_reg == REG_PC) {
       generate_load_pc(arm_to_mips_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
     } else {
@@ -1094,26 +1243,21 @@ public:
   }
 
   inline void thumb_spadj(s8 offset) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     mips_emit_addiu(reg_r13, reg_r13, (offset * 4));
   }
 
   inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     force_load_reg(regn, reg_a0, pc + 4);
     generate_indirect_branch_cycle_update(dual);
   }
 
   inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u8 condition = it.cond();        // TODO remove this
     force_load_reg(it.rm(), reg_a0, it.pc + 8);
     generate_indirect_branch_dual();
   }
 
   inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     switch (num) {
     case 6:
     case 7:
@@ -1141,8 +1285,6 @@ public:
   }
 
   inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_load_pc(reg_a0, (pc + 2));
@@ -1153,8 +1295,6 @@ public:
   }
 
   inline u8* arm_swi(u32 pc, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_load_pc(reg_a0, pc + 4);
@@ -1166,28 +1306,22 @@ public:
 
   template <ARMCondCode ccode>
   inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     u8 *brtgt = NULL;
 
     u8 *ptch = emit_opp_condbranch<ccode>(cycle_count);
     generate_branch_no_cycle_update(brtgt, target);
-    generate_branch_patch_conditional(ptch, translation_ptr);
+    generate_branch_patch_conditional(ptch, this->emit_ptr);
     return brtgt;
   }
 
   inline u8* thumb_b(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     u8 *brtgt = NULL;
     generate_branch_cycle_update(brtgt, target);
     return brtgt;
   }
 
   inline u8* arm_b(const ARMInst & it, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 pc = it.pc;  // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     u8 *brtgt = NULL;
     if (it.cond() == CondAL) {
       generate_branch_cycle_update(brtgt, target);
@@ -1198,8 +1332,6 @@ public:
   }
 
   inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_load_pc(reg_r14, ((pc + 2) | 0x01));
@@ -1208,8 +1340,6 @@ public:
   }
 
   inline u8* arm_bl(const ARMInst & it, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     generate_load_pc(reg_r14, ((pc + 4)));
@@ -1222,9 +1352,6 @@ public:
   }
 
   inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
-
     mips_emit_addiu(reg_a0, reg_r14, offset);
     generate_load_pc(reg_r14, ((pc + 2) | 0x01));
     generate_indirect_branch_cycle_update(thumb);
@@ -1233,9 +1360,6 @@ public:
   // ============= Memory functions =================
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
-
     // Generate the memory address to a0
     switch (offt) {
     case OffPC:
@@ -1258,9 +1382,6 @@ public:
 
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
-
     cycle_count += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
@@ -1272,9 +1393,6 @@ public:
 
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
-
     cycle_count++;  // TODO: Use proper cycle accounting and honor WAITCNT
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
@@ -1286,8 +1404,6 @@ public:
 
   template <ARMMemOffset offt, MemOffDir dir>
   inline void arm_memaddr(u32 oreg, const ARMInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     // Load base register if needed
     u32 breg = load_alloc_reg(it.rn(), oreg, it.pc + 8);
 
@@ -1329,8 +1445,6 @@ public:
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
   inline void arm_memst(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     cycle_count++;    // TODO: Use proper cycle accounting and honor WAITCNT
 
     // Generate the final address and base address, and write back if necessary
@@ -1356,8 +1470,6 @@ public:
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
   inline void arm_memld(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     const u8 condition = it.cond();        // TODO remove this
     cycle_count += 2;    // TODO: Use proper cycle accounting and honor WAITCNT
 
@@ -1386,8 +1498,6 @@ public:
 
   template <typename memtype>
   inline void arm_swap(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
     cycle_count += 3;   // TODO: Some more accurate accounting :)
 
     // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
@@ -1406,9 +1516,6 @@ public:
 
   template <CPUInstMode cpum, AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
   inline void mem_multi(u32 pc, u32 condition, u32 basereg, u16 rlist, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
-
     const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
     cycle_count += numops;    // TODO: Use proper cycle accounting.
 
@@ -1485,7 +1592,6 @@ public:
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
     u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
     u32 rd = store_alloc_reg(it.rd(), reg_a0);
@@ -1615,7 +1721,6 @@ public:
 
   template <AluOperation aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
     u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
 
@@ -1660,7 +1765,6 @@ public:
 
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rd = store_alloc_reg(it.rd(), reg_a0);
 
     // Immediate is a 8 bit rotated immediate
@@ -1688,7 +1792,6 @@ public:
   // Calculates operand 2 when register is shifted/rotated by an immediate.
   template<FlagOperation flg>
   inline void emit_op2_shimm(u32 dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rm;
 
     switch (st) {
@@ -1747,7 +1850,6 @@ public:
   // Calculates operand 2 when register is shifted/rotated by another register.
   template<FlagOperation flg>
   inline void emit_op2_shreg(u32 dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     load_alloc_reg_lsb(areg, reg_a1, pc);  // Loads the LSB byte only!
 
     if (flg == SetFlags) {
@@ -1856,7 +1958,6 @@ public:
   // 3 regs (with op2) instructions
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
     // Generate op2 to a0, op1 to a1
@@ -1942,8 +2043,6 @@ public:
 
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     u32 regop2 = emit_arm_aluop2<flg>(it);   // Generate op2 to a0
     u32 rd = store_alloc_reg(it.rd(), reg_a0);
 
@@ -1969,7 +2068,6 @@ public:
   // compare/test instructions
   template <AluOperation aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
     u32 regop2 = emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
@@ -1996,8 +2094,6 @@ public:
   // Performs 32 bit multiplications (rd and rn are swapped)
   template<FlagOperation flg, MulMode mm>
   inline void arm_mul32(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
     u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
     u32 rd = store_alloc_reg(it.rn(), reg_a2);
@@ -2019,8 +2115,6 @@ public:
   // Performs 64 bit multiplications
   template<FlagOperation flg, MulMode mm, bool signmul>
   inline void arm_mul64(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
     u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
     u32 rdlo = (mm == MulAdd) ? load_alloc_reg(it.rdlo(), reg_a2, it.pc + 8)
@@ -2058,8 +2152,6 @@ public:
   // PSR register read
   template<PSReg reg>
   inline void arm_read_psr(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (reg == RegCPSR) {
       generate_function_call(execute_read_cpsr);
     } else {
@@ -2072,9 +2164,6 @@ public:
   // PSR register write
   template<PSReg reg, OpType opt>
   inline void arm_write_psr(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    const u32 stored_pc = this->block_pc;     // TODO: Remove this
-
     if (opt == OpReg) {
       generate_load_reg(reg_a0, it.rm());
     } else {
@@ -2093,286 +2182,234 @@ public:
     }
   }
 
-};
-
-#define arm_conditional_block_header()                                        \
-  generate_condition();                                                       \
-
-#define thumb_process_cheats()                                                \
-  generate_function_call(mips_cheat_hook);
-
-#define arm_process_cheats()                                                  \
-  generate_function_call(mips_cheat_hook);
-
-#ifdef TRACE_INSTRUCTIONS
-  void trace_instruction(u32 pc, u32 mode)
-  {
-    if (mode)
-      printf("Executed arm %x\n", pc);
-    else
-      printf("Executed thumb %x\n", pc);
-    #ifdef TRACE_REGISTERS
-    print_regs();
+  template <CPUInstMode cm>
+  inline void trace_instruction(u32 pc) {
+    #ifdef TRACE_INSTRUCTIONS
+    emit_save_regs(false);
+    generate_load_imm(reg_a0, pc);
+    generate_load_imm(reg_a1, (cm == ModeThumb ? 0 : 1));
+    genccall(&trace_instruction_hook);
+    mips_emit_nop();
+    emit_restore_regs(false);
     #endif
   }
 
-  #define emit_trace_instruction(pc, mode)                                      \
-    emit_save_regs(false);                                                      \
-    generate_load_imm(reg_a0, pc);                                              \
-    generate_load_imm(reg_a1, mode);                                            \
-    genccall(&trace_instruction);                                               \
-    mips_emit_nop();                                                            \
-    emit_restore_regs(false)
-  #define emit_trace_thumb_instruction(pc) emit_trace_instruction(pc, 0)
-  #define emit_trace_arm_instruction(pc)   emit_trace_instruction(pc, 1)
-#else
-  #define emit_trace_thumb_instruction(pc)
-  #define emit_trace_arm_instruction(pc)
-#endif
 
+  // ---- Init stub / handler codegeneration -----
 
-#define generate_translation_gate(type)                                       \
-  generate_load_pc(reg_a0, pc);                                               \
-  generate_indirect_branch_no_cycle_update(type)                              \
-
-#define generate_update_pc_reg()                                              \
-  generate_load_pc(reg_a0, pc);                                               \
-  mips_emit_sw(reg_a0, reg_base, (REG_PC * 4))                                \
-
-
-// Register save layout as follows:
-#define ReOff_RegPC    (REG_PC    * 4) // REG_PC
-#define ReOff_CPSR     (REG_CPSR  * 4) // REG_CPSR
-#define ReOff_SaveR1   (REG_SAVE  * 4) // 3 save scratch regs
-#define ReOff_SaveR2   (REG_SAVE2 * 4)
-#define ReOff_SaveR3   (REG_SAVE3 * 4)
-#define ReOff_OamUpd   (OAM_UPDATED*4) // OAM_UPDATED
-#define ReOff_GP_Save  (REG_SAVE5 * 4) // GP_SAVE
-
-// Saves all regs to their right slot and loads gp
-#define emit_save_regs(save_a2) {                                             \
-  int i;                                                                      \
-  for (i = 0; i < 15; i++) {                                                  \
-    mips_emit_sw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
-  }                                                                           \
-  if (save_a2) {                                                              \
-    mips_emit_sw(reg_a2, reg_base, ReOff_SaveR2);                             \
-  }                                                                           \
-  /* Load the gp pointer, used by C code */                                   \
-  mips_emit_lw(mips_reg_gp, reg_base, ReOff_GP_Save);                         \
-}
-
-// Restores the registers from their slot
-#define emit_restore_regs(restore_a2) {                                       \
-  int i;                                                                      \
-  if (restore_a2) {                                                           \
-    mips_emit_lw(reg_a2, reg_base, ReOff_SaveR2);                             \
-  }                                                                           \
-  for (i = 0; i < 15; i++) {                                                  \
-    mips_emit_lw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
-  }                                                                           \
-}
-
-// Emits a function call for a read or a write (for special stuff like flash)
-#define emit_mem_call_ds(fnptr, mask)                                         \
-  mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR1);                          \
-  emit_save_regs(true);                                                       \
-  genccall(fnptr);                                                            \
-  mips_emit_andi(reg_a0, reg_a0, (mask));                                     \
-  mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR1);                          \
-  emit_restore_regs(true);
-
-#define emit_mem_call(fnptr, mask)      \
-  emit_mem_call_ds(fnptr, mask)         \
-  mips_emit_jr(mips_reg_ra);            \
-  mips_emit_nop();
-
-// This is a pointer table to the open load stubs, used by the BIOS (optimization)
-u32* openld_core_ptrs[11];
-
-const u8 ldopmap[6][2] = { {0, 1}, {1, 2}, {2, 4}, {4, 6}, {6, 10}, {10, 11} };
-const u8 ldhldrtbl[11] = {0, 1, 2, 2, 3, 3, 4, 4, 4, 4, 5};
-#define ld_phndlr_branch(memop) \
-  (((u32*)&rom_translation_cache[ldhldrtbl[(memop)]*16*4]) - ((u32*)translation_ptr + 1))
-
-#define st_phndlr_branch(memop) \
-  (((u32*)&rom_translation_cache[((memop) + 6)*16*4]) - ((u32*)translation_ptr + 1))
-
-#define branch_handlerid(phndlrid) \
-  (((u32*)&rom_translation_cache[(phndlrid)*16*4]) - ((u32*)translation_ptr + 1))
-
-#define branch_offset(ptr) \
-  (((u32*)ptr) - ((u32*)translation_ptr + 1))
-
-static void emit_mem_access_loadop(
-  u8 *translation_ptr,
-  u32 base_addr, unsigned size, unsigned alignment, bool signext)
-{
-  switch (size) {
-  case 2:
-    mips_emit_lw(reg_rv, reg_rv, (base_addr & 0xffff));
-    break;
-  case 1:
-    if (signext) {
-      if (alignment) {
-        // Unaligned signed 16b load, is just a load byte (due to sign extension)
-        mips_emit_lb(reg_rv, reg_rv, ((base_addr | 1) & 0xffff));
+  void emit_mem_access_loadop(u32 base_addr, unsigned size, unsigned alignment, bool signext) {
+    switch (size) {
+    case 2:
+      mips_emit_lw(reg_rv, reg_rv, (base_addr & 0xffff));
+      break;
+    case 1:
+      if (signext) {
+        if (alignment) {
+          // Unaligned signed 16b load, is just a load byte (due to sign extension)
+          mips_emit_lb(reg_rv, reg_rv, ((base_addr | 1) & 0xffff));
+        } else {
+          mips_emit_lh(reg_rv, reg_rv, (base_addr & 0xffff));
+        }
       } else {
-        mips_emit_lh(reg_rv, reg_rv, (base_addr & 0xffff));
+        mips_emit_lhu(reg_rv, reg_rv, (base_addr & 0xffff));
       }
+      break;
+    default:
+      if (signext) {
+        mips_emit_lb(reg_rv, reg_rv, (base_addr & 0xffff));
+      } else {
+        mips_emit_lbu(reg_rv, reg_rv, (base_addr & 0xffff));
+      }
+      break;
+    };
+  }
+
+  // Generates the stub to access memory for a given region, access type,
+  // size and misalignment.
+  // Handles "special" cases like weirdly mapped memory
+  void emit_pmemld_stub(
+    unsigned memop_number, const t_stub_meminfo *meminfo,
+    bool signext, unsigned size,
+    unsigned alignment, bool aligned, bool must_swap)
+  {
+    unsigned region = meminfo->region;
+    u32 base_addr = meminfo->baseptr;
+
+    if (region >= 9 && region <= 11) {
+      // Use the same handler for these regions (just replicas)
+      tmemld[memop_number][region] = tmemld[memop_number][8];
+      return;
+    }
+
+    // Clean up one or two bits (to align access). It might already be aligned!
+    u32 memmask = (meminfo->memsize - 1);
+    memmask = (memmask >> size) << size;    // Clear 1 or 2 (or none) bits
+
+    // Add the stub to the table (add the JAL instruction encoded already)
+    tmemld[memop_number][region] = (u32)emit_ptr;
+
+    // Size: 0 (8 bits), 1 (16 bits), 2 (32 bits)
+    // First check we are in the right memory region
+    unsigned regionbits = 8;
+    unsigned regioncheck = region;
+    if (region == 8) {
+      // This is an optimization for ROM regions
+      // For region 8-11 we reuse the same code (and have a more generic check)
+      // Region 12 is harder to cover without changing the check (shift + xor)
+      regionbits = 6;
+      regioncheck >>= 2;   // Ignore the two LSB, don't care
+    }
+
+    // Address checking: jumps to handler if bad region/alignment
+    mips_emit_srl(reg_temp, reg_a0, (32 - regionbits));
+    if (!aligned && size != 0) {  // u8 or aligned u32 dont need to check alignment bits
+      insert_bits(reg_temp, reg_a0, reg_rv, regionbits, size);  // Add 1 or 2 bits of alignment
+    }
+    if (regioncheck || alignment) {  // If region and alignment are zero, can skip
+      mips_emit_xori(reg_temp, reg_temp, regioncheck | (alignment << regionbits));
+    }
+
+    // The patcher to use depends on ld/st, access size, and sign extension
+    // (so there's 10 of them). They live in the top stub addresses.
+    mips_emit_b(bne, reg_zero, reg_temp, ld_phndlr_branch(memop_number));
+
+    // BIOS region requires extra checks for protected reads
+    if (region == 0) {
+      // BIOS is *not* mirrored, check that
+      mips_emit_srl(reg_rv, reg_a0, 14);
+      mips_emit_b(bne, reg_zero, reg_rv, branch_offset(openld_core_ptrs[memop_number]));
+
+      // Check whether the read is allowed. Only within BIOS! (Ignore aligned, bad a1)
+      if (!aligned) {
+        mips_emit_srl(reg_temp, reg_a1, 14);
+        mips_emit_b(bne, reg_zero, reg_temp, branch_offset(openld_core_ptrs[memop_number]));
+      }
+    }
+
+    if (region >= 8 && region <= 12) {
+      // ROM area: might need to load the ROM on-demand
+      mips_emit_srl(reg_rv, reg_a0, 15);  // 32KB page number
+      mips_emit_sll(reg_rv, reg_rv,  2);  // (word indexed)
+      mips_emit_addu(reg_rv, reg_rv, reg_base);    // base + offset
+      mips_emit_lw(reg_rv, reg_rv, 0x8000);        // base[offset-0x8000] is readmap ptr
+      mips_emit_andi(reg_temp, reg_a0, memmask);   // Get the lowest 15 bits [can go in delay slot]
+
+      if (must_swap) {   // Do not emit if the ROM is fully loaded, save some cycles
+        u8 *jmppatch;
+        mips_emit_b_filler(bne, reg_rv, reg_zero, jmppatch);  // if not null, can skip load page
+        generate_swap_delay();
+
+        // This code call the C routine to map the relevant ROM page
+        emit_save_regs(aligned);
+        mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3);
+        extract_bits(reg_a0, reg_a0, 15, 10);    // a0 = (addr >> 15) & 0x3ff
+        genccall(&load_gamepak_page);            // Returns valid pointer in rv
+        mips_emit_sw(reg_temp, reg_base, ReOff_SaveR1);
+
+        mips_emit_lw(reg_temp, reg_base, ReOff_SaveR1);
+        emit_restore_regs(aligned);
+        mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);
+
+        generate_branch_patch_conditional(jmppatch - 4, emit_ptr);
+      }
+      // Now we can proceed to load, place addr in the right register
+      mips_emit_addu(reg_rv, reg_rv, reg_temp);
+    } else if (region == 14) {
+      // Read from flash, is a bit special, fn call
+      emit_mem_call_ds(&read_backup, 0xFFFF);
+      if (!size && signext) {
+        extend_byte_signed(reg_rv, reg_rv);
+      } else if (size == 1 && alignment) {
+        extend_byte_signed(reg_rv, reg_rv);
+      } else if (size == 2) {
+        rotate_right(reg_rv, reg_rv, reg_temp, 8 * alignment);
+      }
+      generate_function_return_swap_delay();
+      return;
     } else {
-      mips_emit_lhu(reg_rv, reg_rv, (base_addr & 0xffff));
+      // Generate upper bits of the addr and do addr mirroring
+      // (The address hi16 is rounded up since load uses signed offset)
+      if (!meminfo->baseoff) {
+        mips_emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
+      } else {
+        base_addr = meminfo->baseoff;
+      }
+
+      if (region == 2) {
+        // Can't do EWRAM with an `andi` instruction (18 bits mask)
+        extract_bits(reg_a0, reg_a0, 0, 18);       // &= 0x3ffff
+        if (!aligned && alignment != 0) {
+          emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
+        }
+        // Need to insert a zero in the addr (due to how it's mapped)
+        mips_emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to the base addr
+      } else if (region == 6) {
+        // VRAM is mirrored every 128KB but the last 32KB is mapped to the previous
+        extract_bits(reg_temp, reg_a0, 15, 2);     // Extract bits 15 and 16
+        mips_emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
+        if (!aligned && alignment != 0) {
+          emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
+        }
+        extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
+        mips_emit_b(bne, reg_zero, reg_temp, 1);   // Skip unless last block
+        generate_swap_delay();
+        mips_emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
+        mips_emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
+      } else {
+        // Generate regular (<=32KB) mirroring
+        mips_reg_number breg = (meminfo->baseoff ? reg_base : reg_rv);
+        mips_emit_andi(reg_temp, reg_a0, memmask); // Clear upper bits (mirroring)
+        mips_emit_addu(reg_rv, breg, reg_temp);    // Adds to base addr
+      }
     }
-    break;
-  default:
-    if (signext) {
-      mips_emit_lb(reg_rv, reg_rv, (base_addr & 0xffff));
-    } else {
-      mips_emit_lbu(reg_rv, reg_rv, (base_addr & 0xffff));
+
+    // Emit load operation
+    emit_mem_access_loadop(base_addr, size, alignment, signext);
+
+    if (!(alignment == 0 || (size == 1 && signext))) {
+      // Unaligned accesses require rotation, except for size=1 & signext
+      rotate_right(reg_rv, reg_rv, reg_temp, alignment * 8);
     }
-    break;
-  };
-}
 
-#ifdef PIC
-  #define genccall(fn)                                         \
-    mips_emit_lui(mips_reg_t9, ((u32)fn) >> 16);               \
-    mips_emit_ori(mips_reg_t9, mips_reg_t9, ((u32)fn));        \
-    mips_emit_jalr(mips_reg_t9);
-#else
-  #define genccall(fn) mips_emit_jal(((u32)fn) >> 2);
-#endif
-
-// Describes a "plain" memory are, that is, an area that is just accessed
-// as normal memory (with some caveats tho).
-typedef struct {
-  void *emitter;
-  unsigned region;      // Region ID (top 8 bits)
-  unsigned memsize;     // 0 byte, 1 halfword, 2 word
-  bool check_smc;       // Whether the memory can contain code
-  bool bus16;           // Whether it can only be accessed at 16bit
-  u32 baseptr;          // Memory base address.
-  u32 baseoff;          // Offset from base_reg
-} t_stub_meminfo;
-
-// Generates the stub to access memory for a given region, access type,
-// size and misalignment.
-// Handles "special" cases like weirdly mapped memory
-static void emit_pmemld_stub(
-  unsigned memop_number, const t_stub_meminfo *meminfo,
-  bool signext, unsigned size,
-  unsigned alignment, bool aligned, bool must_swap,
-  u8 **tr_ptr)
-{
-  u8 *translation_ptr = *tr_ptr;
-  unsigned region = meminfo->region;
-  u32 base_addr = meminfo->baseptr;
-
-  if (region >= 9 && region <= 11) {
-    // Use the same handler for these regions (just replicas)
-    tmemld[memop_number][region] = tmemld[memop_number][8];
-    return;
+    generate_function_return_swap_delay();   // Return. Move prev inst to delay slot
   }
 
-  // Clean up one or two bits (to align access). It might already be aligned!
-  u32 memmask = (meminfo->memsize - 1);
-  memmask = (memmask >> size) << size;    // Clear 1 or 2 (or none) bits
+  // Generates the stub to store memory for a given region and size
+  // Handles "special" cases like weirdly mapped memory
+  void emit_pmemst_stub(
+    unsigned memop_number, const t_stub_meminfo *meminfo,
+    unsigned size, bool aligned) {
+    unsigned region = meminfo->region;
+    u32 base_addr = meminfo->baseptr;
 
-  // Add the stub to the table (add the JAL instruction encoded already)
-  tmemld[memop_number][region] = (u32)translation_ptr;
+    // Palette, VRAM and OAM cannot be really byte accessed (use a 16 bit store)
+    bool doubleaccess = (size == 0 && meminfo->bus16);
+    unsigned realsize = size;
+    if (doubleaccess)
+      realsize = 1;
 
-  // Size: 0 (8 bits), 1 (16 bits), 2 (32 bits)
-  // First check we are in the right memory region
-  unsigned regionbits = 8;
-  unsigned regioncheck = region;
-  if (region == 8) {
-    // This is an optimization for ROM regions
-    // For region 8-11 we reuse the same code (and have a more generic check)
-    // Region 12 is harder to cover without changing the check (shift + xor)
-    regionbits = 6;
-    regioncheck >>= 2;   // Ignore the two LSB, don't care
-  }
+    // Clean up one or two bits (to align access). It might already be aligned!
+    u32 memmask = (meminfo->memsize - 1);
+    memmask = (memmask >> realsize) << realsize;
 
-  // Address checking: jumps to handler if bad region/alignment
-  mips_emit_srl(reg_temp, reg_a0, (32 - regionbits));
-  if (!aligned && size != 0) {  // u8 or aligned u32 dont need to check alignment bits
-    insert_bits(reg_temp, reg_a0, reg_rv, regionbits, size);  // Add 1 or 2 bits of alignment
-  }
-  if (regioncheck || alignment) {  // If region and alignment are zero, can skip
-    mips_emit_xori(reg_temp, reg_temp, regioncheck | (alignment << regionbits));
-  }
+    // Add the stub to the table (add the JAL instruction encoded already)
+    tmemst[memop_number][region] = (u32)emit_ptr;
 
-  // The patcher to use depends on ld/st, access size, and sign extension
-  // (so there's 10 of them). They live in the top stub addresses.
-  mips_emit_b(bne, reg_zero, reg_temp, ld_phndlr_branch(memop_number));
+    // First check we are in the right memory region (same as loads)
+    mips_emit_srl(reg_temp, reg_a0, 24);
+    mips_emit_xori(reg_temp, reg_temp, region);
+    mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(memop_number));
 
-  // BIOS region requires extra checks for protected reads
-  if (region == 0) {
-    // BIOS is *not* mirrored, check that
-    mips_emit_srl(reg_rv, reg_a0, 14);
-    mips_emit_b(bne, reg_zero, reg_rv, branch_offset(openld_core_ptrs[memop_number]));
+    mips_emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
 
-    // Check whether the read is allowed. Only within BIOS! (Ignore aligned, bad a1)
-    if (!aligned) {
-      mips_emit_srl(reg_temp, reg_a1, 14);
-      mips_emit_b(bne, reg_zero, reg_temp, branch_offset(openld_core_ptrs[memop_number]));
-    }
-  }
-  
-  if (region >= 8 && region <= 12) {
-    // ROM area: might need to load the ROM on-demand
-    mips_emit_srl(reg_rv, reg_a0, 15);  // 32KB page number
-    mips_emit_sll(reg_rv, reg_rv,  2);  // (word indexed)
-    mips_emit_addu(reg_rv, reg_rv, reg_base);    // base + offset
-    mips_emit_lw(reg_rv, reg_rv, 0x8000);        // base[offset-0x8000] is readmap ptr
-    mips_emit_andi(reg_temp, reg_a0, memmask);   // Get the lowest 15 bits [can go in delay slot]
-
-    if (must_swap) {   // Do not emit if the ROM is fully loaded, save some cycles
-      u8 *jmppatch;
-      mips_emit_b_filler(bne, reg_rv, reg_zero, jmppatch);  // if not null, can skip load page
-      generate_swap_delay();
-
-      // This code call the C routine to map the relevant ROM page
-      emit_save_regs(aligned);
-      mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3);
-      extract_bits(reg_a0, reg_a0, 15, 10);    // a0 = (addr >> 15) & 0x3ff
-      genccall(&load_gamepak_page);            // Returns valid pointer in rv
-      mips_emit_sw(reg_temp, reg_base, ReOff_SaveR1);
-
-      mips_emit_lw(reg_temp, reg_base, ReOff_SaveR1);
-      emit_restore_regs(aligned);
-      mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);
-
-      generate_branch_patch_conditional(jmppatch - 4, translation_ptr);
-    }
-    // Now we can proceed to load, place addr in the right register
-    mips_emit_addu(reg_rv, reg_rv, reg_temp);
-  } else if (region == 14) {
-    // Read from flash, is a bit special, fn call
-    emit_mem_call_ds(&read_backup, 0xFFFF);
-    if (!size && signext) {
-      extend_byte_signed(reg_rv, reg_rv);
-    } else if (size == 1 && alignment) {
-      extend_byte_signed(reg_rv, reg_rv);
-    } else if (size == 2) {
-      rotate_right(reg_rv, reg_rv, reg_temp, 8 * alignment);
-    }
-    generate_function_return_swap_delay();
-    *tr_ptr = translation_ptr;
-    return;
-  } else {
-    // Generate upper bits of the addr and do addr mirroring
-    // (The address hi16 is rounded up since load uses signed offset)
-    if (!meminfo->baseoff) {
-      mips_emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
-    } else {
-      base_addr = meminfo->baseoff;
+    if (doubleaccess) {
+      double_byte(reg_a1, reg_temp);        // value = value | (value << 8)
     }
 
     if (region == 2) {
       // Can't do EWRAM with an `andi` instruction (18 bits mask)
       extract_bits(reg_a0, reg_a0, 0, 18);       // &= 0x3ffff
-      if (!aligned && alignment != 0) {
+      if (!aligned && realsize != 0) {
         emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
       }
       // Need to insert a zero in the addr (due to how it's mapped)
@@ -2381,586 +2418,462 @@ static void emit_pmemld_stub(
       // VRAM is mirrored every 128KB but the last 32KB is mapped to the previous
       extract_bits(reg_temp, reg_a0, 15, 2);     // Extract bits 15 and 16
       mips_emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
-      if (!aligned && alignment != 0) {
-        emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
+      if (!aligned && realsize != 0) {
+        emit_align_reg(reg_a0, realsize);        // addr & ~1/2 (align to size)
       }
       extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
-      mips_emit_b(bne, reg_zero, reg_temp, 1);   // Skip unless last block
+      mips_emit_b(bne, reg_zero, reg_temp, 1);   // Skip next inst unless last block
       generate_swap_delay();
       mips_emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
       mips_emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
     } else {
       // Generate regular (<=32KB) mirroring
-      mips_reg_number breg = (meminfo->baseoff ? reg_base : reg_rv);
-      mips_emit_andi(reg_temp, reg_a0, memmask); // Clear upper bits (mirroring)
-      mips_emit_addu(reg_rv, breg, reg_temp);    // Adds to base addr
+      mips_emit_andi(reg_a0, reg_a0, memmask);   // Clear upper bits (mirroring)
+      mips_emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to base addr
     }
-  }
 
-  // Emit load operation
-  emit_mem_access_loadop(translation_ptr, base_addr, size, alignment, signext);
-  translation_ptr += 4;
-
-  if (!(alignment == 0 || (size == 1 && signext))) {
-    // Unaligned accesses require rotation, except for size=1 & signext
-    rotate_right(reg_rv, reg_rv, reg_temp, alignment * 8);
-  }
-
-  generate_function_return_swap_delay();   // Return. Move prev inst to delay slot
-  *tr_ptr = translation_ptr;
-}
-
-// Generates the stub to store memory for a given region and size
-// Handles "special" cases like weirdly mapped memory
-static void emit_pmemst_stub(
-  unsigned memop_number, const t_stub_meminfo *meminfo,
-  unsigned size, bool aligned, u8 **tr_ptr)
-{
-  u8 *translation_ptr = *tr_ptr;
-  unsigned region = meminfo->region;
-  u32 base_addr = meminfo->baseptr;
-
-  // Palette, VRAM and OAM cannot be really byte accessed (use a 16 bit store)
-  bool doubleaccess = (size == 0 && meminfo->bus16);
-  unsigned realsize = size;
-  if (doubleaccess)
-    realsize = 1;
-
-  // Clean up one or two bits (to align access). It might already be aligned!
-  u32 memmask = (meminfo->memsize - 1);
-  memmask = (memmask >> realsize) << realsize;
-
-  // Add the stub to the table (add the JAL instruction encoded already)
-  tmemst[memop_number][region] = (u32)translation_ptr;
-
-  // First check we are in the right memory region (same as loads)
-  mips_emit_srl(reg_temp, reg_a0, 24);
-  mips_emit_xori(reg_temp, reg_temp, region);
-  mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(memop_number));
-
-  mips_emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
-
-  if (doubleaccess) {
-    double_byte(reg_a1, reg_temp);        // value = value | (value << 8)
-  }
-
-  if (region == 2) {
-    // Can't do EWRAM with an `andi` instruction (18 bits mask)
-    extract_bits(reg_a0, reg_a0, 0, 18);       // &= 0x3ffff
-    if (!aligned && realsize != 0) {
-      emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
+    // Generate SMC write and tracking
+    // TODO: Should we have SMC checks here also for aligned?
+    if (meminfo->check_smc && !aligned) {
+      if (region == 2) {
+        mips_emit_lui(reg_temp, 0x40000 >> 16);
+        mips_emit_addu(reg_temp, reg_rv, reg_temp); // SMC lives after the ewram
+      } else {
+        mips_emit_addiu(reg_temp, reg_rv, 0x8000); // -32KB is the addr of the SMC buffer
+      }
+      if (realsize == 2) {
+        mips_emit_lw(reg_temp, reg_temp, base_addr);
+      } else if (realsize == 1) {
+        mips_emit_lh(reg_temp, reg_temp, base_addr);
+      } else {
+        mips_emit_lb(reg_temp, reg_temp, base_addr);
+      }
+      // If the data is non zero, we just wrote over code
+      // Local-jump to the smc_write (which lives at offset:0)
+      mips_emit_b(bne, reg_zero, reg_temp, branch_offset(&rom_translation_cache[SMC_WRITE_OFF]));
     }
-    // Need to insert a zero in the addr (due to how it's mapped)
-    mips_emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to the base addr
-  } else if (region == 6) {
-    // VRAM is mirrored every 128KB but the last 32KB is mapped to the previous
-    extract_bits(reg_temp, reg_a0, 15, 2);     // Extract bits 15 and 16
-    mips_emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
-    if (!aligned && realsize != 0) {
-      emit_align_reg(reg_a0, realsize);        // addr & ~1/2 (align to size)
-    }
-    extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
-    mips_emit_b(bne, reg_zero, reg_temp, 1);   // Skip next inst unless last block
-    generate_swap_delay();
-    mips_emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
-    mips_emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
-  } else {
-    // Generate regular (<=32KB) mirroring
-    mips_emit_andi(reg_a0, reg_a0, memmask);   // Clear upper bits (mirroring)
-    mips_emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to base addr
-  }
 
-  // Generate SMC write and tracking
-  // TODO: Should we have SMC checks here also for aligned?
-  if (meminfo->check_smc && !aligned) {
-    if (region == 2) {
-      mips_emit_lui(reg_temp, 0x40000 >> 16);
-      mips_emit_addu(reg_temp, reg_rv, reg_temp); // SMC lives after the ewram
-    } else {
-      mips_emit_addiu(reg_temp, reg_rv, 0x8000); // -32KB is the addr of the SMC buffer
-    }
+    // Store the data (delay slot from the SMC branch)
     if (realsize == 2) {
-      mips_emit_lw(reg_temp, reg_temp, base_addr);
+      mips_emit_sw(reg_a1, reg_rv, base_addr);
     } else if (realsize == 1) {
-      mips_emit_lh(reg_temp, reg_temp, base_addr);
+      mips_emit_sh(reg_a1, reg_rv, base_addr);
     } else {
-      mips_emit_lb(reg_temp, reg_temp, base_addr);
+      mips_emit_sb(reg_a1, reg_rv, base_addr);
     }
-    // If the data is non zero, we just wrote over code
-    // Local-jump to the smc_write (which lives at offset:0)
-    mips_emit_b(bne, reg_zero, reg_temp, branch_offset(&rom_translation_cache[SMC_WRITE_OFF]));
+
+    // Post processing store:
+    // Signal that OAM was updated
+    if (region == 7) {
+      // Write any nonzero data
+      mips_emit_sw(reg_base, reg_base, ReOff_OamUpd);
+      generate_function_return_swap_delay();
+    }
+    else {
+      mips_emit_jr(mips_reg_ra);
+      mips_emit_nop();
+    }
   }
 
-  // Store the data (delay slot from the SMC branch)
-  if (realsize == 2) {
-    mips_emit_sw(reg_a1, reg_rv, base_addr);
-  } else if (realsize == 1) {
-    mips_emit_sh(reg_a1, reg_rv, base_addr);
-  } else {
-    mips_emit_sb(reg_a1, reg_rv, base_addr);
-  }
+  // Palette is accessed differently and stored in a decoded manner
+  void emit_palette_hdl(
+    unsigned memop_number, const t_stub_meminfo *meminfo,
+    unsigned size, bool aligned)
+  {
+    // Palette cannot be accessed at byte level
+    unsigned realsize = size ? size : 1;
+    u32 memmask = (meminfo->memsize - 1);
+    memmask = (memmask >> realsize) << realsize;
 
-  // Post processing store:
-  // Signal that OAM was updated
-  if (region == 7) {
-    // Write any nonzero data
-    mips_emit_sw(reg_base, reg_base, ReOff_OamUpd);
+    // Add the stub to the table (add the JAL instruction encoded already)
+    tmemst[memop_number][5] = (u32)emit_ptr;
+
+    // First check we are in the right memory region (same as loads)
+    mips_emit_srl(reg_temp, reg_a0, 24);
+    mips_emit_xori(reg_temp, reg_temp, 5);
+    mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(memop_number));
+    mips_emit_andi(reg_rv, reg_a0, memmask);   // Clear upper bits (mirroring)
+    if (size == 0) {
+      double_byte(reg_a1, reg_temp);    // value = value | (value << 8)
+    }
+    mips_emit_addu(reg_rv, reg_rv, reg_base);
+
+    // Store the data in real palette memory
+    if (realsize == 2) {
+      mips_emit_sw(reg_a1, reg_rv, 0x100);
+    } else if (realsize == 1) {
+      mips_emit_sh(reg_a1, reg_rv, 0x100);
+    }
+
+    // Convert and store in mirror memory
+    palette_convert();
+    mips_emit_sh(reg_temp, reg_rv, 0x500);
+
+    if (size == 2) {
+      // Convert the second half-word also
+      mips_emit_srl(reg_a1, reg_a1, 16);
+      palette_convert();
+      mips_emit_sh(reg_temp, reg_rv, 0x502);
+    }
     generate_function_return_swap_delay();
   }
-  else {
+
+  // This emits stubs for regions where writes have no side-effects
+  void emit_ignorestore_stub(unsigned size) {
+    // Region 0-1 (BIOS and ignore)
+    tmemst[size][0] = tmemst[size][1] = (u32)emit_ptr;
+    mips_emit_srl(reg_temp, reg_a0, 25);               // Check 7 MSB to be zero
+    mips_emit_b(bne, reg_temp, reg_zero, st_phndlr_branch(size));
+    mips_emit_nop();
+    mips_emit_jr(mips_reg_ra);
+    mips_emit_nop();
+
+    // Region 9-C
+    tmemst[size][ 9] = tmemst[size][10] =
+    tmemst[size][11] = tmemst[size][12] = (u32)emit_ptr;
+
+    mips_emit_srl(reg_temp, reg_a0, 24);
+    mips_emit_addiu(reg_temp, reg_temp, -9);
+    mips_emit_srl(reg_temp, reg_temp, 2);
+    mips_emit_b(bne, reg_temp, reg_zero, st_phndlr_branch(size));
+    mips_emit_nop();
+    mips_emit_jr(mips_reg_ra);
+    mips_emit_nop();
+
+    // Region F or higher
+    tmemst[size][15] = (u32)emit_ptr;
+    mips_emit_srl(reg_temp, reg_a0, 24);
+    mips_emit_sltiu(reg_rv, reg_temp, 0x0F);  // Is < 15?
+    mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(size));
+    mips_emit_nop();
     mips_emit_jr(mips_reg_ra);
     mips_emit_nop();
   }
 
-  *tr_ptr = translation_ptr;
-}
+  // Stubs for regions with EEPROM or flash/SRAM (also RTC)
+  void emit_saveaccess_stub() {
+    unsigned opt, i, strop;
 
-// Palette conversion functions. a1 contains the palette value (16 LSB)
-// Places the result in reg_temp, can use a0 as temporary register
-#if defined(USE_XBGR1555_FORMAT)
-  /* PS2's native format */
-  #define palette_convert()                       \
-    mips_emit_andi(reg_temp, reg_a1, 0x7FFF);
-#else
-  /* 0BGR to RGB565 (clobbers a0) */
-  #ifdef MIPS_HAS_R2_INSTS
-    #define palette_convert()                       \
-      mips_emit_ext(reg_temp, reg_a1, 10, 5);       \
-      mips_emit_ins(reg_temp, reg_a1, 11, 5);       \
-      mips_emit_ext(reg_a0, reg_a1, 5, 5);          \
-      mips_emit_ins(reg_temp, reg_a0, 6, 5);
-  #else
-    #define palette_convert()                       \
-      mips_emit_srl(reg_a0, reg_a1, 10);            \
-      mips_emit_andi(reg_temp, reg_a0, 0x1F);       \
-      mips_emit_sll(reg_a0, reg_a1, 1);             \
-      mips_emit_andi(reg_a0, reg_a0, 0x7C0);        \
-      mips_emit_or(reg_temp, reg_temp, reg_a0);     \
-      mips_emit_andi(reg_a0, reg_a1, 0x1F);         \
-      mips_emit_sll(reg_a0, reg_a0, 11);            \
-      mips_emit_or(reg_temp, reg_temp, reg_a0);
-  #endif
-#endif
+    // Writes to region 8 are directed to RTC (only 16 bit ones though)
+    tmemld[1][8] = (u32)emit_ptr;
+    emit_mem_call(&write_gpio, 0xFE);
 
-// Palette is accessed differently and stored in a decoded manner
-static void emit_palette_hdl(
-  unsigned memop_number, const t_stub_meminfo *meminfo,
-  unsigned size, bool aligned, u8 **tr_ptr)
-{
-  u8 *translation_ptr = *tr_ptr;
+    // These are for region 0xD where EEPROM is mapped. Addr is ignored
+    // Value is limited to one bit (both reading and writing!)
+    u32 *read_hndlr = (u32*)emit_ptr;
+    emit_mem_call(&read_eeprom, 0x3FF);
+    u32 *write_hndlr = (u32*)emit_ptr;
+    emit_mem_call(&write_eeprom, 0x3FF);
 
-  // Palette cannot be accessed at byte level
-  unsigned realsize = size ? size : 1;
-  u32 memmask = (meminfo->memsize - 1);
-  memmask = (memmask >> realsize) << realsize;
+    // Map loads to the read handler.
+    for (opt = 0; opt < 6; opt++) {
+      // Unalignment is not relevant here, so map them all to the same handler.
+      for (i = ldopmap[opt][0]; i < ldopmap[opt][1]; i++)
+        tmemld[i][13] = (u32)emit_ptr;
+      // Emit just a check + patch jump
+      mips_emit_srl(reg_temp, reg_a0, 24);
+      mips_emit_xori(reg_rv, reg_temp, 0x0D);
+      mips_emit_b(bne, reg_rv, reg_zero, branch_handlerid(opt));
+      mips_emit_nop();
+      mips_emit_b(beq, reg_zero, reg_zero, branch_offset(read_hndlr));
+    }
+    // This is for stores
+    for (strop = 0; strop <= 3; strop++) {
+      tmemst[strop][13] = (u32)emit_ptr;
+      mips_emit_srl(reg_temp, reg_a0, 24);
+      mips_emit_xori(reg_rv, reg_temp, 0x0D);
+      mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
+      mips_emit_nop();
+      mips_emit_b(beq, reg_zero, reg_zero, branch_offset(write_hndlr));
+    }
 
-  // Add the stub to the table (add the JAL instruction encoded already)
-  tmemst[memop_number][5] = (u32)translation_ptr;
+    // Flash/SRAM/Backup writes are only 8 byte supported
+    for (strop = 0; strop <= 3; strop++) {
+      tmemst[strop][14] = (u32)emit_ptr;
+      mips_emit_srl(reg_temp, reg_a0, 24);
+      mips_emit_xori(reg_rv, reg_temp, 0x0E);
+      mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
+      if (strop == 0) {
+        emit_mem_call(&write_backup, 0xFFFF);
+      } else {
+        mips_emit_nop();
+        mips_emit_jr(mips_reg_ra);   // Does nothing in this case
+        mips_emit_nop();
+      }
+    }
 
-  // First check we are in the right memory region (same as loads)
-  mips_emit_srl(reg_temp, reg_a0, 24);
-  mips_emit_xori(reg_temp, reg_temp, 5);
-  mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(memop_number));
-  mips_emit_andi(reg_rv, reg_a0, memmask);   // Clear upper bits (mirroring)
-  if (size == 0) {
-    double_byte(reg_a1, reg_temp);    // value = value | (value << 8)
+    // RTC writes, only for 16 bit accesses
+    for (strop = 0; strop <= 3; strop++) {
+      tmemst[strop][8] = (u32)emit_ptr;
+      mips_emit_srl(reg_temp, reg_a0, 24);
+      mips_emit_xori(reg_rv, reg_temp, 0x08);
+      mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
+      if (strop == 1) {
+        emit_mem_call(&write_gpio, 0xFF);  // Addr
+      } else {
+        mips_emit_nop();
+        mips_emit_jr(mips_reg_ra);   // Do nothing
+        mips_emit_nop();
+      }
+    }
+
+    // Region 4 writes
+    // I/O writes are also a bit special, they can trigger things like DMA, IRQs...
+    // Also: aligned (strop==3) accesses do not trigger IRQs
+    const u32 iowrtbl[] = {
+      (u32)&write_io_register8, (u32)&write_io_register16,
+      (u32)&write_io_register32, (u32)&write_io_register32 };
+    const u32 amsk[] = {0x3FF, 0x3FE, 0x3FC, 0x3FC};
+    for (strop = 0; strop <= 3; strop++) {
+      tmemst[strop][4] = (u32)emit_ptr;
+      mips_emit_srl(reg_temp, reg_a0, 24);
+      mips_emit_xori(reg_temp, reg_temp, 0x04);
+      mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(strop));
+
+      mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3); // Store the return addr
+      emit_save_regs(strop == 3);
+      mips_emit_andi(reg_a0, reg_a0, amsk[strop]);
+      genccall(iowrtbl[strop]);
+
+      if (strop < 3) {
+        mips_emit_sw(reg_a2, reg_base, ReOff_RegPC);   // Save PC (delay)
+        // If I/O writes returns non-zero, means we need to process side-effects.
+        mips_emit_b(bne, reg_zero, reg_rv, branch_offset(&rom_translation_cache[IOEPILOGUE_OFF]));
+        mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);   // (in delay slot but not used)
+        emit_restore_regs(false);
+      } else {
+        mips_emit_nop();
+        mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);
+        emit_restore_regs(true);
+      }
+      generate_function_return_swap_delay();
+    }
   }
-  mips_emit_addu(reg_rv, reg_rv, reg_base);
 
-  // Store the data in real palette memory
-  if (realsize == 2) {
-    mips_emit_sw(reg_a1, reg_rv, 0x100);
-  } else if (realsize == 1) {
-    mips_emit_sh(reg_a1, reg_rv, 0x100);
-  }
+  // Emits openload stub
+  // These are used for reading unmapped regions, we just make them go
+  // through the slow handler since should rarely happen.
+  void emit_openload_stub(unsigned opt, bool signext, unsigned size) {
+    int i;
+    const u32 hndreadtbl[] = {
+      (u32)&read_memory8,  (u32)&read_memory16,  (u32)&read_memory32,
+      (u32)&read_memory8s, (u32)&read_memory16s, (u32)&read_memory32 };
 
-  // Convert and store in mirror memory
-  palette_convert();
-  mips_emit_sh(reg_temp, reg_rv, 0x500);
-
-  if (size == 2) {
-    // Convert the second half-word also
-    mips_emit_srl(reg_a1, reg_a1, 16);
-    palette_convert();
-    mips_emit_sh(reg_temp, reg_rv, 0x502);
-  }
-  generate_function_return_swap_delay();
-
-  *tr_ptr = translation_ptr;
-}
-
-// This emits stubs for regions where writes have no side-effects
-static void emit_ignorestore_stub(unsigned size, u8 **tr_ptr) {
-  u8 *translation_ptr = *tr_ptr;
-
-  // Region 0-1 (BIOS and ignore)
-  tmemst[size][0] = tmemst[size][1] = (u32)translation_ptr;
-  mips_emit_srl(reg_temp, reg_a0, 25);               // Check 7 MSB to be zero
-  mips_emit_b(bne, reg_temp, reg_zero, st_phndlr_branch(size));
-  mips_emit_nop();
-  mips_emit_jr(mips_reg_ra);
-  mips_emit_nop();
-
-  // Region 9-C
-  tmemst[size][ 9] = tmemst[size][10] =
-  tmemst[size][11] = tmemst[size][12] = (u32)translation_ptr;
-
-  mips_emit_srl(reg_temp, reg_a0, 24);
-  mips_emit_addiu(reg_temp, reg_temp, -9);
-  mips_emit_srl(reg_temp, reg_temp, 2);
-  mips_emit_b(bne, reg_temp, reg_zero, st_phndlr_branch(size));
-  mips_emit_nop();
-  mips_emit_jr(mips_reg_ra);
-  mips_emit_nop();
-
-  // Region F or higher
-  tmemst[size][15] = (u32)translation_ptr;
-  mips_emit_srl(reg_temp, reg_a0, 24);
-  mips_emit_sltiu(reg_rv, reg_temp, 0x0F);  // Is < 15?
-  mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(size));
-  mips_emit_nop();
-  mips_emit_jr(mips_reg_ra);
-  mips_emit_nop();
-
-  *tr_ptr = translation_ptr;
-}
-
-// Stubs for regions with EEPROM or flash/SRAM (also RTC)
-static void emit_saveaccess_stub(u8 **tr_ptr) {
-  unsigned opt, i, strop;
-  u8 *translation_ptr = *tr_ptr;
-
-  // Writes to region 8 are directed to RTC (only 16 bit ones though)
-  tmemld[1][8] = (u32)translation_ptr;
-  emit_mem_call(&write_gpio, 0xFE);
-
-  // These are for region 0xD where EEPROM is mapped. Addr is ignored
-  // Value is limited to one bit (both reading and writing!)
-  u32 *read_hndlr = (u32*)translation_ptr;
-  emit_mem_call(&read_eeprom, 0x3FF);
-  u32 *write_hndlr = (u32*)translation_ptr;
-  emit_mem_call(&write_eeprom, 0x3FF);
-
-  // Map loads to the read handler.
-  for (opt = 0; opt < 6; opt++) {
-    // Unalignment is not relevant here, so map them all to the same handler.
+    // This affects regions 1 and 15
     for (i = ldopmap[opt][0]; i < ldopmap[opt][1]; i++)
-      tmemld[i][13] = (u32)translation_ptr;
-    // Emit just a check + patch jump
+      tmemld[i][ 1] = tmemld[i][15] = (u32)emit_ptr;
+
+    // Alignment is ignored since the handlers do the magic for us
+    // Only check region match: if we are accessing a non-ignore region
     mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_xori(reg_rv, reg_temp, 0x0D);
-    mips_emit_b(bne, reg_rv, reg_zero, branch_handlerid(opt));
-    mips_emit_nop();
-    mips_emit_b(beq, reg_zero, reg_zero, branch_offset(read_hndlr));
-  }
-  // This is for stores
-  for (strop = 0; strop <= 3; strop++) {
-    tmemst[strop][13] = (u32)translation_ptr;
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_xori(reg_rv, reg_temp, 0x0D);
-    mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
-    mips_emit_nop();
-    mips_emit_b(beq, reg_zero, reg_zero, branch_offset(write_hndlr));
-  }
-  
-  // Flash/SRAM/Backup writes are only 8 byte supported
-  for (strop = 0; strop <= 3; strop++) {
-    tmemst[strop][14] = (u32)translation_ptr;
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_xori(reg_rv, reg_temp, 0x0E);
-    mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
-    if (strop == 0) {
-      emit_mem_call(&write_backup, 0xFFFF);
+    mips_emit_sltiu(reg_rv, reg_temp, 0x0F);
+    mips_emit_addiu(reg_temp, reg_temp, -1);
+    mips_emit_sltu(reg_temp, reg_zero, reg_temp);
+    mips_emit_and(reg_temp, reg_temp, reg_rv);
+
+    // Jump to patch handler
+    mips_emit_b(bne, reg_zero, reg_temp, branch_handlerid(opt));
+
+    // BIOS can jump here to do open loads
+    for (i = ldopmap[opt][0]; i < ldopmap[opt][1]; i++)
+      openld_core_ptrs[i] = (u32*)emit_ptr;
+
+    emit_save_regs(true);
+    mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR1);   // Delay slot
+    genccall(hndreadtbl[size + (signext ? 3 : 0)]);
+    if (opt < 5) {
+      mips_emit_sw(reg_a1, reg_base, ReOff_RegPC);       // Save current PC
     } else {
-      mips_emit_nop();
-      mips_emit_jr(mips_reg_ra);   // Does nothing in this case
+      // Aligned loads do not hold PC in a1 (imprecision)
       mips_emit_nop();
     }
-  }
 
-  // RTC writes, only for 16 bit accesses
-  for (strop = 0; strop <= 3; strop++) {
-    tmemst[strop][8] = (u32)translation_ptr;
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_xori(reg_rv, reg_temp, 0x08);
-    mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
-    if (strop == 1) {
-      emit_mem_call(&write_gpio, 0xFF);  // Addr
-    } else {
-      mips_emit_nop();
-      mips_emit_jr(mips_reg_ra);   // Do nothing
-      mips_emit_nop();
-    }
-  }
-
-  // Region 4 writes  
-  // I/O writes are also a bit special, they can trigger things like DMA, IRQs...
-  // Also: aligned (strop==3) accesses do not trigger IRQs
-  const u32 iowrtbl[] = {
-    (u32)&write_io_register8, (u32)&write_io_register16,
-    (u32)&write_io_register32, (u32)&write_io_register32 };
-  const u32 amsk[] = {0x3FF, 0x3FE, 0x3FC, 0x3FC};
-  for (strop = 0; strop <= 3; strop++) {
-    tmemst[strop][4] = (u32)translation_ptr;
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_xori(reg_temp, reg_temp, 0x04);
-    mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(strop));
-
-    mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3); // Store the return addr
-    emit_save_regs(strop == 3);
-    mips_emit_andi(reg_a0, reg_a0, amsk[strop]);
-    genccall(iowrtbl[strop]);
-
-    if (strop < 3) {
-      mips_emit_sw(reg_a2, reg_base, ReOff_RegPC);   // Save PC (delay)
-      // If I/O writes returns non-zero, means we need to process side-effects.
-      mips_emit_b(bne, reg_zero, reg_rv, branch_offset(&rom_translation_cache[IOEPILOGUE_OFF]));
-      mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);   // (in delay slot but not used)
-      emit_restore_regs(false);
-    } else {
-      mips_emit_nop();
-      mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);
-      emit_restore_regs(true);
-    }
+    mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR1);
+    emit_restore_regs(true);
     generate_function_return_swap_delay();
   }
 
-  *tr_ptr = translation_ptr;
-}
+  // Generates a patch handler for a given access size
+  // It will detect the access alignment and memory region and load
+  // the corresponding handler from the table (at the right offset)
+  // and patch the jal instruction from where it was called.
+  void emit_phand(unsigned size, unsigned toff, bool check_alignment) {
+    u8 *iptr = emit_ptr;
 
-// Emits openload stub
-// These are used for reading unmapped regions, we just make them go
-// through the slow handler since should rarely happen.
-static void emit_openload_stub(unsigned opt, bool signext, unsigned size, u8 **tr_ptr) {
-  int i;
-  const u32 hndreadtbl[] = {
-    (u32)&read_memory8,  (u32)&read_memory16,  (u32)&read_memory32,
-    (u32)&read_memory8s, (u32)&read_memory16s, (u32)&read_memory32 };
-  u8 *translation_ptr = *tr_ptr;
-
-  // This affects regions 1 and 15
-  for (i = ldopmap[opt][0]; i < ldopmap[opt][1]; i++)
-    tmemld[i][ 1] = tmemld[i][15] = (u32)translation_ptr;
-
-  // Alignment is ignored since the handlers do the magic for us
-  // Only check region match: if we are accessing a non-ignore region
-  mips_emit_srl(reg_temp, reg_a0, 24);
-  mips_emit_sltiu(reg_rv, reg_temp, 0x0F);
-  mips_emit_addiu(reg_temp, reg_temp, -1);
-  mips_emit_sltu(reg_temp, reg_zero, reg_temp);
-  mips_emit_and(reg_temp, reg_temp, reg_rv);
-
-  // Jump to patch handler
-  mips_emit_b(bne, reg_zero, reg_temp, branch_handlerid(opt));
-
-  // BIOS can jump here to do open loads
-  for (i = ldopmap[opt][0]; i < ldopmap[opt][1]; i++)
-    openld_core_ptrs[i] = (u32*)translation_ptr;
-
-  emit_save_regs(true);
-  mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR1);   // Delay slot
-  genccall(hndreadtbl[size + (signext ? 3 : 0)]);
-  if (opt < 5) {
-    mips_emit_sw(reg_a1, reg_base, ReOff_RegPC);       // Save current PC
-  } else {
-    // Aligned loads do not hold PC in a1 (imprecision)
-    mips_emit_nop();
-  }
-
-  mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR1);
-  emit_restore_regs(true);
-  generate_function_return_swap_delay();
-
-  *tr_ptr = translation_ptr;
-}
-
-typedef void (*sthldr_t)(
-  unsigned memop_number, const t_stub_meminfo *meminfo,
-  unsigned size, bool aligned, u8 **tr_ptr);
-  
-typedef void (*ldhldr_t)(
-  unsigned memop_number, const t_stub_meminfo *meminfo,
-  bool signext, unsigned size,
-  unsigned alignment, bool aligned, bool must_swap,
-  u8 **tr_ptr);
-
-// Generates a patch handler for a given access size
-// It will detect the access alignment and memory region and load
-// the corresponding handler from the table (at the right offset)
-// and patch the jal instruction from where it was called.
-static void emit_phand(
-  u8 **tr_ptr, unsigned size, unsigned toff,
-  bool check_alignment)
-{
-  u8 *translation_ptr = *tr_ptr;
-
-  mips_emit_srl(reg_temp, reg_a0, 24);
-  #ifdef PSP
-    mips_emit_addiu(reg_rv, reg_zero, 15*4);  // Table limit (max)
-    mips_emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
-    mips_emit_min(reg_temp, reg_temp, reg_rv);// Do not overflow table
-  #else
-    mips_emit_sltiu(reg_rv, reg_temp, 0x0F);  // Check for addr 0x1XXX.. 0xFXXX
-    mips_emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
-    mips_emit_b(bne, reg_zero, reg_rv, 1);    // Skip next inst if region is good
-    generate_swap_delay();
-    mips_emit_addiu(reg_temp, reg_zero, 15*4);// Simulate ld/st to 0x0FXXX (open/ignore)
-  #endif
-
-  // Stores or byte-accesses do not care about alignment
-  if (check_alignment) {
-    // Move alignment bits for the table lookup (1 or 2, to bits 6 and 7)
-    insert_bits(reg_temp, reg_a0, reg_rv, 6, size);
-  }
-
-  unsigned tbloff = 256 + 3*1024 + 220 + 4 * toff;  // Skip regs and RAMs
-  unsigned tbloff2 = tbloff + 960;              // JAL opcode table
-  mips_emit_addu(reg_temp, reg_temp, reg_base); // Add to the base_reg the table offset
-  mips_emit_lw(reg_rv,   reg_temp, tbloff);     // Get func addr from 1st table
-  mips_emit_lw(reg_temp, reg_temp, tbloff2);    // Get opcode from 2nd table
-  mips_emit_sw(reg_temp, mips_reg_ra, -8);      // Patch instruction!
-
-  #if defined(PSP)
-    mips_emit_cache(0x1A, mips_reg_ra, -8);
-    mips_emit_jr(reg_rv);                       // Jump directly to target for speed
-    mips_emit_cache(0x08, mips_reg_ra, -8);
-  #else
-    mips_emit_jr(reg_rv);
-    #ifdef MIPS_HAS_R2_INSTS
-      mips_emit_synci(mips_reg_ra, -8);
+    mips_emit_srl(reg_temp, reg_a0, 24);
+    #ifdef PSP
+      mips_emit_addiu(reg_rv, reg_zero, 15*4);  // Table limit (max)
+      mips_emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
+      mips_emit_min(reg_temp, reg_temp, reg_rv);// Do not overflow table
+    #else
+      mips_emit_sltiu(reg_rv, reg_temp, 0x0F);  // Check for addr 0x1XXX.. 0xFXXX
+      mips_emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
+      mips_emit_b(bne, reg_zero, reg_rv, 1);    // Skip next inst if region is good
+      generate_swap_delay();
+      mips_emit_addiu(reg_temp, reg_zero, 15*4);// Simulate ld/st to 0x0FXXX (open/ignore)
     #endif
-  #endif
 
-  // Round up handlers to 16 instructions for easy addressing
-  // PSP/MIPS32r2 uses up to 12 insts
-  while (translation_ptr - *tr_ptr < 64) {
+    // Stores or byte-accesses do not care about alignment
+    if (check_alignment) {
+      // Move alignment bits for the table lookup (1 or 2, to bits 6 and 7)
+      insert_bits(reg_temp, reg_a0, reg_rv, 6, size);
+    }
+
+    unsigned tbloff = 256 + 3*1024 + 220 + 4 * toff;  // Skip regs and RAMs
+    unsigned tbloff2 = tbloff + 960;              // JAL opcode table
+    mips_emit_addu(reg_temp, reg_temp, reg_base); // Add to the base_reg the table offset
+    mips_emit_lw(reg_rv,   reg_temp, tbloff);     // Get func addr from 1st table
+    mips_emit_lw(reg_temp, reg_temp, tbloff2);    // Get opcode from 2nd table
+    mips_emit_sw(reg_temp, mips_reg_ra, -8);      // Patch instruction!
+
+    #if defined(PSP)
+      mips_emit_cache(0x1A, mips_reg_ra, -8);
+      mips_emit_jr(reg_rv);                       // Jump directly to target for speed
+      mips_emit_cache(0x08, mips_reg_ra, -8);
+    #else
+      mips_emit_jr(reg_rv);
+      #ifdef MIPS_HAS_R2_INSTS
+        mips_emit_synci(mips_reg_ra, -8);
+      #endif
+    #endif
+
+    // Round up handlers to 16 instructions for easy addressing
+    // PSP/MIPS32r2 uses up to 12 insts
+    while (emit_ptr - iptr < 64) {
+      mips_emit_nop();
+    }
+  }
+
+  // This function emits the following stubs:
+  // - smc_write: Jumps to C code to trigger a cache flush
+  // - memop patcher: Patches a memop whenever it accesses the wrong mem region
+  // - mem stubs: There's stubs for load & store, and every memory region
+  //    and possible operand size and misaligment (+sign extensions)
+  void emit_stubs(bool must_swap) {
+    // Initialize memory to a debuggable state
+    rom_cache_watermark = INITIAL_ROM_WATERMARK;
+
+    // Generate first the patch handlers
+    // We have 6+4 patchers, one per mem type (6 or 4)
+
+    // Calculate the offset into tmemld[10][XX];
+    emit_phand(0,  0 * 16, false);  // ld u8
+    emit_phand(0,  1 * 16, false);  // ld s8
+    emit_phand(1,  2 * 16, true);   // ld u16 + u16u1
+    emit_phand(1,  4 * 16, true);   // ld s16 + s16u1
+    emit_phand(2,  6 * 16, true);   // ld u32 (0/1/2/3u)
+    emit_phand(2, 10 * 16, false);  // ld aligned 32
+    // Store table is immediately after
+    emit_phand(0, 11 * 16, false);  // st u8
+    emit_phand(1, 12 * 16, false);  // st u16
+    emit_phand(2, 13 * 16, false);  // st u32
+    emit_phand(2, 14 * 16, false);  // st aligned 32
+
+    // Trampoline area
+    mips_emit_j(((u32)&smc_write) >> 2);
     mips_emit_nop();
+
+    mips_emit_j(((u32)&write_io_epilogue) >> 2);
+    mips_emit_nop();
+
+    // Special trampoline for SP-relative ldm/stm (to EWRAM)
+    generate_load_imm(reg_a1, 0x3FFFC);
+    mips_emit_and(reg_a1, reg_a1, reg_a2);
+    mips_emit_lui(reg_a0, ((u32)(ewram + 0x8000) >> 16));
+    generate_function_return_swap_delay();
+
+    // Generate the openload handlers (for accesses to unmapped mem)
+    emit_openload_stub(0, false, 0);  // ld u8
+    emit_openload_stub(1, true,  0);  // ld s8
+    emit_openload_stub(2, false, 1);  // ld u16
+    emit_openload_stub(3, true,  1);  // ld s16
+    emit_openload_stub(4, false, 2);  // ld u32
+    emit_openload_stub(5, false, 2);  // ld a32
+
+    // Here we emit the ignore store area, just checks and does nothing
+    for (int i = 0; i < 4; i++)
+      emit_ignorestore_stub(i);
+
+    // Here go the save game handlers
+    emit_saveaccess_stub();
+
+    // Generate memory handlers
+    const t_stub_meminfo ldinfo [] = {
+      {  0, 0x4000, false, false, (u32)bios_rom, 0},
+      // 1 Open load / Ignore store
+      {  2, 0x8000, true,  false, (u32)ewram, 0 },      // memsize wrong on purpose
+      {  3, 0x8000, true,  false, (u32)&iwram[0x8000], 0 },
+      {  4,  0x400, false, false, (u32)io_registers, 0 },
+      {  5,  0x400, false, true,  (u32)palette_ram, 0x100 },
+      {  6,    0x0, false, true,  (u32)vram, 0 },             // same, vram is a special case
+      {  7,  0x400, false, true,  (u32)oam_ram, 0x900 },
+      {  8, 0x8000, false, false,  0, 0 },
+      {  9, 0x8000, false, false,  0, 0 },
+      { 10, 0x8000, false, false,  0, 0 },
+      { 11, 0x8000, false, false,  0, 0 },
+      { 12, 0x8000, false, false,  0, 0 },
+      // 13 is EEPROM mapped already (a bit special)
+      { 14,      0, false, false,  0, 0 },                    // Mapped via function call
+      // 15 Open load / Ignore store
+    };
+
+    for (int i = 0; i < sizeof(ldinfo)/sizeof(ldinfo[0]); i++) {
+      /*          region  info      signext sz al  isaligned */
+      emit_pmemld_stub(0, &ldinfo[i], false, 0, 0, false, must_swap);  // ld u8
+      emit_pmemld_stub(1, &ldinfo[i], true,  0, 0, false, must_swap);  // ld s8
+
+      emit_pmemld_stub(2, &ldinfo[i], false, 1, 0, false, must_swap);  // ld u16
+      emit_pmemld_stub(3, &ldinfo[i], false, 1, 1, false, must_swap);  // ld u16u1
+      emit_pmemld_stub(4, &ldinfo[i], true,  1, 0, false, must_swap);  // ld s16
+      emit_pmemld_stub(5, &ldinfo[i], true,  1, 1, false, must_swap);  // ld s16u1
+
+      emit_pmemld_stub(6, &ldinfo[i], false, 2, 0, false, must_swap);  // ld u32
+      emit_pmemld_stub(7, &ldinfo[i], false, 2, 1, false, must_swap);  // ld u32u1
+      emit_pmemld_stub(8, &ldinfo[i], false, 2, 2, false, must_swap);  // ld u32u2
+      emit_pmemld_stub(9, &ldinfo[i], false, 2, 3, false, must_swap);  // ld u32u3
+
+      emit_pmemld_stub(10,&ldinfo[i], false, 2, 0, true,  must_swap);  // aligned ld u32
+    }
+
+    const t_stub_meminfo stinfo [] = {
+      { 2, 0x8000, true,  false, (u32)ewram, 0 },
+      { 3, 0x8000, true,  false, (u32)&iwram[0x8000], 0 },
+      // I/O is special and mapped with a function call
+      { 5,  0x400, false, true,  (u32)palette_ram, 0x100 },
+      { 6,    0x0, false, true,  (u32)vram, 0 },          // same, vram is a special case
+      { 7,  0x400, false, true,  (u32)oam_ram, 0x900 },
+    };
+
+    // Store only for "regular"-ish mem regions
+    //
+    for (int i = 0; i < sizeof(stinfo)/sizeof(stinfo[0]); i++) {
+      if (stinfo[i].region == 5) {
+        emit_palette_hdl(0, &stinfo[i], 0, false);  // st u8
+        emit_palette_hdl(1, &stinfo[i], 1, false);  // st u16
+        emit_palette_hdl(2, &stinfo[i], 2, false);  // st u32
+        emit_palette_hdl(3, &stinfo[i], 2, true );  // st aligned 32
+      } else {
+        emit_pmemst_stub(0, &stinfo[i], 0, false);  // st u8
+        emit_pmemst_stub(1, &stinfo[i], 1, false);  // st u16
+        emit_pmemst_stub(2, &stinfo[i], 2, false);  // st u32
+        emit_pmemst_stub(3, &stinfo[i], 2, true );  // st aligned 32
+      }
+    }
+
+    // Generate JAL tables
+    u32 *tmemptr = &tmemld[0][0];
+    for (int i = 0; i < 15*16; i++)
+      thnjal[i] = ((tmemptr[i] >> 2) & 0x3FFFFFF) | (mips_opcode_jal << 26);
   }
+};
 
-  *tr_ptr = translation_ptr;
-}
-
-// This function emits the following stubs:
-// - smc_write: Jumps to C code to trigger a cache flush
-// - memop patcher: Patches a memop whenever it accesses the wrong mem region
-// - mem stubs: There's stubs for load & store, and every memory region
-//    and possible operand size and misaligment (+sign extensions)
 void init_emitter(bool must_swap) {
-  // Initialize memory to a debuggable state
-  rom_cache_watermark = INITIAL_ROM_WATERMARK;
-
-  // Generates the trampoline and helper stubs that we need
-  u8 *translation_ptr = (u8*)&rom_translation_cache[0];
-
-  // Generate first the patch handlers
-  // We have 6+4 patchers, one per mem type (6 or 4)
-
-  // Calculate the offset into tmemld[10][XX];
-  emit_phand(&translation_ptr, 0,  0 * 16, false);  // ld u8
-  emit_phand(&translation_ptr, 0,  1 * 16, false);  // ld s8
-  emit_phand(&translation_ptr, 1,  2 * 16, true);   // ld u16 + u16u1
-  emit_phand(&translation_ptr, 1,  4 * 16, true);   // ld s16 + s16u1
-  emit_phand(&translation_ptr, 2,  6 * 16, true);   // ld u32 (0/1/2/3u)
-  emit_phand(&translation_ptr, 2, 10 * 16, false);  // ld aligned 32
-  // Store table is immediately after
-  emit_phand(&translation_ptr, 0, 11 * 16, false);  // st u8
-  emit_phand(&translation_ptr, 1, 12 * 16, false);  // st u16
-  emit_phand(&translation_ptr, 2, 13 * 16, false);  // st u32
-  emit_phand(&translation_ptr, 2, 14 * 16, false);  // st aligned 32
-
-  // Trampoline area
-  mips_emit_j(((u32)&smc_write) >> 2);
-  mips_emit_nop();
-
-  mips_emit_j(((u32)&write_io_epilogue) >> 2);
-  mips_emit_nop();
-
-  // Special trampoline for SP-relative ldm/stm (to EWRAM)
-  generate_load_imm(reg_a1, 0x3FFFC);
-  mips_emit_and(reg_a1, reg_a1, reg_a2);
-  mips_emit_lui(reg_a0, ((u32)(ewram + 0x8000) >> 16));
-  generate_function_return_swap_delay();
-
-  // Generate the openload handlers (for accesses to unmapped mem)
-  emit_openload_stub(0, false, 0, &translation_ptr);  // ld u8
-  emit_openload_stub(1, true,  0, &translation_ptr);  // ld s8
-  emit_openload_stub(2, false, 1, &translation_ptr);  // ld u16
-  emit_openload_stub(3, true,  1, &translation_ptr);  // ld s16
-  emit_openload_stub(4, false, 2, &translation_ptr);  // ld u32
-  emit_openload_stub(5, false, 2, &translation_ptr);  // ld a32
-
-  // Here we emit the ignore store area, just checks and does nothing
-  for (int i = 0; i < 4; i++)
-    emit_ignorestore_stub(i, &translation_ptr);
-
-  // Here go the save game handlers
-  emit_saveaccess_stub(&translation_ptr);
-
-  // Generate memory handlers
-  const t_stub_meminfo ldinfo [] = {
-    { (void*)emit_pmemld_stub,  0, 0x4000, false, false, (u32)bios_rom, 0},
-    // 1 Open load / Ignore store
-    { (void*)emit_pmemld_stub,  2, 0x8000, true,  false, (u32)ewram, 0 },      // memsize wrong on purpose
-    { (void*)emit_pmemld_stub,  3, 0x8000, true,  false, (u32)&iwram[0x8000], 0 },
-    { (void*)emit_pmemld_stub,  4,  0x400, false, false, (u32)io_registers, 0 },
-    { (void*)emit_pmemld_stub,  5,  0x400, false, true,  (u32)palette_ram, 0x100 },
-    { (void*)emit_pmemld_stub,  6,    0x0, false, true,  (u32)vram, 0 },             // same, vram is a special case
-    { (void*)emit_pmemld_stub,  7,  0x400, false, true,  (u32)oam_ram, 0x900 },
-    { (void*)emit_pmemld_stub,  8, 0x8000, false, false,  0, 0 },
-    { (void*)emit_pmemld_stub,  9, 0x8000, false, false,  0, 0 },
-    { (void*)emit_pmemld_stub, 10, 0x8000, false, false,  0, 0 },
-    { (void*)emit_pmemld_stub, 11, 0x8000, false, false,  0, 0 },
-    { (void*)emit_pmemld_stub, 12, 0x8000, false, false,  0, 0 },
-    // 13 is EEPROM mapped already (a bit special)
-    { (void*)emit_pmemld_stub, 14,      0, false, false,  0, 0 },                    // Mapped via function call
-    // 15 Open load / Ignore store
-  };
-
-  for (int i = 0; i < sizeof(ldinfo)/sizeof(ldinfo[0]); i++) {
-    ldhldr_t handler = (ldhldr_t)ldinfo[i].emitter;
-    /*          region  info      signext sz al  isaligned */
-    handler(0, &ldinfo[i], false, 0, 0, false, must_swap, &translation_ptr);  // ld u8
-    handler(1, &ldinfo[i], true,  0, 0, false, must_swap, &translation_ptr);  // ld s8
-
-    handler(2, &ldinfo[i], false, 1, 0, false, must_swap, &translation_ptr);  // ld u16
-    handler(3, &ldinfo[i], false, 1, 1, false, must_swap, &translation_ptr);  // ld u16u1
-    handler(4, &ldinfo[i], true,  1, 0, false, must_swap, &translation_ptr);  // ld s16
-    handler(5, &ldinfo[i], true,  1, 1, false, must_swap, &translation_ptr);  // ld s16u1
-
-    handler(6, &ldinfo[i], false, 2, 0, false, must_swap, &translation_ptr);  // ld u32
-    handler(7, &ldinfo[i], false, 2, 1, false, must_swap, &translation_ptr);  // ld u32u1
-    handler(8, &ldinfo[i], false, 2, 2, false, must_swap, &translation_ptr);  // ld u32u2
-    handler(9, &ldinfo[i], false, 2, 3, false, must_swap, &translation_ptr);  // ld u32u3
-
-    handler(10,&ldinfo[i], false, 2, 0, true,  must_swap, &translation_ptr);  // aligned ld u32
-  }
-
-  const t_stub_meminfo stinfo [] = {
-    { (void*)emit_pmemst_stub, 2, 0x8000, true,  false, (u32)ewram, 0 },
-    { (void*)emit_pmemst_stub, 3, 0x8000, true,  false, (u32)&iwram[0x8000], 0 },
-    // I/O is special and mapped with a function call
-    { (void*)emit_palette_hdl, 5,  0x400, false, true,  (u32)palette_ram, 0x100 },
-    { (void*)emit_pmemst_stub, 6,    0x0, false, true,  (u32)vram, 0 },          // same, vram is a special case
-    { (void*)emit_pmemst_stub, 7,  0x400, false, true,  (u32)oam_ram, 0x900 },
-  };
-
-  // Store only for "regular"-ish mem regions
-  //
-  for (int i = 0; i < sizeof(stinfo)/sizeof(stinfo[0]); i++) {
-    sthldr_t handler = (sthldr_t)stinfo[i].emitter;
-    handler(0, &stinfo[i], 0, false, &translation_ptr);  // st u8
-    handler(1, &stinfo[i], 1, false, &translation_ptr);  // st u16
-    handler(2, &stinfo[i], 2, false, &translation_ptr);  // st u32
-    handler(3, &stinfo[i], 2, true,  &translation_ptr);  // st aligned 32
-  }
-
-  // Generate JAL tables
-  u32 *tmemptr = &tmemld[0][0];
-  for (int i = 0; i < 15*16; i++)
-    thnjal[i] = ((tmemptr[i] >> 2) & 0x3FFFFFF) | (mips_opcode_jal << 26);
+  // Emit at the cache base
+  CodeEmitter ce(rom_translation_cache, &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE], 0);
+  ce.emit_stubs(must_swap);
 
   // Ensure rom flushes do not wipe this area
-  rom_cache_watermark = (u32)(translation_ptr - rom_translation_cache);
+  rom_cache_watermark = (u32)(ce.emit_ptr - rom_translation_cache);
 
   init_bios_hooks();
 }

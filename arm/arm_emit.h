@@ -48,6 +48,14 @@ extern "C" {
   u32 execute_arm_translate_internal(u32 cycles, void *regptr);
 }
 
+extern u32 st_handler_functions[4][17];
+extern u32 ld_handler_functions[5][17];
+extern u32 ld_swap_handler_functions[5][17];
+
+// Tables used by the memory handlers (placed near reg_base)
+extern u32 ld_lookup_tables[5][17];
+extern u32 st_lookup_tables[4][17];
+
 // Memory handler table offsets.
 template <typename memtype> inline uintptr_t ldr_handler_offset();
 template <typename memtype> inline uintptr_t str_handler_offset();
@@ -84,9 +92,9 @@ template <> inline u32 ldr_handler_offset<u32>() { return 8; }
 #define SPSR_RAM_OFF      0x100
 
 #define write32(value)                                                        \
-  *((u32 *)translation_ptr) = value;                                          \
-  translation_ptr += 4                                                        \
-  
+  *((u32 *)this->emit_ptr) = value;                                           \
+  this->emit_ptr += 4                                                         \
+
 #define arm_relative_offset(source, offset)                                   \
   (((((u32)offset - (u32)source) - 8) >> 2) & 0xFFFFFF)                       \
 
@@ -405,7 +413,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 
 /* Calls functions present in the rom/ram cache (near) */
 #define generate_function_call(function_location)                             \
-  ARM_BL(0, arm_relative_offset(translation_ptr, function_location))          \
+  ARM_BL(0, arm_relative_offset(this->emit_ptr, function_location))           \
 
 /* Calls functions that might be far, via the function table at reg_base */
 #define generate_function_far_call(function_number)                           \
@@ -415,7 +423,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 /* The branch target is to be filled in later (thus a 0 for now) */
 
 #define generate_branch_filler(condition_code, writeback_location)            \
-  (writeback_location) = translation_ptr;                                     \
+  (writeback_location) = this->emit_ptr;                                      \
   ARM_B_COND(0, condition_code, 0)                                            \
 
 #define generate_update_pc(new_pc)                                            \
@@ -593,32 +601,6 @@ inline u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index) {
   return reg_use;
 }
 
-inline u32 arm_prepare_load_reg(u8 * &translation_ptr, u32 scratch_reg, u32 reg_index) {
-  u32 reg_use = arm_register_allocation[reg_index];
-  if(reg_use != mem_reg)
-    return reg_use;
-
-  ARM_LDR_IMM(0, scratch_reg, reg_base, (reg_index * 4));
-  return scratch_reg;
-}
-
-inline u32 arm_prepare_load_reg_pc(u8 * &translation_ptr, u32 scratch_reg, u32 reg_index, u32 pc_value) {
-  if(reg_index == REG_PC)
-  {
-    generate_load_pc(scratch_reg, pc_value);
-    return scratch_reg;
-  }
-  return arm_prepare_load_reg(translation_ptr, scratch_reg, reg_index);
-}
-
-inline u32 thumb_prepare_load_reg(u8 * &translation_ptr, u32 scratch_reg, u32 reg_index) {
-  u32 reg_use = thumb_register_allocation[reg_index];
-  if(reg_use != mem_reg)
-    return reg_use;
-
-  ARM_LDR_IMM(0, scratch_reg, reg_base, (reg_index * 4));
-  return scratch_reg;
-}
 
 
 #define arm_complete_store_reg(scratch_reg, reg_index)                        \
@@ -934,7 +916,7 @@ u32 execute_spsr_restore_body(u32 pc)
 
 void *div6, *divarm7;
 
-static void trace_instruction(u32 pc, u32 mode)
+static void trace_instruction_hook(u32 pc, u32 mode)
 {
   if (mode)
     printf("Executed arm %x\n", pc);
@@ -944,34 +926,6 @@ static void trace_instruction(u32 pc, u32 mode)
   print_regs();
   #endif
 }
-
-#ifdef TRACE_INSTRUCTIONS
-  #define emit_trace_instruction(pc, mode, regt)   \
-  {                                                \
-    unsigned i;                                    \
-    for (i = 0; i < 15; i++) {                     \
-      if (regt[i] != mem_reg) {                    \
-        ARM_STR_IMM(0, regt[i], reg_base, (i*4));  \
-      }                                            \
-    }                                              \
-    generate_save_flags();                         \
-    ARM_STMDB_WB(0, ARMREG_SP, 0x500C);            \
-    arm_load_imm_32bit(reg_a0, pc);                \
-    arm_load_imm_32bit(reg_a1, mode);              \
-    generate_function_far_call(armfn_debug_trace); \
-    ARM_LDMIA_WB(0, ARMREG_SP, 0x500C);            \
-    generate_restore_flags();                      \
-  }
-
-  #define emit_trace_thumb_instruction(pc)         \
-    emit_trace_instruction(pc, 0, thumb_register_allocation)
-
-  #define emit_trace_arm_instruction(pc)           \
-    emit_trace_instruction(pc, 1, arm_register_allocation)
-#else
-  #define emit_trace_thumb_instruction(pc)
-  #define emit_trace_arm_instruction(pc)
-#endif
 
 
 /* We use USAT + ROR to map addresses to the handler table. For ARMv5 we use
@@ -1034,17 +988,6 @@ static void trace_instruction(u32 pc, u32 mode)
   }                                                                           \
 
 
-/* Operation types: imm, mem_reg, mem_imm */
-
-#define thumb_load_pc_pool_const(reg_rd, value)                               \
-  u32 rgdst = thumb_prepare_store_reg(reg_a0, reg_rd);                        \
-  generate_load_pc(rgdst, (value));                                           \
-  thumb_complete_store_reg(rgdst, reg_rd)
-
-
-/* TODO: Make these use cached registers. Implement iwram_stack_optimize. */
-
-
 class CodeEmitter : public CodeEmitterBase {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
@@ -1055,12 +998,37 @@ public:
   static unsigned block_prologue_size() { return 0; }
   inline void emit_block_prologue() {}
 
+
+  inline u32 arm_prepare_load_reg(u32 scratch_reg, u32 reg_index) {
+    u32 reg_use = arm_register_allocation[reg_index];
+    if(reg_use != mem_reg)
+      return reg_use;
+
+    ARM_LDR_IMM(0, scratch_reg, reg_base, (reg_index * 4));
+    return scratch_reg;
+  }
+
+  inline u32 arm_prepare_load_reg_pc(u32 scratch_reg, u32 reg_index, u32 pc_value) {
+    if (reg_index != REG_PC)
+      return arm_prepare_load_reg(scratch_reg, reg_index);
+
+    generate_load_pc(scratch_reg, pc_value);
+    return scratch_reg;
+  }
+
+  inline u32 thumb_prepare_load_reg(u32 scratch_reg, u32 reg_index) {
+    u32 reg_use = thumb_register_allocation[reg_index];
+    if(reg_use != mem_reg)
+      return reg_use;
+
+    ARM_LDR_IMM(0, scratch_reg, reg_base, (reg_index * 4));
+    return scratch_reg;
+  }
+
   // Register loading/allocation
   inline u32 thumb_prepare_load_reg_pc(u32 scratch_reg, u32 reg_index, u32 pc_value) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (reg_index != REG_PC)
-      return thumb_prepare_load_reg(translation_ptr, scratch_reg, reg_index);
+      return thumb_prepare_load_reg(scratch_reg, reg_index);
 
     generate_load_pc(scratch_reg, pc_value);
     return scratch_reg;
@@ -1068,8 +1036,6 @@ public:
 
   // Forces a register load!
   inline void thumb_force_load_reg(u32 dest_reg, u32 reg_index, u32 pc_value) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     u32 regn = thumb_register_allocation[reg_index];
     if (regn != mem_reg) {
       ARM_MOV_REG_REG(0, dest_reg, regn);
@@ -1078,20 +1044,8 @@ public:
     }
   }
 
-  inline u32 arm_prepare_load_reg_pc(u32 scratch_reg, u32 reg_index, u32 pc_value) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
-    if (reg_index != REG_PC)
-      return arm_prepare_load_reg(translation_ptr, scratch_reg, reg_index);
-
-    generate_load_pc(scratch_reg, pc_value);
-    return scratch_reg;
-  }
-
   // Forces a register load!
   inline void arm_force_load_reg(u32 dest_reg, u32 reg_index, u32 pc_value) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (reg_index == REG_PC) {
       generate_load_pc(dest_reg, pc_value);
     } else {
@@ -1104,12 +1058,48 @@ public:
     }
   }
 
+  template <CPUInstMode cm>
+  inline void generate_translation_gate(u32 pc) {
+    generate_update_pc(pc);
+    if (cm == ModeARM) {
+      ARM_LDR_IMM(0, ARMREG_PC, reg_base, 4*(REG_USERDEF + armfn_indirect_arm));
+    } else {
+      ARM_LDR_IMM(0, ARMREG_PC, reg_base, 4*(REG_USERDEF + armfn_indirect_thumb));
+    }
+  }
+
+  inline void emit_cycle_update(u32 & cycle_count) {
+    generate_cycle_update();
+  }
+
+  template <CPUInstMode cm>
+  inline void emit_cheat_hook() {
+    if (cm == ModeARM) {
+      generate_function_far_call(armfn_cheat_arm);
+    } else {
+      generate_function_far_call(armfn_cheat_thumb);
+    }
+  }
+
+  inline void emit_load_const_pool(u32 regn, u32 value) {
+    u32 rgdst = thumb_prepare_store_reg(reg_a0, regn);
+    arm_load_imm_32bit(rgdst, (value));
+    thumb_complete_store_reg(rgdst, regn)
+  }
+
+  inline void arm_conditional_block_header(u32 condition, u32 & cycle_count, u8 * & backpatch_address) {
+    generate_cycle_update();
+    /* This will choose the opposite condition */
+    condition ^= 0x01;
+    generate_branch_filler(condition, backpatch_address);
+  }
+
+
   // Thumb instruction set
   template <AluOperation aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
-    u32 rn = thumb_prepare_load_reg(translation_ptr, reg_rn, it.rn());
+    u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
+    u32 rn = thumb_prepare_load_reg(reg_rn, it.rn());
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
 
     switch (aluop) {
@@ -1126,9 +1116,8 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
-    u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
+    u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
+    u32 rd = thumb_prepare_load_reg(reg_rd, it.rd());
 
     switch (aluop) {
     case OpOrr:
@@ -1165,8 +1154,7 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluop1(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+    u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
 
     switch (aluop) {
@@ -1184,9 +1172,8 @@ public:
 
   template <OpType stype, ShiftType st>
   inline void thumb_shft(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
-    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+    u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
 
     const u32 shtype = (st == ShiftLSL) ? ARMSHIFT_LSL :
                        (st == ShiftLSR) ? ARMSHIFT_LSR :
@@ -1195,7 +1182,7 @@ public:
     if (stype == OpImm) {
       generate_op_movs_reg_immshift(rd, 0, rs, shtype, it.imm5());
     } else {
-      u32 rm = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
+      u32 rm = thumb_prepare_load_reg(reg_rd, it.rd());
       generate_op_movs_reg_regshift(rd, 0, rm, shtype, rs);
     }
 
@@ -1204,8 +1191,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluimm2(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     switch (aluop) {
     case OpMov:
       {
@@ -1216,21 +1201,21 @@ public:
       break;
     case OpAdd:
       {
-        u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+        u32 rd = thumb_prepare_load_reg(reg_rd, it.rd8());
         ARM_ADDS_REG_IMM(0, rd, rd, it.imm8(), 0);
         thumb_complete_store_reg(reg_rd, it.rd8());
       }
       break;
     case OpSub:
       {
-        u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+        u32 rd = thumb_prepare_load_reg(reg_rd, it.rd8());
         ARM_SUBS_REG_IMM(0, rd, rd, it.imm8(), 0);
         thumb_complete_store_reg(reg_rd, it.rd8());
       }
       break;
     case OpCmp:
       {
-        u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd8());
+        u32 rd = thumb_prepare_load_reg(reg_rd, it.rd8());
         ARM_CMP_REG_IMM(0, rd, it.imm8(), 0);
       }
       break;
@@ -1239,8 +1224,7 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluimm3(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
+    u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
 
     switch (aluop) {
@@ -1257,9 +1241,8 @@ public:
 
   template <AluOperation testop>
   inline void thumb_testop(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    u32 rs = thumb_prepare_load_reg(translation_ptr, reg_rs, it.rs());
-    u32 rd = thumb_prepare_load_reg(translation_ptr, reg_rd, it.rd());
+    u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
+    u32 rd = thumb_prepare_load_reg(reg_rd, it.rd());
 
     switch (testop) {
     case OpTst:
@@ -1276,7 +1259,6 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rs = thumb_prepare_load_reg_pc(reg_rn, it.rs_hi(), it.pc + 4);
 
     if (aluop == OpAdd) {
@@ -1295,13 +1277,12 @@ public:
 
   template <u32 ref_reg>
   inline void thumb_regoff(const ThumbInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     if (ref_reg == REG_PC) {
       u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
       generate_load_pc(rd, (it.pc & ~2) + 4 + 4 * it.imm8());
       thumb_complete_store_reg(reg_rd, it.rd8());
     } else {
-      u32 sreg = thumb_prepare_load_reg(translation_ptr, reg_a0, ref_reg);
+      u32 sreg = thumb_prepare_load_reg(reg_a0, ref_reg);
       u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
       ARM_ADD_REG_IMM(0, rd, sreg, it.imm8(), arm_imm_lsl_to_rot(2));  /* Scaled by 4 */
       thumb_complete_store_reg(reg_rd, it.rd8());
@@ -1309,8 +1290,7 @@ public:
   }
 
   inline void thumb_spadj(s8 offset) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-    u32 sp = thumb_prepare_load_reg(translation_ptr, reg_a0, REG_SP);
+    u32 sp = thumb_prepare_load_reg(reg_a0, REG_SP);
     if (offset >= 0) {
       ARM_ADD_REG_IMM(0, sp, sp,  offset, arm_imm_lsl_to_rot(2));
     } else {
@@ -1320,21 +1300,17 @@ public:
   }
 
   inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     thumb_generate_load_reg_pc(reg_a0, regn, 4);
     generate_indirect_branch_cycle_update(dual_thumb);
   }
 
   inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u8 condition = it.cond();        // TODO remove this
     arm_force_load_reg(reg_a0, it.rm(), it.pc + 8);
     generate_indirect_branch_dual();
   }
 
   inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     switch (num) {
     case 6:
       cycle_count += 64;
@@ -1357,7 +1333,6 @@ public:
   }
 
   inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_function_far_call(armfn_swi_thumb);
@@ -1368,7 +1343,6 @@ public:
   }
 
   inline u8* arm_swi(u32 pc, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
 
     generate_function_far_call(armfn_swi_arm);
@@ -1380,7 +1354,6 @@ public:
 
   template <ARMCondCode ccode>
   inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
     u8 *ptch = NULL;
 
@@ -1389,19 +1362,17 @@ public:
     generate_cycle_update();
     generate_branch_filler(oppcode, ptch);
     generate_branch_no_cycle_update(brtgt, target, thumb);
-    generate_branch_patch_conditional(ptch, translation_ptr);
+    generate_branch_patch_conditional(ptch, this->emit_ptr);
     return brtgt;
   }
 
   inline u8* thumb_b(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
     generate_branch_cycle_update(brtgt, target, thumb);
     return brtgt;
   }
 
   inline u8* arm_b(const ARMInst & it, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     if (it.cond() == CondAL) {
@@ -1413,9 +1384,7 @@ public:
   }
 
   inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u8 *brtgt = NULL;
-
     generate_update_pc(((pc + 2) | 0x01));
     thumb_generate_store_reg(reg_a0, REG_LR);
     generate_branch_cycle_update(brtgt, target, thumb);
@@ -1423,7 +1392,6 @@ public:
   }
 
   inline u8* arm_bl(const ARMInst & it, u32 target, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     generate_update_pc(pc + 4);
@@ -1437,8 +1405,6 @@ public:
   }
 
   inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     u32 offlo = (offset) & 0xFF;
     u32 offhi = (offset) >> 8;
 
@@ -1455,16 +1421,14 @@ public:
   // ============= Memory functions =================
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     // Generate the memory address to a0
     if (offt == OffPC) {
       // PC-relative offset. It is word aligned.
       generate_load_pc(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
     } else {
-      u32 rb = thumb_prepare_load_reg(translation_ptr, reg_a0, regn);
+      u32 rb = thumb_prepare_load_reg(reg_a0, regn);
       if (offt == OffReg) {
-        u32 ro = thumb_prepare_load_reg(translation_ptr, reg_a1, it.ro());
+        u32 ro = thumb_prepare_load_reg(reg_a1, it.ro());
         ARM_ADD_REG_REG(0, reg_a0, rb, ro);
       } else if (offt == OffImm5) {
         ARM_ADD_REG_IMM(0, reg_a0, rb, (it.imm5() * sizeof(memtype)), 0);
@@ -1477,7 +1441,6 @@ public:
 
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     cycle_count += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
@@ -1494,8 +1457,6 @@ public:
 
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     cycle_count++;  // TODO: Use proper cycle accounting and honor WAITCNT
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
@@ -1512,8 +1473,6 @@ public:
 
   template <ARMMemOffset offt, MemOffDir dir>
   inline void arm_memaddr(u32 oreg, const ARMInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     // Load base register if needed
     u32 breg = arm_prepare_load_reg_pc(oreg, it.rn(), it.pc + 8);
 
@@ -1576,7 +1535,6 @@ public:
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
   inline void arm_memst(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     cycle_count++;    // TODO: Use proper cycle accounting and honor WAITCNT
 
     // Generate the final address and base address, and write back if necessary
@@ -1603,7 +1561,6 @@ public:
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
   inline void arm_memld(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     const u8 condition = it.cond();        // TODO remove this
     cycle_count += 2;    // TODO: Use proper cycle accounting and honor WAITCNT
 
@@ -1631,7 +1588,6 @@ public:
 
   template <typename memtype>
   inline void arm_swap(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     cycle_count += 3;   // TODO: Some more accurate accounting :)
 
     // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
@@ -1650,8 +1606,6 @@ public:
 
   template <CPUInstMode cpum, AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
   inline void mem_multi(u32 pc, u32 condition, u32 basereg, u16 rlist, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
     cycle_count += numops;    // TODO: Use proper cycle accounting.
 
@@ -1755,7 +1709,6 @@ public:
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
 
@@ -1846,7 +1799,6 @@ public:
 
   template <AluOperation aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
 
     const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
@@ -1870,7 +1822,6 @@ public:
 
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
 
     // Immediate is a 8 bit rotated immediate
@@ -1905,7 +1856,6 @@ public:
   // 3 regs (with op2) instructions
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
 
     if (it.op2imm()) {
@@ -2064,8 +2014,6 @@ public:
 
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
     if (it.op2imm()) {
       u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
@@ -2126,8 +2074,6 @@ public:
   // compare/test instructions
   template <AluOperation aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (it.op2imm()) {
       u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
       u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
@@ -2172,8 +2118,6 @@ public:
   // Performs 32 bit multiplications (rd and rn are swapped)
   template<FlagOperation flg, MulMode mm>
   inline void arm_mul32(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
     u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 8);
     u32 rd = arm_prepare_store_reg(reg_a2, it.rn());
@@ -2199,8 +2143,6 @@ public:
   // Performs 64 bit multiplications
   template<FlagOperation flg, MulMode mm, bool signmul>
   inline void arm_mul64(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
     u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 8);
     u32 rdlo = (mm == MulAdd) ? arm_prepare_load_reg_pc(reg_a1, it.rdlo(), it.pc + 8)
@@ -2245,7 +2187,6 @@ public:
   // PSR register read
   template<PSReg reg>
   inline void arm_read_psr(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
     u32 rd = arm_prepare_store_reg(reg_a0, it.rd());
 
     if (reg == RegCPSR) {
@@ -2267,8 +2208,6 @@ public:
   // PSR register write
   template<PSReg reg, OpType opt>
   inline void arm_write_psr(const ARMInst &it) {
-    u8 * &translation_ptr = this->emit_ptr;   // TODO: Remove this
-
     if (opt == OpReg) {
       arm_force_load_reg(reg_a0, it.rm(), it.pc + 8);
     } else {
@@ -2293,37 +2232,90 @@ public:
     }
   }
 
+  template <CPUInstMode cm>
+  void trace_instruction(u32 pc) {
+    #ifdef TRACE_INSTRUCTIONS
+    const u32 *rt = (cm == ModeThumb) ? thumb_register_allocation
+                                      : arm_register_allocation;
+
+    for (unsigned i = 0; i < 15; i++) {
+      if (rt[i] != mem_reg) {
+        ARM_STR_IMM(0, rt[i], reg_base, (i*4));
+      }
+    }
+    generate_save_flags();
+    ARM_STMDB_WB(0, ARMREG_SP, 0x500C);
+    arm_load_imm_32bit(reg_a0, pc);
+    arm_load_imm_32bit(reg_a1, (cm == ModeThumb ? 0 : 1));
+    generate_function_far_call(armfn_debug_trace);
+    ARM_LDMIA_WB(0, ARMREG_SP, 0x500C);
+    generate_restore_flags();
+    #endif
+  }
+
+  void emit_stubs() {
+    rom_cache_watermark = INITIAL_ROM_WATERMARK;
+
+    // Generate ARMv5+ division code, uses a mix of libgcc and some open bioses.
+    // This is meant for ARMv5 or higher, uses CLZ
+
+    // Invert operands for SWI 7 (divarm)
+    divarm7 = this->emit_ptr;
+    ARM_MOV_REG_REG(0, reg_a2, reg_x0);
+    ARM_MOV_REG_REG(0, reg_x0, reg_x1);
+    ARM_MOV_REG_REG(0, reg_x1, reg_a2);
+
+    div6 = this->emit_ptr;
+    // Save flags before using them
+    generate_save_flags();
+    // Stores result and remainder signs 
+    ARM_ANDS_REG_IMM(0, reg_a2, reg_x1, 0x80, arm_imm_lsl_to_rot(24));
+    ARM_EOR_REG_IMMSHIFT(0, reg_a2, reg_a2, reg_x0, ARMSHIFT_ASR, 1);
+
+    // Make numbers positive if they are negative
+    ARM_RSB_REG_IMM_COND(0, reg_x1, reg_x1, 0, 0, ARMCOND_MI);
+    ARM_TST_REG_REG(0, reg_x0, reg_x0);
+    ARM_RSB_REG_IMM_COND(0, reg_x0, reg_x0, 0, 0, ARMCOND_MI);
+
+    // Calculates the number of iterations to division, and jumps to unrolled code
+    ARM_CLZ(0, reg_a0, reg_x0);
+    ARM_CLZ(0, reg_a1, reg_x1);
+    ARM_SUBS_REG_REG(0, reg_a0, reg_a1, reg_a0);          // Align and check if a<b
+    ARM_RSB_REG_IMM(0, reg_a0, reg_a0, 31, 0);
+    ARM_MOV_REG_IMM_COND(0, reg_a0, 32, 0, ARMCOND_MI);   // Cap to 32 (skip division)
+    ARM_ADD_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a0, ARMSHIFT_LSL, 1);
+    ARM_MOV_REG_IMM(0, reg_a1, 0, 0);
+    ARM_ADD_REG_IMMSHIFT(0, ARMREG_PC, ARMREG_PC, reg_a0, ARMSHIFT_LSL, 2);
+    ARM_NOP(0);
+
+    for (int i = 31; i >= 0; i--) {
+      ARM_CMP_REG_IMMSHIFT(0, reg_x0, reg_x1, ARMSHIFT_LSL, i);
+      ARM_ADC_REG_REG(0, reg_a1, reg_a1, reg_a1);
+      ARM_SUB_REG_IMMSHIFT_COND(0, reg_x0, reg_x0, reg_x1, ARMSHIFT_LSL, i, ARMCOND_HS);
+    }
+
+    ARM_MOV_REG_REG(0, reg_x1, reg_x0);
+    ARM_MOV_REG_REG(0, reg_x0, reg_a1);
+    // Negate result if sign is negative
+    ARM_SHLS_IMM(0, reg_a2, reg_a2, 1);
+    ARM_RSB_REG_IMM_COND(0, reg_x0, reg_x0, 0, 0, ARMCOND_HS);
+    ARM_RSB_REG_IMM_COND(0, reg_x1, reg_x1, 0, 0, ARMCOND_MI);
+
+    // Register R3 stores the abs(r0/r1), store it in the right reg/mem-reg
+    generate_load_memreg(reg_a2, REG_CPSR);
+    ARM_TST_REG_IMM8(0, reg_a2, 0x20);
+    arm_generate_store_reg(reg_a1, 3 /* r3 */);
+    ARM_MOV_REG_REG_COND(0, reg_x3, reg_a1, ARMCOND_NE);
+
+    // Return and continue regular emulation
+    generate_restore_flags();
+    ARM_BX(0, ARMREG_LR);
+  }
+
 };
 
-#define arm_conditional_block_header()                                        \
-  generate_cycle_update();                                                    \
-  /* This will choose the opposite condition */                               \
-  condition ^= 0x01;                                                          \
-  generate_branch_filler(condition, backpatch_address)                        \
-
-#define thumb_process_cheats()                                                \
-  generate_function_far_call(armfn_cheat_thumb);
-
-#define arm_process_cheats()                                                  \
-  generate_function_far_call(armfn_cheat_arm);
-
-
-#define generate_translation_gate(type)                                       \
-  generate_update_pc(pc);                                                     \
-  generate_indirect_branch_no_cycle_update(type)                              \
-
-
-extern u32 st_handler_functions[4][17];
-extern u32 ld_handler_functions[5][17];
-extern u32 ld_swap_handler_functions[5][17];
-
-// Tables used by the memory handlers (placed near reg_base)
-extern u32 ld_lookup_tables[5][17];
-extern u32 st_lookup_tables[4][17];
 
 void init_emitter(bool must_swap) {
-  int i;
-
   // Generate handler table
   memcpy(st_lookup_tables, st_handler_functions, sizeof(st_lookup_tables));
   // Issue faster paths if swapping is not required
@@ -2332,66 +2324,14 @@ void init_emitter(bool must_swap) {
   else
     memcpy(ld_lookup_tables, ld_handler_functions, sizeof(ld_lookup_tables));
 
-  rom_cache_watermark = INITIAL_ROM_WATERMARK;
-  u8 *translation_ptr = (u8*)&rom_translation_cache[0];
+  // Emit at the cache base
+  CodeEmitter ce(rom_translation_cache, &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE], 0);
+  ce.emit_stubs();
 
-  // Generate ARMv5+ division code, uses a mix of libgcc and some open bioses.
-  // This is meant for ARMv5 or higher, uses CLZ
-
-  // Invert operands for SWI 7 (divarm)
-  divarm7 = translation_ptr;
-  ARM_MOV_REG_REG(0, reg_a2, reg_x0);
-  ARM_MOV_REG_REG(0, reg_x0, reg_x1);
-  ARM_MOV_REG_REG(0, reg_x1, reg_a2);
-
-  div6 = translation_ptr;
-  // Save flags before using them
-  generate_save_flags();
-  // Stores result and remainder signs 
-  ARM_ANDS_REG_IMM(0, reg_a2, reg_x1, 0x80, arm_imm_lsl_to_rot(24));
-  ARM_EOR_REG_IMMSHIFT(0, reg_a2, reg_a2, reg_x0, ARMSHIFT_ASR, 1);
-
-  // Make numbers positive if they are negative
-  ARM_RSB_REG_IMM_COND(0, reg_x1, reg_x1, 0, 0, ARMCOND_MI);
-  ARM_TST_REG_REG(0, reg_x0, reg_x0);
-  ARM_RSB_REG_IMM_COND(0, reg_x0, reg_x0, 0, 0, ARMCOND_MI);
-
-  // Calculates the number of iterations to division, and jumps to unrolled code
-  ARM_CLZ(0, reg_a0, reg_x0);
-  ARM_CLZ(0, reg_a1, reg_x1);
-  ARM_SUBS_REG_REG(0, reg_a0, reg_a1, reg_a0);          // Align and check if a<b
-  ARM_RSB_REG_IMM(0, reg_a0, reg_a0, 31, 0);
-  ARM_MOV_REG_IMM_COND(0, reg_a0, 32, 0, ARMCOND_MI);   // Cap to 32 (skip division)
-  ARM_ADD_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a0, ARMSHIFT_LSL, 1);
-  ARM_MOV_REG_IMM(0, reg_a1, 0, 0);
-  ARM_ADD_REG_IMMSHIFT(0, ARMREG_PC, ARMREG_PC, reg_a0, ARMSHIFT_LSL, 2);
-  ARM_NOP(0);
-
-  for (i = 31; i >= 0; i--) {
-    ARM_CMP_REG_IMMSHIFT(0, reg_x0, reg_x1, ARMSHIFT_LSL, i);
-    ARM_ADC_REG_REG(0, reg_a1, reg_a1, reg_a1);
-    ARM_SUB_REG_IMMSHIFT_COND(0, reg_x0, reg_x0, reg_x1, ARMSHIFT_LSL, i, ARMCOND_HS);
-  }
-
-  ARM_MOV_REG_REG(0, reg_x1, reg_x0);
-  ARM_MOV_REG_REG(0, reg_x0, reg_a1);
-  // Negate result if sign is negative
-  ARM_SHLS_IMM(0, reg_a2, reg_a2, 1);
-  ARM_RSB_REG_IMM_COND(0, reg_x0, reg_x0, 0, 0, ARMCOND_HS);
-  ARM_RSB_REG_IMM_COND(0, reg_x1, reg_x1, 0, 0, ARMCOND_MI);
-
-  // Register R3 stores the abs(r0/r1), store it in the right reg/mem-reg
-  generate_load_memreg(reg_a2, REG_CPSR);
-  ARM_TST_REG_IMM8(0, reg_a2, 0x20);
-  arm_generate_store_reg(reg_a1, 3 /* r3 */);
-  ARM_MOV_REG_REG_COND(0, reg_x3, reg_a1, ARMCOND_NE);
-
-  // Return and continue regular emulation
-  generate_restore_flags();
-  ARM_BX(0, ARMREG_LR);
+  // Ensure rom flushes do not wipe this area
+  rom_cache_watermark = (u32)(ce.emit_ptr - rom_translation_cache);
 
   // Now generate BIOS hooks
-  rom_cache_watermark = (u32)(translation_ptr - rom_translation_cache);
   init_bios_hooks();
 
   // Intialize function table
@@ -2409,7 +2349,7 @@ void init_emitter(bool must_swap) {
   reg[REG_USERDEF + armfn_indirect_thumb] = (u32)arm_indirect_branch_thumb;
   reg[REG_USERDEF + armfn_indirect_dual_arm]   = (u32)arm_indirect_branch_dual_arm;
   reg[REG_USERDEF + armfn_indirect_dual_thumb] = (u32)arm_indirect_branch_dual_thumb;
-  reg[REG_USERDEF + armfn_debug_trace] = (u32)trace_instruction;
+  reg[REG_USERDEF + armfn_debug_trace] = (u32)trace_instruction_hook;
 }
 
 u32 execute_arm_translate(u32 cycles) {

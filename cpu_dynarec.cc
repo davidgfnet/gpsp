@@ -204,7 +204,7 @@ void translate_icache_sync() {
   {                                                                           \
     if((last_condition & 0x0F) != 0x0E)                                       \
     {                                                                         \
-      generate_branch_patch_conditional(backpatch_address, translation_ptr);  \
+      generate_branch_patch_conditional(backpatch_address, ce.emit_ptr);      \
     }                                                                         \
                                                                               \
     last_condition = condition;                                               \
@@ -213,10 +213,10 @@ void translate_icache_sync() {
                                                                               \
     if(condition != 0x0E)                                                     \
     {                                                                         \
-      arm_conditional_block_header();                                         \
+      ce.arm_conditional_block_header(condition, cycle_count, backpatch_address);  \
     }                                                                         \
   }                                                                           \
-  emit_trace_arm_instruction(pc);                                             \
+  ce.trace_instruction<ModeARM>(pc);                                          \
                                                                               \
   switch((opcode >> 20) & 0xFF)                                               \
   {                                                                           \
@@ -1195,7 +1195,7 @@ void translate_icache_sync() {
   check_pc_region(pc);                                                        \
   last_opcode = opcode;                                                       \
   opcode = address16(pc_address_block, (pc & 0x7FFF));                        \
-  emit_trace_thumb_instruction(pc);                                           \
+  ce.trace_instruction<ModeThumb>(pc);                                        \
   u8 hiop = opcode >> 8;                                                      \
   ThumbInst inst(pc, opcode, flag_status);                                    \
                                                                               \
@@ -1319,7 +1319,7 @@ void translate_icache_sync() {
         /* ROM + same page -> optimize as const load */                       \
         if (!ram_region && (((aoff + 4) >> 15) == (pc >> 15))) {              \
           u32 value = address32(pc_address_block, (aoff & 0x7FFF));           \
-          thumb_load_pc_pool_const(rdreg, value);                             \
+          ce.emit_load_const_pool(rdreg, value);                              \
         } else {                                                              \
           ce.thumb_memld<u32, OffPC>(inst, inst.rd8(), REG_PC, cycle_count);  \
         }                                                                     \
@@ -2260,7 +2260,6 @@ bool translate_block_arm(u32 pc, bool ram_region)
   ce.emit_block_prologue();
 
   u8 *update_trampoline = ce.update_trampoline;  // TODO: get rid of this
-  u8 * &translation_ptr = ce.emit_ptr;    // TODO: get rid of this!
 
   for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
@@ -2282,13 +2281,11 @@ bool translate_block_arm(u32 pc, bool ram_region)
 
   while(pc != block_end_pc)
   {
-    block_data[block_data_position].block_offset = translation_ptr;
+    block_data[block_data_position].block_offset = ce.emit_ptr;
     arm_base_cycles();
 
     if (pc == cheat_master_hook)
-    {
-      arm_process_cheats();
-    }
+      ce.emit_cheat_hook<ModeARM>();
 
     update_pc_limits();
     translate_arm_instruction();
@@ -2312,18 +2309,18 @@ bool translate_block_arm(u32 pc, bool ram_region)
     if (pc != block_end_pc &&
         block_data[block_data_position].update_cycles)
     {
-      generate_cycle_update();
+      ce.emit_cycle_update(cycle_count);
     }
   }
 
   /* This can happen if the last instruction is *not* inconditional */
   if ((last_condition & 0x0F) != 0x0E) {
-    generate_branch_patch_conditional(backpatch_address, translation_ptr);
+    generate_branch_patch_conditional(backpatch_address, ce.emit_ptr);
   }
 
   /* Unconditionally generate translation targets. In case we hit one or
      in the unlikely case that block was too big (and not finalized) */
-  generate_translation_gate(arm);
+  ce.generate_translation_gate<ModeARM>(pc);
 
   for (unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
@@ -2350,9 +2347,9 @@ bool translate_block_arm(u32 pc, bool ram_region)
   }
 
   if (ram_region)
-    ram_translation_ptr = translation_ptr;
+    ram_translation_ptr = ce.emit_ptr;
   else
-    rom_translation_ptr = translation_ptr;
+    rom_translation_ptr = ce.emit_ptr;
 
   for(unsigned i = 0; i < external_block_exit_position; i++) {
     branch_target = external_block_exits[i].branch_target;
@@ -2412,7 +2409,6 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   ce.emit_block_prologue();
 
   u8 *update_trampoline = ce.update_trampoline;  // TODO: get rid of this
-  u8 * &translation_ptr = ce.emit_ptr;    // TODO: get rid of this!
 
   for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
@@ -2436,9 +2432,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
     thumb_base_cycles();
 
     if (pc == cheat_master_hook)
-    {
-      thumb_process_cheats();
-    }
+      ce.emit_cheat_hook<ModeThumb>();
 
     update_pc_limits();
     translate_thumb_instruction();
@@ -2462,13 +2456,13 @@ bool translate_block_thumb(u32 pc, bool ram_region)
     if (pc != block_end_pc &&
         block_data[block_data_position].update_cycles)
     {
-      generate_cycle_update();
+      ce.emit_cycle_update(cycle_count);
     }
   }
 
   /* Unconditionally generate translation targets. In case we hit one or
      in the unlikely case that block was too big (and not finalized) */
-  generate_translation_gate(thumb);
+  ce.generate_translation_gate<ModeThumb>(pc);
 
   for (unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;

@@ -33,12 +33,11 @@ typedef enum {
 } x86_regnum;
 
 #define x86_emit_byte(value)                                                  \
-  *translation_ptr = value;                                                   \
-  translation_ptr++                                                           \
+  *this->emit_ptr++ = value;                                                  \
 
 #define x86_emit_dword(value)                                                 \
-  *((u32 *)translation_ptr) = value;                                          \
-  translation_ptr += 4                                                        \
+  *((u32 *)this->emit_ptr) = value;                                           \
+  this->emit_ptr += 4                                                         \
 
 typedef enum
 {
@@ -429,14 +428,14 @@ typedef enum
 
 #define x86_emit_jecxz_filler(writeback_location)                             \
   x86_emit_byte(x86_opcode_jecxz);                                            \
-  (writeback_location) = translation_ptr;                                     \
-  translation_ptr += 1                                                        \
+  (writeback_location) = this->emit_ptr;                                      \
+  this->emit_ptr++;                                                           \
 
 #define x86_emit_j_filler(condition_code, writeback_location)                 \
   x86_emit_byte(x86_opcode_ext);                                              \
   x86_emit_byte(x86_opcode_j | condition_code);                               \
-  (writeback_location) = translation_ptr;                                     \
-  translation_ptr += 4                                                        \
+  (writeback_location) = this->emit_ptr;                                      \
+  this->emit_ptr += 4                                                         \
 
 #define x86_emit_j_offset(condition_code, offset)                             \
   x86_emit_byte(x86_opcode_ext);                                              \
@@ -445,8 +444,8 @@ typedef enum
 
 #define x86_emit_jmp_filler(writeback_location)                               \
   x86_emit_byte(x86_opcode_jmp);                                              \
-  (writeback_location) = translation_ptr;                                     \
-  translation_ptr += 4                                                        \
+  (writeback_location) = this->emit_ptr;                                      \
+  this->emit_ptr += 4                                                         \
 
 #define x86_emit_jmp_offset(offset)                                           \
   x86_emit_byte(x86_opcode_jmp);                                              \
@@ -600,7 +599,7 @@ typedef enum
 
 
 #define generate_function_call(function_location)                             \
-  x86_emit_call_offset(x86_relative_offset(translation_ptr,                   \
+  x86_emit_call_offset(x86_relative_offset(this->emit_ptr,                    \
    function_location, 4));                                                    \
 
 #define generate_exit_block()                                                 \

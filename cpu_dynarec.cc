@@ -204,7 +204,10 @@ void translate_icache_sync() {
   {                                                                           \
     if((last_condition & 0x0F) != 0x0E)                                       \
     {                                                                         \
-      generate_branch_patch_conditional(backpatch_address, ce.emit_ptr);      \
+      if (backpatch_address) {                                                \
+        generate_branch_patch_conditional(backpatch_address, ce.emit_ptr);    \
+        backpatch_address = NULL;                                             \
+      }                                                                       \
     }                                                                         \
                                                                               \
     last_condition = condition;                                               \
@@ -2314,7 +2317,9 @@ bool translate_block_arm(u32 pc, bool ram_region)
 
   /* This can happen if the last instruction is *not* inconditional */
   if ((last_condition & 0x0F) != 0x0E) {
-    generate_branch_patch_conditional(backpatch_address, ce.emit_ptr);
+    if (backpatch_address) {
+      generate_branch_patch_conditional(backpatch_address, ce.emit_ptr);
+    }
   }
 
   /* Unconditionally generate translation targets. In case we hit one or

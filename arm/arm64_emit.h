@@ -65,8 +65,8 @@ template <> inline uintptr_t call_str_handler<u32>() { return (uintptr_t)execute
 template <> inline uintptr_t call_str_handler<u16>() { return (uintptr_t)execute_store_u16; }
 template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute_store_u8 ; }
 
-typedef enum
-{
+// Host register definition and allocation.
+typedef enum {
   arm64_reg_x0,    // arg0
   arm64_reg_x1,    // arg1
   arm64_reg_x2,    // arg2
@@ -85,7 +85,7 @@ typedef enum
   arm64_reg_x15,   // ARM reg 9 (temporary)
   arm64_reg_x16,   // ARM reg 10 (temporary)
   arm64_reg_x17,   // ARM reg 11 (temporary)
-  arm64_reg_x18,   
+  arm64_reg_x18,
   arm64_reg_x19,   // save0 (mem-scratch) (saved)
   arm64_reg_x20,   // base pointer (saved)
   arm64_reg_x21,   // cycle counter (saved)
@@ -100,7 +100,6 @@ typedef enum
   arm64_reg_lr,
   arm64_reg_sp,
 } arm64_reg_number;
-
 
 #define reg_save0   arm64_reg_x19
 #define reg_base    arm64_reg_x20
@@ -136,62 +135,17 @@ typedef enum
 #define reg_zero    arm64_reg_sp  // Careful it's also SP
 
 // Writing to r15 goes straight to a0, to be chained with other ops
-
-const u32 arm_to_a64_reg[] =
-{
-  reg_r0,
-  reg_r1,
-  reg_r2,
-  reg_r3,
-  reg_r4,
-  reg_r5,
-  reg_r6,
-  reg_r7,
-  reg_r8,
-  reg_r9,
-  reg_r10,
-  reg_r11,
-  reg_r12,
-  reg_r13,
-  reg_r14,
-  reg_a0,
-  reg_a1,
-  reg_a2
+const u32 arm_to_a64_reg[] = {
+  reg_r0, reg_r1, reg_r2, reg_r3, reg_r4, reg_r5, reg_r6, reg_r7,
+  reg_r8, reg_r9, reg_r10, reg_r11, reg_r12, reg_r13, reg_r14, reg_a0,
 };
 
-#define arm_reg_a0   15
-#define arm_reg_a1   16
-#define arm_reg_a2   17
-
-
-#define generate_load_reg(ireg, reg_index)                                    \
-  aa64_emit_mov(ireg, arm_to_a64_reg[reg_index])                              \
-
-#define generate_load_pc_2inst(ireg, new_pc)                                  \
-{                                                                             \
-  aa64_emit_movlo(ireg, new_pc);                                              \
-  aa64_emit_movhi(ireg, ((new_pc) >> 16));                                    \
-}
 
 #define generate_store_reg(ireg, reg_index)                                   \
   aa64_emit_mov(arm_to_a64_reg[reg_index], ireg)                              \
 
-#define generate_mov(ireg_dest, ireg_src)                                     \
-  aa64_emit_mov(arm_to_a64_reg[ireg_dest], arm_to_a64_reg[ireg_src])          \
-
 #define generate_function_call(function_location)                             \
   aa64_emit_brlink(aa64_br_offset(function_location));                        \
-
-#define generate_cycle_update()                                               \
-  if(cycle_count != 0)                                                        \
-  {                                                                           \
-    unsigned hicycle = cycle_count >> 12;                                     \
-    if (hicycle) {                                                            \
-      aa64_emit_subi12<NoFlags>(reg_cycles, reg_cycles, hicycle);             \
-    }                                                                         \
-    aa64_emit_subi<NoFlags>(reg_cycles, reg_cycles, (cycle_count & 0xfff));   \
-    cycle_count = 0;                                                          \
-  }                                                                           \
 
 /* Patches ARM-mode conditional branches */
 #define generate_branch_patch_conditional(dest, label)                        \
@@ -205,72 +159,40 @@ const u32 arm_to_a64_reg[] =
   aa64_emit_branch_patch((u32*)dest, aa64_br_offset_from(target, dest))       \
 
 #define generate_branch_no_cycle_update(writeback_location, new_pc)           \
-  if(pc == idle_loop_target_pc)                                               \
-  {                                                                           \
+  if(pc == idle_loop_target_pc) {                                             \
     generate_load_imm(reg_cycles, 0);                                         \
     generate_load_pc(reg_a0, new_pc);                                         \
     generate_function_call(a64_update_gba);                                   \
     emit_branch_filler(writeback_location);                                   \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
+  } else {                                                                    \
     aa64_emit_tbnz(reg_cycles, 31, 2);                                        \
     emit_branch_filler(writeback_location);                                   \
-    generate_load_pc_2inst(reg_a0, new_pc);                                   \
+    aa64_emit_movlo(reg_a0, new_pc);                                          \
+    aa64_emit_movhi(reg_a0, ((new_pc) >> 16));                                \
     generate_function_call(a64_update_gba);                                   \
     aa64_emit_branch(-4);                                                     \
   }                                                                           \
 
 #define generate_branch_cycle_update(writeback_location, new_pc)              \
-  generate_cycle_update();                                                    \
+  generate_cycle_update(cycle_count);                                         \
   generate_branch_no_cycle_update(writeback_location, new_pc)                 \
 
 // a0 holds the destination
 
 #define generate_indirect_branch_cycle_update(type)                           \
-  generate_cycle_update()                                                     \
+  generate_cycle_update(cycle_count);                                         \
   generate_indirect_branch_no_cycle_update(type)                              \
 
 #define generate_indirect_branch_no_cycle_update(type)                        \
   aa64_emit_branch(aa64_br_offset(a64_indirect_branch_##type));               \
 
-#define generate_load_reg_pc(ireg, reg_index, pc_offset)                      \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
-    generate_load_pc(ireg, (pc + pc_offset));                                 \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_load_reg(ireg, reg_index);                                       \
-  }                                                                           \
-
-/* Loads the lowest byte of the specified register */
-#define generate_load_reg_pc_lsb(ireg, reg_index, pc_offset)                  \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
-    aa64_emit_movlo(ireg, ((pc + pc_offset) & 0xFF));                         \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    aa64_emit_andi(ireg, arm_to_a64_reg[reg_index], 0, 7); /* 0xFF */         \
-  }                                                                           \
-
-#define check_load_reg_pc(arm_reg, reg_index, pc_offset)                      \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
-    reg_index = arm_reg;                                                      \
-    generate_load_pc(arm_to_a64_reg[arm_reg], (pc + pc_offset));              \
-  }                                                                           \
-
 #define check_store_reg_pc_no_flags(reg_index)                                \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
+  if(reg_index == REG_PC) {                                                   \
     generate_indirect_branch_arm();                                           \
   }                                                                           \
 
 #define check_store_reg_pc_flags(reg_index)                                   \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
+  if(reg_index == REG_PC) {                                                   \
     generate_function_call(execute_spsr_restore);                             \
     generate_indirect_branch_dual();                                          \
   }                                                                           \
@@ -278,26 +200,18 @@ const u32 arm_to_a64_reg[] =
 #define generate_block_extra_vars_arm()
 #define generate_block_extra_vars_thumb()
 
-#define generate_indirect_branch_arm()                                        \
-{                                                                             \
-  if(condition == 0x0E)                                                       \
-  {                                                                           \
+#define generate_indirect_branch_arm() {                                      \
+  if(condition == 0x0E) {                                                     \
     generate_indirect_branch_cycle_update(arm);                               \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
+  } else {                                                                    \
     generate_indirect_branch_no_cycle_update(arm);                            \
   }                                                                           \
 }                                                                             \
 
-#define generate_indirect_branch_dual()                                       \
-{                                                                             \
-  if(condition == 0x0E)                                                       \
-  {                                                                           \
+#define generate_indirect_branch_dual() {                                     \
+  if(condition == 0x0E) {                                                     \
     generate_indirect_branch_cycle_update(dual);                              \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
+  } else {                                                                    \
     generate_indirect_branch_no_cycle_update(dual);                           \
   }                                                                           \
 }                                                                             \
@@ -307,8 +221,7 @@ const u32 arm_to_a64_reg[] =
 // This is pretty infrequent (returning from interrupt handlers, et al) so
 // probably not worth optimizing for.
 
-u32 execute_spsr_restore_body(u32 address)
-{
+u32 execute_spsr_restore_body(u32 address) {
   set_cpu_mode(cpu_modes[reg[REG_CPSR] & 0xF]);
   if((io_registers[REG_IE] & io_registers[REG_IF]) &&
    io_registers[REG_IME] && ((reg[REG_CPSR] & 0x80) == 0))
@@ -326,167 +239,10 @@ u32 execute_spsr_restore_body(u32 address)
   return address;
 }
 
-/* Generate the opposite condition to skip the block */
-#define generate_condition_eq()                                               \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbz(reg_z_cache, 0);                                              \
-
-#define generate_condition_ne()                                               \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbnz(reg_z_cache, 0);                                             \
-
-#define generate_condition_cs()                                               \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbz(reg_c_cache, 0);                                              \
-
-#define generate_condition_cc()                                               \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbnz(reg_c_cache, 0);                                             \
-
-#define generate_condition_mi()                                               \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbz(reg_n_cache, 0);                                              \
-
-#define generate_condition_pl()                                               \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbnz(reg_n_cache, 0);                                             \
-
-#define generate_condition_vs()                                               \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbz(reg_v_cache, 0);                                              \
-
-#define generate_condition_vc()                                               \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbnz(reg_v_cache, 0);                                             \
-
-#define generate_condition_hi()                                               \
-  aa64_emit_eori(reg_temp, reg_c_cache, 0, 0);  /* imm=1 */                   \
-  aa64_emit_orr(reg_temp, reg_temp, reg_z_cache);                             \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbnz(reg_temp, 0);                                                \
-
-#define generate_condition_ls()                                               \
-  aa64_emit_eori(reg_temp, reg_c_cache, 0, 0);  /* imm=1 */                   \
-  aa64_emit_orr(reg_temp, reg_temp, reg_z_cache);                             \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbz(reg_temp, 0);                                                 \
-
-#define generate_condition_ge()                                               \
-  aa64_emit_sub<NoFlags>(reg_temp, reg_n_cache, reg_v_cache);                 \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbnz(reg_temp, 0);                                                \
-
-#define generate_condition_lt()                                               \
-  aa64_emit_sub<NoFlags>(reg_temp, reg_n_cache, reg_v_cache);                 \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbz(reg_temp, 0);                                                 \
-
-#define generate_condition_gt()                                               \
-  aa64_emit_xor(reg_temp, reg_n_cache, reg_v_cache);                          \
-  aa64_emit_orr(reg_temp, reg_temp, reg_z_cache);                             \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbnz(reg_temp, 0);                                                \
-
-#define generate_condition_le()                                               \
-  aa64_emit_xor(reg_temp, reg_n_cache, reg_v_cache);                          \
-  aa64_emit_orr(reg_temp, reg_temp, reg_z_cache);                             \
-  (backpatch_address) = this->emit_ptr;                                       \
-  aa64_emit_cbz(reg_temp, 0);                                                 \
-
-#define generate_condition()                                                  \
-  switch(condition)                                                           \
-  {                                                                           \
-    case 0x0:                                                                 \
-      generate_condition_eq();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x1:                                                                 \
-      generate_condition_ne();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x2:                                                                 \
-      generate_condition_cs();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x3:                                                                 \
-      generate_condition_cc();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x4:                                                                 \
-      generate_condition_mi();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x5:                                                                 \
-      generate_condition_pl();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x6:                                                                 \
-      generate_condition_vs();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x7:                                                                 \
-      generate_condition_vc();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x8:                                                                 \
-      generate_condition_hi();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0x9:                                                                 \
-      generate_condition_ls();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0xA:                                                                 \
-      generate_condition_ge();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0xB:                                                                 \
-      generate_condition_lt();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0xC:                                                                 \
-      generate_condition_gt();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0xD:                                                                 \
-      generate_condition_le();                                                \
-      break;                                                                  \
-                                                                              \
-    case 0xE:                                                                 \
-      break;                                                                  \
-                                                                              \
-    case 0xF:                                                                 \
-      break;                                                                  \
-  }                                                                           \
-
-#define generate_branch()                                                     \
-{                                                                             \
-  if(condition == 0x0E)                                                       \
-  {                                                                           \
-    generate_branch_cycle_update(                                             \
-     block_exits[block_exit_position].branch_source,                          \
-     block_exits[block_exit_position].branch_target);                         \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_branch_no_cycle_update(                                          \
-     block_exits[block_exit_position].branch_source,                          \
-     block_exits[block_exit_position].branch_target);                         \
-  }                                                                           \
-  block_exit_position++;                                                      \
-}
-
-
-#define load_c_flag()                                                         \
-  aa64_emit_movne(reg_temp, 0);                                               \
-  aa64_emit_add<SetFlags>(reg_temp, reg_temp, reg_c_cache);                   \
-
 #define check_store_reg_pc_thumb(_rd)                                         \
-  if(_rd == REG_PC)                                                           \
-  {                                                                           \
+  if(_rd == REG_PC) {                                                         \
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
-
 
 #define generate_branch_filler(condition_code, writeback_location)            \
   (writeback_location) = this->emit_ptr;                                      \
@@ -536,20 +292,19 @@ public:
 
   // Register allocation (for registers that could contain PC)
   inline u32 load_alloc_reg(u32 regn, u32 tmp_reg, u32 pcvalue) {
-    if (regn == REG_PC) {
-      generate_load_pc(tmp_reg, pcvalue);
-      return tmp_reg;
-    }
-    return arm_to_a64_reg[regn];
+    if (regn != REG_PC)
+      return arm_to_a64_reg[regn];
+
+    generate_load_pc(tmp_reg, pcvalue);
+    return tmp_reg;
   }
 
   // Forces a register load!
   inline void force_load_reg(u32 regn, u32 outreg, u32 pcvalue) {
-    if (regn == REG_PC) {
+    if (regn == REG_PC)
       generate_load_pc(outreg, pcvalue);
-    } else {
-      generate_load_reg(outreg, regn);
-    }
+    else
+      aa64_emit_mov(outreg, arm_to_a64_reg[regn]);
   }
 
   inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
@@ -563,6 +318,11 @@ public:
       aa64_emit_movlo(native_reg, (pcvalue & 0xFF));
     else
       aa64_emit_andi(native_reg, arm_to_a64_reg[regn], 0, 7); /* 0xFF */
+  }
+
+  inline void load_c_flag() {
+    aa64_emit_movne(reg_temp, 0);
+    aa64_emit_add<SetFlags>(reg_temp, reg_temp, reg_c_cache);
   }
 
   template <FlagOperation flgmode>
@@ -656,18 +416,23 @@ public:
     }
   }
 
+  inline void generate_cycle_update(u32 & cycle_count) {
+    if (cycle_count)
+      aa64_emit_sublimm<NoFlags>(reg_cycles, reg_cycles, cycle_count);
+    cycle_count = 0;
+  }
+
   template <CPUInstMode cm>
   inline void generate_translation_gate(u32 pc) {
     generate_load_pc(reg_a0, pc);
-    if (cm == ModeARM) {
+    if (cm == ModeARM)
       aa64_emit_branch(aa64_br_offset(a64_indirect_branch_arm));
-    } else {
+    else
       aa64_emit_branch(aa64_br_offset(a64_indirect_branch_thumb));
-    }
   }
 
   inline void emit_cycle_update(u32 & cycle_count) {
-    generate_cycle_update();
+    generate_cycle_update(cycle_count);
   }
 
   template <CPUInstMode cm>
@@ -680,18 +445,17 @@ public:
   }
 
   inline void arm_conditional_block_header(u32 condition, u32 & cycle_count, u8 * & backpatch_address) {
-    generate_cycle_update();
-    generate_condition();
+    generate_cycle_update(cycle_count);
+    backpatch_address = emit_opp_condbranch((ARMCondCode)condition);  // TODO: use ARMCondCode as type natively
   }
 
 
   // Condition code generation
-  template <ARMCondCode ccode>
-  inline u8 *emit_opp_condbranch() {
+  inline u8 *emit_opp_condbranch(ARMCondCode ccode) {
     // TODO Take reg num as input.
     // We emit a branch that branches on the opposite condition.
     // Returns the patching address (so the branch offset can be filled)
-    u8 *ret;
+    u8 *ret = NULL;
 
     switch (ccode) {
     case CondEQ:
@@ -1022,8 +786,8 @@ public:
   inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
     u8 *brtgt = NULL;
 
-    generate_cycle_update();
-    u8 *ptch = emit_opp_condbranch<ccode>();
+    generate_cycle_update(cycle_count);
+    u8 *ptch = emit_opp_condbranch(ccode);
     generate_branch_no_cycle_update(brtgt, target);
     generate_branch_patch_conditional(ptch, this->emit_ptr);
     return brtgt;
@@ -1115,7 +879,7 @@ public:
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
     // Load value and generate call to handler
-    generate_load_reg(reg_a1, regd);
+    force_load_reg(regd, reg_a1, it.pc + 4);
     generate_load_pc(reg_a2, (it.pc + 2));
     generate_function_call(call_str_handler<memtype>());
   }
@@ -1716,9 +1480,9 @@ public:
     if (mm == MulAdd) {
       u32 rn = load_alloc_reg(it.rd(), reg_temp, it.pc + 8);
       aa64_emit_madd(rd, rn, rm, rs);
-    } else {
-      aa64_emit_mul(rd, rm, rs);
     }
+    else
+      aa64_emit_mul(rd, rm, rs);
 
     update_nz_flags<flg>(it, rd);
     // Writing PC is not really defined.
@@ -1773,12 +1537,10 @@ public:
   // PSR register write
   template<PSReg reg, OpType opt>
   inline void arm_write_psr(const ARMInst &it) {
-    if (opt == OpReg) {
-      generate_load_reg(reg_a0, it.rm());
-    } else {
-      u32 imm = rotr32(it.imm8(), it.rot4() * 2);
-      generate_load_imm(reg_a0, imm);
-    }
+    if (opt == OpReg)
+      force_load_reg(it.rm(), reg_a0, it.pc + 8);
+    else
+      generate_load_imm(reg_a0, rotr32(it.imm8(), it.rot4() * 2));
 
     if (reg == RegCPSR) {
       generate_load_pc(reg_a1, it.pc);
@@ -1821,11 +1583,9 @@ void init_emitter(bool must_swap) {
   memcpy(ldst_lookup_tables, ldst_handler_functions, sizeof(ldst_lookup_tables));
 }
 
-
 u32 execute_arm_translate(u32 cycles) {
   return execute_arm_translate_internal(cycles, &reg[0]);
 }
 
 #endif
-
 

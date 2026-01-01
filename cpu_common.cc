@@ -29,6 +29,26 @@
   u32 reg_mode[7][7];
 #endif
 
+void function_cc trace_instruction_hook_arm(u32 pc, u32 opcode) {
+  printf("Executed arm %x [%08x]\n", pc, opcode);
+  #ifdef TRACE_REGISTERS
+  print_regs();
+  #endif
+  #ifdef TRACE_FLUSH
+  fflush(stdout);
+  #endif
+}
+
+void function_cc trace_instruction_hook_thumb(u32 pc, u16 opcode) {
+  printf("Executed thumb %x [%04x]\n", pc, opcode);
+  #ifdef TRACE_REGISTERS
+  print_regs();
+  #endif
+  #ifdef TRACE_FLUSH
+  fflush(stdout);
+  #endif
+}
+
 // Index by PRS fields (1 and 4 only!) and User-Privileged mode
 // In user mode some bits are read only
 // Bit #4 is always set to one (so all modes are 1XXXX)

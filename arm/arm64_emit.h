@@ -163,44 +163,9 @@ const u32 arm_to_a64_reg[] =
 #define arm_reg_a1   16
 #define arm_reg_a2   17
 
-#define generate_save_reg(regnum)                                             \
-  aa64_emit_str(arm_to_a64_reg[regnum], reg_base, regnum)                     \
-
-#define generate_restore_reg(regnum)                                          \
-  aa64_emit_ldr(arm_to_a64_reg[regnum], reg_base, regnum)                     \
-
-#define emit_save_regs()                                                      \
-{                                                                             \
-  unsigned i;                                                                 \
-  for (i = 0; i < 15; i++) {                                                  \
-    generate_save_reg(i);                                                     \
-  }                                                                           \
-}
-
-#define emit_restore_regs()                                                   \
-{                                                                             \
-  unsigned i;                                                                 \
-  for (i = 0; i < 15; i++) {                                                  \
-    generate_restore_reg(i);                                                  \
-  }                                                                           \
-}
 
 #define generate_load_reg(ireg, reg_index)                                    \
   aa64_emit_mov(ireg, arm_to_a64_reg[reg_index])                              \
-
-#define generate_load_imm(ireg, imm)                                          \
-  if ((s32)(imm) < 0 && (s32)(imm) >= -65536) {                               \
-    /* immediate like 0xffffxxxx */                                           \
-    aa64_emit_movne(ireg, (~(imm)));                                          \
-  } else if (((imm) & 0xffff) == 0) {                                         \
-    /* immediate like 0xxxxx0000 */                                           \
-    aa64_emit_movhiz(ireg, ((imm) >> 16));                                    \
-  } else {                                                                    \
-    aa64_emit_movlo(ireg, imm);                                               \
-    if ((imm) >= (1 << 16)) {                                                 \
-      aa64_emit_movhi(ireg, ((imm) >> 16));                                   \
-    }                                                                         \
-  }
 
 #define generate_load_pc_2inst(ireg, new_pc)                                  \
 {                                                                             \
@@ -208,48 +173,8 @@ const u32 arm_to_a64_reg[] =
   aa64_emit_movhi(ireg, ((new_pc) >> 16));                                    \
 }
 
-#define generate_addsubi(dreg, sreg, imm)                                     \
-{                                                                             \
-  if ((s32)(imm) >= 0) {                                                      \
-    aa64_emit_addi(dreg, sreg, (imm));                                        \
-  } else {                                                                    \
-    aa64_emit_subi(dreg, sreg, -(imm));                                       \
-  }                                                                           \
-}                                                                             \
-
-
-#define generate_load_pc(ireg, new_pc)                                        \
-{                                                                             \
-  s32 pc_delta = (new_pc) - (this->block_pc);                                 \
-  if (pc_delta >= 0) {                                                        \
-    if (pc_delta < 4096) {                                                    \
-      aa64_emit_addi(ireg, reg_pc, pc_delta);                                 \
-    } else {                                                                  \
-      generate_load_imm(ireg, new_pc);                                        \
-    }                                                                         \
-  } else {                                                                    \
-    if (pc_delta >= -4096) {                                                  \
-      aa64_emit_subi(ireg, reg_pc, -pc_delta);                                \
-    } else {                                                                  \
-      generate_load_imm(ireg, new_pc);                                        \
-    }                                                                         \
-  }                                                                           \
-}                                                                             \
-
 #define generate_store_reg(ireg, reg_index)                                   \
   aa64_emit_mov(arm_to_a64_reg[reg_index], ireg)                              \
-
-/* TODO Use addi12 if the immediate is <24 bits ? */
-#define generate_alu_imm(imm_type, reg_type, ireg_dest, ireg_src, imm)        \
-  if((u32)(imm) < 4096)                                                       \
-  {                                                                           \
-    aa64_emit_##imm_type(ireg_dest, ireg_src, imm);                           \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_load_imm(reg_temp, imm);                                         \
-    aa64_emit_##reg_type(ireg_dest, ireg_src, reg_temp);                      \
-  }                                                                           \
 
 #define generate_mov(ireg_dest, ireg_src)                                     \
   aa64_emit_mov(arm_to_a64_reg[ireg_dest], arm_to_a64_reg[ireg_src])          \
@@ -262,9 +187,9 @@ const u32 arm_to_a64_reg[] =
   {                                                                           \
     unsigned hicycle = cycle_count >> 12;                                     \
     if (hicycle) {                                                            \
-      aa64_emit_subi12(reg_cycles, reg_cycles, hicycle);                      \
+      aa64_emit_subi12<NoFlags>(reg_cycles, reg_cycles, hicycle);             \
     }                                                                         \
-    aa64_emit_subi(reg_cycles, reg_cycles, (cycle_count & 0xfff));            \
+    aa64_emit_subi<NoFlags>(reg_cycles, reg_cycles, (cycle_count & 0xfff));   \
     cycle_count = 0;                                                          \
   }                                                                           \
 
@@ -447,12 +372,12 @@ u32 execute_spsr_restore_body(u32 address)
   aa64_emit_cbz(reg_temp, 0);                                                 \
 
 #define generate_condition_ge()                                               \
-  aa64_emit_sub(reg_temp, reg_n_cache, reg_v_cache);                          \
+  aa64_emit_sub<NoFlags>(reg_temp, reg_n_cache, reg_v_cache);                 \
   (backpatch_address) = this->emit_ptr;                                       \
   aa64_emit_cbnz(reg_temp, 0);                                                \
 
 #define generate_condition_lt()                                               \
-  aa64_emit_sub(reg_temp, reg_n_cache, reg_v_cache);                          \
+  aa64_emit_sub<NoFlags>(reg_temp, reg_n_cache, reg_v_cache);                 \
   (backpatch_address) = this->emit_ptr;                                       \
   aa64_emit_cbz(reg_temp, 0);                                                 \
 
@@ -554,7 +479,7 @@ u32 execute_spsr_restore_body(u32 address)
 
 #define load_c_flag()                                                         \
   aa64_emit_movne(reg_temp, 0);                                               \
-  aa64_emit_adds(reg_temp, reg_temp, reg_c_cache);                            \
+  aa64_emit_add<SetFlags>(reg_temp, reg_temp, reg_c_cache);                   \
 
 #define check_store_reg_pc_thumb(_rd)                                         \
   if(_rd == REG_PC)                                                           \
@@ -566,19 +491,6 @@ u32 execute_spsr_restore_body(u32 address)
 #define generate_branch_filler(condition_code, writeback_location)            \
   (writeback_location) = this->emit_ptr;                                      \
   aa64_emit_brcond(condition_code, 0);                                        \
-
-#ifdef TRACE_INSTRUCTIONS
-  void trace_instruction_hook(u32 pc, u32 mode)
-  {
-    if (mode)
-      printf("Executed arm %x\n", pc);
-    else
-      printf("Executed thumb %x\n", pc);
-    #ifdef TRACE_REGISTERS
-    print_regs();
-    #endif
-  }
-#endif
 
 
 inline bool isimm12(u32 imm) {
@@ -593,10 +505,10 @@ inline bool isimmhi12(u32 imm) {
   return (imm & 0xFF000FFF) == 0;
 }
 
-class CodeEmitter : public CodeEmitterBase {
+class CodeEmitter : public ARM64Emitter {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
-   : CodeEmitterBase(emit_ptr, emit_end), block_pc(pc) {}
+   : ARM64Emitter(emit_ptr, emit_end), block_pc(pc) {}
 
   u32 block_pc;              // PC address for the block base
   u8 *update_trampoline;     // TODO: Unused, remove!
@@ -605,6 +517,21 @@ public:
 
   inline void emit_block_prologue() {
     generate_load_imm(reg_pc, this->block_pc);
+  }
+
+  inline void generate_load_pc(uint32_t rd, uint32_t pc) {
+    s32 pc_delta = pc - this->block_pc;
+    if (pc_delta >= 0) {
+      if (pc_delta < 4096)
+        aa64_emit_addi<NoFlags>(rd, reg_pc, pc_delta);
+      else
+        generate_load_imm(rd, pc);
+    } else {
+      if (pc_delta >= -4096)
+        aa64_emit_subi<NoFlags>(rd, reg_pc, -pc_delta);
+      else
+        generate_load_imm(rd, pc);
+    }
   }
 
   // Register allocation (for registers that could contain PC)
@@ -632,19 +559,18 @@ public:
   }
 
   inline void load_alloc_reg_lsb(u32 regn, u32 native_reg, u32 pcvalue) {
-    if (regn == REG_PC) {
+    if (regn == REG_PC)
       aa64_emit_movlo(native_reg, (pcvalue & 0xFF));
-    } else {
+    else
       aa64_emit_andi(native_reg, arm_to_a64_reg[regn], 0, 7); /* 0xFF */
-    }
   }
 
   template <FlagOperation flgmode>
   inline void update_nz_flags(const BaseInst & it, u32 reg) {
     if (flgmode == SetFlags) {
-      if (it.gen_flag_n()) {
+      if (it.gen_flag_n())
         aa64_emit_lsr(reg_n_cache, reg, 31);
-      }
+
       if (it.gen_flag_z()) {
         aa64_emit_cmpi(reg, 0);
         aa64_emit_cset(reg_z_cache, ccode_eq);
@@ -655,30 +581,78 @@ public:
   template <FlagOperation flgmode>
   inline void update_nzcv_arith_flags(const BaseInst & it) {
     if (flgmode == SetFlags) {
-      if (it.gen_flag_c()) {
+      if (it.gen_flag_c())
         aa64_emit_cset(reg_c_cache, ccode_hs);
-      }
-      if (it.gen_flag_v()) {
+      if (it.gen_flag_v())
         aa64_emit_cset(reg_v_cache, ccode_vs);
-      }
-      if (it.gen_flag_n()) {
+      if (it.gen_flag_n())
         aa64_emit_cset(reg_n_cache, ccode_mi);
-      }
-      if (it.gen_flag_z()) {
+      if (it.gen_flag_z())
         aa64_emit_cset(reg_z_cache, ccode_eq);
-      }
     }
   }
 
   template <FlagOperation flgmode>
   inline void upd_nz_flags_imm(const ARMInst & it, u32 imm) {
     if (flgmode == SetFlags) {
-      if (it.gen_flag_z()) {
+      if (it.gen_flag_z())
         aa64_emit_movlo(reg_z_cache, (imm ? 0 : 1));
-      }
-      if (it.gen_flag_n()) {
+      if (it.gen_flag_n())
         aa64_emit_movlo(reg_n_cache, (imm >> 31));
-      }
+    }
+  }
+
+  inline void generate_load_imm(uint32_t rd, uint32_t imm) {
+    if ((s32)(imm) < 0 && (s32)(imm) >= -65536)
+      aa64_emit_movne(rd, ~imm);       // immediate like 0xffffxxxx
+    else if ((imm & 0xffff) == 0)
+      aa64_emit_movhiz(rd, imm >> 16); // immediate like 0xxxxx0000
+    else {
+      aa64_emit_movlo(rd, imm);
+      if (imm >= (1 << 16))
+        aa64_emit_movhi(rd, imm >> 16);
+    }
+  }
+
+  void aa64_emit_addsubi(uint32_t dreg, uint32_t sreg, int imm) {
+    if (imm >= 0)
+      aa64_emit_addi<NoFlags>(dreg, sreg, imm);
+    else
+      aa64_emit_subi<NoFlags>(dreg, sreg, -imm);
+  }
+
+  // Adds an arbitrarily big immediate (honoring flag setting if needed)
+  template <FlagOperation flg>
+  void aa64_emit_addlimm(uint32_t rd, uint32_t rs, uint32_t imm) {
+    // Adds a long immediate using a few insts is possible.
+    if (isimm12(imm))
+      aa64_emit_addi<flg>(rd, rs, imm);
+    else if (isimmhi12(imm))
+      aa64_emit_addi12<flg>(rd, rs, (imm >> 12));
+    else if (flg == NoFlags && isimm24(imm)) {
+      aa64_emit_addi<NoFlags>(rd, rs, (imm & 0xFFF));
+      aa64_emit_addi12<NoFlags>(rd, rd, ((imm >> 12) & 0xFFF));
+    }
+    else {
+      generate_load_imm(reg_temp, imm);
+      aa64_emit_add<flg>(rd, rs, reg_temp);
+    }
+  }
+
+  template <FlagOperation flg>
+  void aa64_emit_sublimm(uint32_t rd, uint32_t rs, uint32_t imm) {
+    // Subss a long immediate using a few insts is possible.
+    if (isimm12(imm))
+      aa64_emit_subi<flg>(rd, rs, imm);
+    else if (isimmhi12(imm))
+      aa64_emit_subi12<flg>(rd, rs, (imm >> 12));
+    else if (flg == NoFlags && isimm24(imm)) {
+      aa64_emit_subi<NoFlags>(rd, rs, (imm & 0xFFF));
+      aa64_emit_subi12<NoFlags>(rd, rd, ((imm >> 12) & 0xFFF));
+    }
+    else {
+      generate_load_imm(reg_temp, imm);
+      aa64_emit_sub<flg>(rd, rs, reg_temp);
     }
   }
 
@@ -765,12 +739,12 @@ public:
       aa64_emit_cbz(reg_temp, 0);
       break;
     case CondGE:
-      aa64_emit_sub(reg_temp, reg_n_cache, reg_v_cache);
+      aa64_emit_sub<NoFlags>(reg_temp, reg_n_cache, reg_v_cache);
       ret = this->emit_ptr;
       aa64_emit_cbnz(reg_temp, 0);
       break;
     case CondLT:
-      aa64_emit_sub(reg_temp, reg_n_cache, reg_v_cache);
+      aa64_emit_sub<NoFlags>(reg_temp, reg_n_cache, reg_v_cache);
       ret = this->emit_ptr;
       aa64_emit_cbz(reg_temp, 0);
       break;
@@ -800,10 +774,10 @@ public:
 
     switch (aluop) {
     case OpAdd:
-      aa64_emit_adds(rd, rs, rn);
+      aa64_emit_add<SetFlags>(rd, rs, rn);
       break;
     case OpSub:
-      aa64_emit_subs(rd, rs, rn);
+      aa64_emit_sub<SetFlags>(rd, rs, rn);
       break;
     };
 
@@ -837,21 +811,21 @@ public:
       update_nz_flags<SetFlags>(it, rd);
       break;
     case OpAdd:
-      aa64_emit_adds(rd, rd, rs);
+      aa64_emit_add<SetFlags>(rd, rd, rs);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpSub:
-      aa64_emit_subs(rd, rd, rs);
+      aa64_emit_sub<SetFlags>(rd, rd, rs);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpAdc:
       load_c_flag();
-      aa64_emit_adcs(rd, rd, rs);
+      aa64_emit_adc<SetFlags>(rd, rd, rs);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpSbc:
       load_c_flag();
-      aa64_emit_sbcs(rd, rd, rs);
+      aa64_emit_sbc<SetFlags>(rd, rd, rs);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     };
@@ -883,7 +857,7 @@ public:
 
     switch (aluop) {
     case OpNeg:
-      aa64_emit_subs(rd, reg_zero, rs);
+      aa64_emit_sub<SetFlags>(rd, reg_zero, rs);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpMvn:
@@ -904,11 +878,11 @@ public:
       update_nz_flags<SetFlags>(it, reg_temp);
       break;
     case OpCmp:
-      aa64_emit_subs(reg_zero, rd, rs);
+      aa64_emit_sub<SetFlags>(reg_zero, rd, rs);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpCmn:
-      aa64_emit_adds(reg_zero, rd, rs);
+      aa64_emit_add<SetFlags>(reg_zero, rd, rs);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     };
@@ -925,15 +899,15 @@ public:
       aa64_emit_movlo(reg_z_cache, it.imm8() ? 0 : 1);
       break;
     case OpAdd:
-      aa64_emit_addis(rd, rd, it.imm8());
+      aa64_emit_addi<SetFlags>(rd, rd, it.imm8());
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpSub:
-      aa64_emit_subis(rd, rd, it.imm8());
+      aa64_emit_subi<SetFlags>(rd, rd, it.imm8());
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpCmp:
-      aa64_emit_subis(reg_temp, rd, it.imm8());
+      aa64_emit_subi<SetFlags>(reg_temp, rd, it.imm8());
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     };
@@ -946,10 +920,10 @@ public:
 
     switch (aluop) {
     case OpAdd:
-      aa64_emit_addis(rd, rs, it.imm3());
+      aa64_emit_addi<SetFlags>(rd, rs, it.imm3());
       break;
     case OpSub:
-      aa64_emit_subis(rd, rs, it.imm3());
+      aa64_emit_subi<SetFlags>(rd, rs, it.imm3());
       break;
     };
 
@@ -963,11 +937,11 @@ public:
     // TODO: Improve PC writes (reg_a0 *must* contain the new PC, which is not clear).
     if (aluop == OpAdd) {
       u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
-      aa64_emit_add(rd, rd, rs);
+      aa64_emit_add<NoFlags>(rd, rd, rs);
       check_store_reg_pc_thumb(it.rd_hi());
     } else if (aluop == OpCmp) {
       u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
-      aa64_emit_subs(reg_temp, rd, rs);
+      aa64_emit_sub<SetFlags>(reg_temp, rd, rs);
       update_nzcv_arith_flags<SetFlags>(it);
     } else if (aluop == OpMov) {
       u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
@@ -978,19 +952,17 @@ public:
 
   template <u32 ref_reg>
   inline void thumb_regoff(const ThumbInst & it) {
-    if (ref_reg == REG_PC) {
+    if (ref_reg == REG_PC)
       generate_load_pc(arm_to_a64_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
-    } else {
-      aa64_emit_addi(arm_to_a64_reg[it.rd8()], arm_to_a64_reg[ref_reg], 4 * it.imm8());
-    }
+    else
+      aa64_emit_addi<NoFlags>(arm_to_a64_reg[it.rd8()], arm_to_a64_reg[ref_reg], 4 * it.imm8());
   }
 
   inline void thumb_spadj(s8 offset) {
-    if (offset >= 0) {
-      aa64_emit_addi(reg_r13, reg_r13,  offset * 4);
-    } else {
-      aa64_emit_subi(reg_r13, reg_r13, -offset * 4);
-    }
+    if (offset >= 0)
+      aa64_emit_addi<NoFlags>(reg_r13, reg_r13,  offset * 4);
+    else
+      aa64_emit_subi<NoFlags>(reg_r13, reg_r13, -offset * 4);
   }
 
   inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
@@ -1032,21 +1004,17 @@ public:
 
   inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
     u8 *brtgt = NULL;
-
     generate_load_pc(reg_a0, (pc + 2));
     generate_function_call(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
-
     return brtgt;
   }
 
   inline u8* arm_swi(u32 pc, u32 & cycle_count) {
     u8 *brtgt = NULL;
-
     generate_load_pc(reg_a0, (pc + 4));
     generate_function_call(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
-
     return brtgt;
   }
 
@@ -1099,7 +1067,7 @@ public:
   }
 
   inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
-    generate_alu_imm(addi, add, reg_a0, reg_r14, offset);
+    aa64_emit_addlimm<NoFlags>(reg_a0, reg_r14, offset);
     generate_load_pc(reg_r14, ((pc + 2) | 0x01));
     generate_indirect_branch_cycle_update(thumb);
   }
@@ -1117,13 +1085,13 @@ public:
 
     // rb/ro/regn are never PC in thumb mode (this is handled by OffPC mode)
     case OffReg:
-      aa64_emit_add(reg_a0, arm_to_a64_reg[regn], arm_to_a64_reg[it.ro()]);
+      aa64_emit_add<NoFlags>(reg_a0, arm_to_a64_reg[regn], arm_to_a64_reg[it.ro()]);
       break;
     case OffImm5:
-      aa64_emit_addi(reg_a0, arm_to_a64_reg[regn], it.imm5() * sizeof(memtype));
+      aa64_emit_addi<NoFlags>(reg_a0, arm_to_a64_reg[regn], it.imm5() * sizeof(memtype));
       break;
     case OffImm8:
-      aa64_emit_addi(reg_a0, arm_to_a64_reg[regn], it.imm8() * sizeof(memtype));
+      aa64_emit_addi<NoFlags>(reg_a0, arm_to_a64_reg[regn], it.imm8() * sizeof(memtype));
       break;
     }
   }
@@ -1159,36 +1127,32 @@ public:
 
     switch (offt) {
     case OffImm12:     // [rn +/- imm12]
-      if (dir == OffPositive) {
-        aa64_emit_addi(oreg, breg, it.off12());
-      } else {
-        aa64_emit_subi(oreg, breg, it.off12());
-      }
+      if (dir == OffPositive)
+        aa64_emit_addi<NoFlags>(oreg, breg, it.off12());
+      else
+        aa64_emit_subi<NoFlags>(oreg, breg, it.off12());
       break;
     case OffHImm8:     // [rn +/- imm8]
-      if (dir == OffPositive) {
-        aa64_emit_addi(oreg, breg, it.off8());
-      } else {
-        aa64_emit_subi(oreg, breg, it.off8());
-      }
+      if (dir == OffPositive)
+        aa64_emit_addi<NoFlags>(oreg, breg, it.off8());
+      else
+        aa64_emit_subi<NoFlags>(oreg, breg, it.off8());
       break;
     case OffHReg:      // [rn +/- rm]
       {
         u32 secreg = load_alloc_reg(it.rm(), reg_temp, it.pc + 8);
-        if (dir == OffPositive) {
-          aa64_emit_add(oreg, breg, secreg);
-        } else {
-          aa64_emit_sub(oreg, breg, secreg);
-        }
+        if (dir == OffPositive)
+          aa64_emit_add<NoFlags>(oreg, breg, secreg);
+        else
+          aa64_emit_sub<NoFlags>(oreg, breg, secreg);
       }
       break;
     case OffOp2Reg:    // [rn +/- rm shift/rot amount]
       emit_op2_shimm<NoFlags>(reg_a2, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
-      if (dir == OffPositive) {
-        aa64_emit_add(oreg, breg, reg_a2);
-      } else {
-        aa64_emit_sub(oreg, breg, reg_a2);
-      }
+      if (dir == OffPositive)
+        aa64_emit_add<NoFlags>(oreg, breg, reg_a2);
+      else
+        aa64_emit_sub<NoFlags>(oreg, breg, reg_a2);
       break;
     };
   }
@@ -1291,14 +1255,13 @@ public:
     bool writeback_first = (amode == AccLoad) || !(wrbck_base && base_first);
 
     // This is the most common case by far.
-    if (writeback && writeback_first) {
-      generate_addsubi(arm_to_a64_reg[basereg], arm_to_a64_reg[basereg], endoff);
-    }
+    if (writeback && writeback_first)
+      aa64_emit_addsubi(arm_to_a64_reg[basereg], arm_to_a64_reg[basereg], endoff);
 
     u32 aoff = 0;
     for (u32 i = 0; i < 16; i++) {
       if (rlist & (1 << i)) {
-        generate_addsubi(reg_a0, reg_save0, (aoff + inioff));
+        aa64_emit_addsubi(reg_a0, reg_save0, aoff + inioff);
         if (amode == AccLoad) {
           generate_function_call(execute_aligned_load32);
           generate_store_reg(reg_res, i);
@@ -1307,7 +1270,7 @@ public:
 
           // Update the base register right after the first read if necessary
           if (writeback && !writeback_first) {
-            generate_addsubi(arm_to_a64_reg[basereg], arm_to_a64_reg[basereg], endoff);
+            aa64_emit_addsubi(arm_to_a64_reg[basereg], arm_to_a64_reg[basereg], endoff);
             writeback_first = true;
           }
 
@@ -1347,9 +1310,8 @@ public:
 
     // Set/Clear carry flag if appropriate (rotation result)
     if (aluop == OpAnd || aluop == OpOrr || aluop == OpXor || aluop == OpBic) {
-      if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
+      if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c())
         aa64_emit_movlo(reg_c_cache, ((imm) >> 31));
-      }
     }
 
     // TODO: Implement arm64 immediates for logic operations.
@@ -1376,76 +1338,36 @@ public:
       update_nz_flags<flg>(it, rd);
       break;
     case OpAdd:
-      if (flg == NoFlags) {
-        if (isimm12(imm)) {
-          aa64_emit_addi(rd, rn, imm);
-        } else if (isimmhi12(imm)) {
-          aa64_emit_addi12(rd, rn, (imm >> 12));
-        } else if (isimm24(imm)) {
-          aa64_emit_addi(rd, rn, (imm & 0xFFF));
-          aa64_emit_addi12(rd, rd, ((imm >> 12) & 0xFFF));
-        } else {
-          generate_load_imm(reg_temp, imm);
-          aa64_emit_add(rd, rn, reg_temp);
-        }
-      } else {
-        if (isimm12(imm)) {
-          aa64_emit_addis(rd, rn, imm);
-        } else if (isimmhi12(imm)) {
-          aa64_emit_addis12(rd, rn, (imm >> 12));
-        } else {
-          generate_load_imm(reg_temp, imm);
-          aa64_emit_adds(rd, rn, reg_temp);
-        }
+     aa64_emit_addlimm<flg>(rd, rn, imm);
+      if (flg == SetFlags)
         update_nzcv_arith_flags<SetFlags>(it);
-      }
       break;
     case OpAdc:
       load_c_flag();
       generate_load_imm(reg_temp, imm);
-      aa64_emit_adcs(rd, rn, reg_temp);
+      aa64_emit_adc<flg>(rd, rn, reg_temp);
       update_nzcv_arith_flags<flg>(it);
       break;
     case OpSub:
-      if (flg == NoFlags) {
-        if (isimm12(imm)) {
-          aa64_emit_subi(rd, rn, imm);
-        } else if (isimmhi12(imm)) {
-          aa64_emit_subi12(rd, rn, (imm >> 12));
-        } else if (isimm24(imm)) {
-          aa64_emit_subi(rd, rn, (imm & 0xFFF));
-          aa64_emit_subi12(rd, rd, ((imm >> 12) & 0xFFF));
-        } else {
-          generate_load_imm(reg_temp, imm);
-          aa64_emit_sub(rd, rn, reg_temp);
-        }
-      } else {
-        if (isimm12(imm)) {
-          aa64_emit_subis(rd, rn, imm);
-        } else if (isimmhi12(imm)) {
-          aa64_emit_subis12(rd, rn, (imm >> 12));
-        } else {
-          generate_load_imm(reg_temp, imm);
-          aa64_emit_subs(rd, rn, reg_temp);
-        }
+      aa64_emit_sublimm<flg>(rd, rn, imm);
+      if (flg == SetFlags)
         update_nzcv_arith_flags<SetFlags>(it);
-      }
       break;
     case OpRsb:
       generate_load_imm(reg_temp, imm);
-      aa64_emit_subs(rd, reg_temp, rn);
+      aa64_emit_sub<flg>(rd, reg_temp, rn);
       update_nzcv_arith_flags<flg>(it);
       break;
     case OpSbc:
       load_c_flag();
       generate_load_imm(reg_temp, imm);
-      aa64_emit_sbcs(rd, rn, reg_temp);
+      aa64_emit_sbc<flg>(rd, rn, reg_temp);
       update_nzcv_arith_flags<flg>(it);
       break;
     case OpRsc:
       load_c_flag();
       generate_load_imm(reg_temp, imm);
-      aa64_emit_sbcs(rd, reg_temp, rn);
+      aa64_emit_sbc<flg>(rd, reg_temp, rn);
       update_nzcv_arith_flags<flg>(it);
       break;
     };
@@ -1467,9 +1389,8 @@ public:
     const u32 imm = rotr32(it.imm8(), sa);
 
     // Set/Clear carry flag if appropriate (rotation result)
-    if (it.rot4() != 0 && it.gen_flag_c()) {
+    if (it.rot4() != 0 && it.gen_flag_c())
       aa64_emit_movlo(reg_c_cache, ((imm) >> 31));
-    }
 
     switch (aluop) {
     case OpTst:
@@ -1483,25 +1404,11 @@ public:
       update_nz_flags<SetFlags>(it, reg_temp);
       break;
     case OpCmp:
-      if (isimm12(imm)) {
-        aa64_emit_subis(reg_temp, rn, imm);
-      } else if (isimmhi12(imm)) {
-        aa64_emit_subis12(reg_temp, rn, (imm >> 12));
-      } else {
-        generate_load_imm(reg_temp, imm);
-        aa64_emit_subs(reg_temp, rn, reg_temp);
-      }
+      aa64_emit_sublimm<SetFlags>(reg_temp, rn, imm);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpCmn:
-      if (isimm12(imm)) {
-        aa64_emit_addis(reg_temp, rn, imm);
-      } else if (isimmhi12(imm)) {
-        aa64_emit_addis12(reg_temp, rn, (imm >> 12));
-      } else {
-        generate_load_imm(reg_temp, imm);
-        aa64_emit_adds(reg_temp, rn, reg_temp);
-      }
+      aa64_emit_addlimm<SetFlags>(reg_temp, rn, imm);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     };
@@ -1516,9 +1423,8 @@ public:
     u32 imm = rotr32(it.imm8(), sa);
 
     // Set/Clear carry flag if appropriate (rotation result)
-    if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
+    if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c())
       aa64_emit_movlo(reg_c_cache, ((imm) >> 31));
-    }
 
     if (aluop == OpMvn)
       imm = ~imm;
@@ -1542,18 +1448,16 @@ public:
     switch (st) {
     case ShiftLSL:
       rm = load_alloc_reg(sreg, dreg, pc);
-      if (flg == SetFlags && sa) {
+      if (flg == SetFlags && sa)
         aa64_emit_ubfx(reg_c_cache, rm, (32 - sa), 1);
-      }
       aa64_emit_lsl(dreg, rm, sa);
       break;
 
     case ShiftLSR:      /* (sa 0 means shift by 32) */
       if (sa) {
         rm = load_alloc_reg(sreg, dreg, pc);
-        if (flg == SetFlags) {
+        if (flg == SetFlags)
           aa64_emit_ubfx(reg_c_cache, rm, (sa - 1), 1);
-        }
         aa64_emit_lsr(dreg, rm, sa);
       } else {
         if (flg == SetFlags) {
@@ -1566,25 +1470,22 @@ public:
 
     case ShiftASR:      /* (sa 0 is also shift by 32) */
       rm = load_alloc_reg(sreg, dreg, pc);
-      if (flg == SetFlags) {
+      if (flg == SetFlags)
         aa64_emit_ubfx(reg_c_cache, rm, ((sa ? sa : 32) - 1), 1);
-      }
       aa64_emit_asr(dreg, rm, (sa ? sa : 31));
       break;
 
     case ShiftROR:
       rm = load_alloc_reg(sreg, reg_temp, pc);
       if (sa) {
-        if (flg == SetFlags) {
+        if (flg == SetFlags)
           aa64_emit_ubfx(reg_c_cache, rm, (sa - 1), 1);
-        }
         aa64_emit_ror(dreg, rm, sa);
       } else {
         // TODO this doesn't work when rm and dreg are the same register.
         aa64_emit_extr(dreg, reg_c_cache, rm, 1);
-        if (flg == SetFlags) {
+        if (flg == SetFlags)
           aa64_emit_ubfx(reg_c_cache, rm, 0, 1);
-        }
       }
       break;
     };
@@ -1601,7 +1502,7 @@ public:
         case 0:     /* LSL */
           aa64_emit_cbz(reg_a1, 8);           // Skip it all on shift = 0
           // This code works if shift <= 32.
-          aa64_emit_subi(reg_temp, reg_a1, 1);
+          aa64_emit_subi<NoFlags>(reg_temp, reg_a1, 1);
           aa64_emit_lslv(dreg, dreg, reg_temp);
           aa64_emit_lsr(reg_c_cache, dreg, 31);
           aa64_emit_cmpi(reg_a1, 33);
@@ -1612,7 +1513,7 @@ public:
           break;
         case 1:     /* LSR */
           aa64_emit_cbz(reg_a1, 8);           // Skip it all on shift = 0
-          aa64_emit_subi(reg_temp, reg_a1, 1);
+          aa64_emit_subi<NoFlags>(reg_temp, reg_a1, 1);
           aa64_emit_lsrv(dreg, dreg, reg_temp);
           aa64_emit_andi(reg_c_cache, dreg, 0, 0);  /* imm=1 */
           aa64_emit_cmpi(reg_a1, 33);
@@ -1626,7 +1527,7 @@ public:
           aa64_emit_movlo(reg_temp, 32);      // Cap amount to 32.
           aa64_emit_cmpi(reg_a1, 32);
           aa64_emit_csel(reg_a1, reg_a1, reg_temp, ccode_ls);
-          aa64_emit_subi(reg_temp, reg_a1, 1);
+          aa64_emit_subi<NoFlags>(reg_temp, reg_a1, 1);
           aa64_emit_asrv(dreg, dreg, reg_temp);
           aa64_emit_andi(reg_c_cache, dreg, 0, 0);  /* imm=1 */
           aa64_emit_asr(dreg, dreg, 1);
@@ -1719,30 +1620,30 @@ public:
       update_nz_flags<flg>(it, rd);
       break;
     case OpAdd:
-      aa64_emit_adds(rd, rn, regop2);
+      aa64_emit_add<flg>(rd, rn, regop2);
       update_nzcv_arith_flags<flg>(it);
       break;
     case OpAdc:
       load_c_flag();
-      aa64_emit_adcs(rd, rn, regop2);
+      aa64_emit_adc<flg>(rd, rn, regop2);
       update_nzcv_arith_flags<flg>(it);
       break;
     case OpSub:
-      aa64_emit_subs(rd, rn, regop2);
+      aa64_emit_sub<flg>(rd, rn, regop2);
       update_nzcv_arith_flags<flg>(it);
       break;
     case OpSbc:
       load_c_flag();
-      aa64_emit_sbcs(rd, rn, regop2);
+      aa64_emit_sbc<flg>(rd, rn, regop2);
       update_nzcv_arith_flags<flg>(it);
       break;
     case OpRsb:
-      aa64_emit_subs(rd, regop2, rn);
+      aa64_emit_sub<flg>(rd, regop2, rn);
       update_nzcv_arith_flags<flg>(it);
       break;
     case OpRsc:
       load_c_flag();
-      aa64_emit_sbcs(rd, regop2, rn);
+      aa64_emit_sbc<flg>(rd, regop2, rn);
       update_nzcv_arith_flags<flg>(it);
       break;
     };
@@ -1795,11 +1696,11 @@ public:
        update_nz_flags<SetFlags>(it, reg_temp);
        break;
     case OpCmp:
-      aa64_emit_subs(reg_zero, rn, regop2);
+      aa64_emit_sub<SetFlags>(reg_zero, rn, regop2);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     case OpCmn:
-      aa64_emit_adds(reg_zero, rn, regop2);
+      aa64_emit_add<SetFlags>(reg_zero, rn, regop2);
       update_nzcv_arith_flags<SetFlags>(it);
       break;
     };
@@ -1835,17 +1736,15 @@ public:
 
     if (mm == MulAdd) {
       aa64_emit_merge_regs(reg_a2, rdhi, rdlo);
-      if (signmul) {
+      if (signmul)
         aa64_emit_smaddl(reg_a2, reg_a2, rm, rs);
-      } else {
+      else
         aa64_emit_umaddl(reg_a2, reg_a2, rm, rs);
-      }
     } else {
-      if (signmul) {
+      if (signmul)
         aa64_emit_smaddl(reg_a2, reg_zero, rm, rs);
-      } else {
+      else
         aa64_emit_umaddl(reg_a2, reg_zero, rm, rs);
-      }
     }
 
     aa64_emit_andi64(rdlo, reg_a2, 0, 31);
@@ -1893,22 +1792,26 @@ public:
   }
 
   template <CPUInstMode cm>
-  void trace_instruction(u32 pc) {
+  void trace_instruction(u32 pc, u32 opcode) {
     #ifdef TRACE_INSTRUCTIONS
-    emit_save_regs();
+    for (unsigned i = 0; i < 15; i++)
+      aa64_emit_str(arm_to_a64_reg[i], reg_base, i);
     generate_load_imm(reg_a0, pc);
-    generate_load_imm(reg_a1, (cm == ModeThumb ? 0 : 1));
-    generate_function_call(trace_instruction_hook);
-    emit_restore_regs()
+    generate_load_imm(reg_a1, opcode);
+    if (cm == ModeThumb) {
+      generate_function_call(trace_instruction_hook_thumb);
+    } else {
+      generate_function_call(trace_instruction_hook_arm);
+    }
+    for (unsigned i = 0; i < 15; i++)
+      aa64_emit_ldr(arm_to_a64_reg[i], reg_base, i);
     #endif
   }
 
 };
 
-
 extern void* ldst_handler_functions[16*4 + 17*6];
 extern void* ldst_lookup_tables[16*4 + 17*6];
-
 
 void init_emitter(bool must_swap) {
   rom_cache_watermark = INITIAL_ROM_WATERMARK;

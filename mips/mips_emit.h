@@ -729,21 +729,6 @@ u32 execute_spsr_restore_body(u32 address)
 
 #endif
 
-
-#ifdef TRACE_INSTRUCTIONS
-  void trace_instruction_hook(u32 pc, u32 mode)
-  {
-    if (mode)
-      printf("Executed arm %x\n", pc);
-    else
-      printf("Executed thumb %x\n", pc);
-    #ifdef TRACE_REGISTERS
-    print_regs();
-    #endif
-  }
-#endif
-
-
 #define generate_update_pc_reg()                                              \
   generate_load_pc(reg_a0, pc);                                               \
   mips_emit_sw(reg_a0, reg_base, (REG_PC * 4))                                \
@@ -2183,12 +2168,16 @@ public:
   }
 
   template <CPUInstMode cm>
-  inline void trace_instruction(u32 pc) {
+  inline void trace_instruction(u32 pc, u32 opcode) {
     #ifdef TRACE_INSTRUCTIONS
     emit_save_regs(false);
     generate_load_imm(reg_a0, pc);
-    generate_load_imm(reg_a1, (cm == ModeThumb ? 0 : 1));
-    genccall(&trace_instruction_hook);
+    generate_load_imm(reg_a2, opcode);
+    if (cm == ModeThumb) {
+      genccall(&trace_instruction_hook_thumb);
+    } else {
+      genccall(&trace_instruction_hook_arm);
+    }
     mips_emit_nop();
     emit_restore_regs(false);
     #endif

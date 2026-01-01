@@ -560,6 +560,9 @@ endif
 ifneq (,$(findstring regs,$(trace)))
    TRACE_DEF += -DTRACE_REGISTERS
 endif
+ifneq (,$(findstring flush,$(trace)))
+   TRACE_DEF += -DTRACE_FLUSH
+endif
 
 DEFINES := -DHAVE_STRINGS_H -DHAVE_STDINT_H -DHAVE_INTTYPES_H -D__LIBRETRO__ -DINLINE=inline -Wall $(TRACE_DEF)
 

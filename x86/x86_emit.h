@@ -268,20 +268,6 @@ extern "C" {
   }                                                                           \
 
 
-#ifdef TRACE_INSTRUCTIONS
-  void function_cc trace_instruction_hook(u32 pc, u32 mode)
-  {
-    if (mode)
-      printf("Executed arm %x\n", pc);
-    else
-      printf("Executed thumb %x\n", pc);
-    #ifdef TRACE_REGISTERS
-    print_regs();
-    #endif
-  }
-#endif
-
-
 // It should be okay to still generate result flags, spsr will overwrite them.
 // This is pretty infrequent (returning from interrupt handlers, et al) so
 // probably not worth optimizing for.
@@ -1776,11 +1762,15 @@ public:
   }
 
   template <CPUInstMode cm>
-  void trace_instruction(u32 pc) {
+  void trace_instruction(u32 pc, u32 opcode) {
     #ifdef TRACE_INSTRUCTIONS
     x86_emit_mov_reg_imm(reg_arg0, pc);
-    x86_emit_mov_reg_imm(reg_arg1, (cm == ModeThumb ? 0 : 1));
-    generate_function_call(trace_instruction_hook);
+    x86_emit_mov_reg_imm(reg_arg1, opcode);
+    if (cm == ModeThumb) {
+      generate_function_call(trace_instruction_hook_thumb);
+    } else {
+      generate_function_call(trace_instruction_hook_arm);
+    }
     #endif
   }
 

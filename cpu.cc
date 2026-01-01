@@ -1823,7 +1823,7 @@ void execute_arm(u32 cycles)
          u16 opcode16 = read_mem<u16>(pc_address_block, (reg[REG_PC] & 0x7FFF));
 
          #ifdef TRACE_INSTRUCTIONS
-         interp_trace_instruction(reg[REG_PC], 0);
+           trace_instruction_hook_thumb(reg[REG_PC], opcode16);
          #endif
 
          cpu_alert = execute_thumb_instruction(opcode16, cyccnt);
@@ -1838,7 +1838,7 @@ void execute_arm(u32 cycles)
            reg[REG_PC] += 4;    // Skip this instruction
          else {
            #ifdef TRACE_INSTRUCTIONS
-             interp_trace_instruction(reg[REG_PC], 1);
+             trace_instruction_hook_arm(reg[REG_PC], opcode32);
            #endif
 
            cpu_alert = execute_arm_instruction(opcode32, cyccnt);

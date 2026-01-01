@@ -216,7 +216,7 @@ void translate_icache_sync() {
       ce.arm_conditional_block_header(condition, cycle_count, backpatch_address);  \
     }                                                                         \
   }                                                                           \
-  ce.trace_instruction<ModeARM>(pc);                                          \
+  ce.trace_instruction<ModeARM>(pc, opcode);                                  \
                                                                               \
   switch((opcode >> 20) & 0xFF)                                               \
   {                                                                           \
@@ -1195,12 +1195,11 @@ void translate_icache_sync() {
   check_pc_region(pc);                                                        \
   last_opcode = opcode;                                                       \
   opcode = address16(pc_address_block, (pc & 0x7FFF));                        \
-  ce.trace_instruction<ModeThumb>(pc);                                        \
+  ce.trace_instruction<ModeThumb>(pc, opcode);                                \
   u8 hiop = opcode >> 8;                                                      \
   ThumbInst inst(pc, opcode, flag_status);                                    \
                                                                               \
-  switch(hiop)                                                                \
-  {                                                                           \
+  switch(hiop) {                                                              \
     case 0x00 ... 0x07:      /* LSL rd, rs, imm */                            \
       ce.thumb_shft<OpImm, ShiftLSL>(inst);                                   \
       break;                                                                  \

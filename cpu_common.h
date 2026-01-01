@@ -125,11 +125,14 @@ cpu_alert_type check_interrupt(void);
 // Flags an interrupt, but doesn't immediately raise it.
 cpu_alert_type flag_interrupt(irq_type irq_raised);
 
-// Savetstates
+// Savestates
 bool cpu_check_savestate(const u8 *src);
 unsigned cpu_write_savestate(u8* dst);
 bool cpu_read_savestate(const u8 *src);
 
+// Tracing callback
+void function_cc trace_instruction_hook_arm(u32 pc, u32 opcode);
+void function_cc trace_instruction_hook_thumb(u32 pc, u16 opcode);
 
 // Memory structure definitions for the CPU.
 extern u32 reg[64];

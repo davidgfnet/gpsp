@@ -86,7 +86,8 @@ template <> inline u32 ldr_handler_offset<u32>() { return 8; }
 #define armfn_indirect_thumb      11
 #define armfn_indirect_dual_arm   12
 #define armfn_indirect_dual_thumb 13
-#define armfn_debug_trace         14
+#define armfn_debug_trace_arm     14
+#define armfn_debug_trace_thumb   15
 
 #define STORE_TBL_OFF     0x118
 #define SPSR_RAM_OFF      0x100
@@ -915,17 +916,6 @@ u32 execute_spsr_restore_body(u32 pc)
   generate_op_reg_regshift_tflags(TEQ, _rn, _rm, shift_type, _rs)             \
 
 void *div6, *divarm7;
-
-static void trace_instruction_hook(u32 pc, u32 mode)
-{
-  if (mode)
-    printf("Executed arm %x\n", pc);
-  else
-    printf("Executed thumb %x\n", pc);
-  #ifdef TRACE_REGISTERS
-  print_regs();
-  #endif
-}
 
 
 /* We use USAT + ROR to map addresses to the handler table. For ARMv5 we use
@@ -2233,7 +2223,7 @@ public:
   }
 
   template <CPUInstMode cm>
-  void trace_instruction(u32 pc) {
+  void trace_instruction(u32 pc, u32 opcode) {
     #ifdef TRACE_INSTRUCTIONS
     const u32 *rt = (cm == ModeThumb) ? thumb_register_allocation
                                       : arm_register_allocation;
@@ -2246,8 +2236,12 @@ public:
     generate_save_flags();
     ARM_STMDB_WB(0, ARMREG_SP, 0x500C);
     arm_load_imm_32bit(reg_a0, pc);
-    arm_load_imm_32bit(reg_a1, (cm == ModeThumb ? 0 : 1));
-    generate_function_far_call(armfn_debug_trace);
+    arm_load_imm_32bit(reg_a1, opcode);
+    if (cm == ModeThumb) {
+      generate_function_far_call(armfn_debug_trace_thumb);
+    } else {
+      generate_function_far_call(armfn_debug_trace_arm);
+    }
     ARM_LDMIA_WB(0, ARMREG_SP, 0x500C);
     generate_restore_flags();
     #endif
@@ -2349,7 +2343,8 @@ void init_emitter(bool must_swap) {
   reg[REG_USERDEF + armfn_indirect_thumb] = (u32)arm_indirect_branch_thumb;
   reg[REG_USERDEF + armfn_indirect_dual_arm]   = (u32)arm_indirect_branch_dual_arm;
   reg[REG_USERDEF + armfn_indirect_dual_thumb] = (u32)arm_indirect_branch_dual_thumb;
-  reg[REG_USERDEF + armfn_debug_trace] = (u32)trace_instruction_hook;
+  reg[REG_USERDEF + armfn_debug_trace_arm] = (u32)trace_instruction_hook_arm;
+  reg[REG_USERDEF + armfn_debug_trace_thumb] = (u32)trace_instruction_hook_thumb;
 }
 
 u32 execute_arm_translate(u32 cycles) {

@@ -25,12 +25,15 @@ typedef enum {
   aa64_opcode_movi       = 0x12,
   aa64_opcode_bfm        = 0x13,
   aa64_opcode_b          = 0x14,
-  aa64_opcode_b2         = 0x15,
-  aa64_opcode_tbz        = 0x16,
-  aa64_opcode_tbnz       = 0x17,
+  aa64_opcode_bc         = 0x54,
+  aa64_opcode_bl         = 0x94,
   aa64_opcode_memi       = 0x19,
   aa64_opcode_misc       = 0x1A,
   aa64_opcode_mul4       = 0x1B,
+  aa64_opcode_cbz        = 0x34,
+  aa64_opcode_cbnz       = 0x35,
+  aa64_opcode_tbz        = 0x36,
+  aa64_opcode_tbnz       = 0x37,
 } aa64_opcode;
 
 typedef enum {
@@ -199,28 +202,31 @@ public:
     aa64_emit_extr(rd, rs, rs, amount);
   }
   void aa64_emit_lsr(uint32_t rd, uint32_t rs, uint32_t amount) {
-    emit_inst(aa64_opcode_bfm, 2, rd, rs, (31 << 10) | ((amount) << 16));
+    emit_inst(aa64_opcode_bfm, 2, rd, rs, (31 << 10) | (amount << 16));
   }
   void aa64_emit_lsl(uint32_t rd, uint32_t rs, uint32_t amount) {
-    emit_inst(aa64_opcode_bfm, 2, rd, rs, ((31-(amount)) << 10) | (((32-(amount)) & 31) << 16));
+    emit_inst(aa64_opcode_bfm, 2, rd, rs, ((31-amount) << 10) | (((32-amount) & 31) << 16));
   }
   void aa64_emit_asr(uint32_t rd, uint32_t rs, uint32_t amount) {
-    emit_inst(aa64_opcode_bfm, 0, rd, rs, (31 << 10) | ((amount) << 16));
+    emit_inst(aa64_opcode_bfm, 0, rd, rs, (31 << 10) | (amount << 16));
   }
   void aa64_emit_rorv(uint32_t rd, uint32_t rs, uint32_t ra) {
-    emit_inst(aa64_opcode_misc, 0, rd, rs, ((ra) << 16) | 0xC02C00);
+    emit_inst(aa64_opcode_misc, 0, rd, rs, (ra << 16) | 0xC02C00);
   }
   void aa64_emit_lslv(uint32_t rd, uint32_t rs, uint32_t ra) {
-    emit_inst(aa64_opcode_misc, 0, rd, rs, ((ra) << 16) | 0xC02000);
+    emit_inst(aa64_opcode_misc, 0, rd, rs, (ra << 16) | 0xC02000);
   }
   void aa64_emit_lsrv(uint32_t rd, uint32_t rs, uint32_t ra) {
-    emit_inst(aa64_opcode_misc, 0, rd, rs, ((ra) << 16) | 0xC02400);
+    emit_inst(aa64_opcode_misc, 0, rd, rs, (ra << 16) | 0xC02400);
   }
   void aa64_emit_asrv(uint32_t rd, uint32_t rs, uint32_t ra) {
-    emit_inst(aa64_opcode_misc, 0, rd, rs, ((ra) << 16) | 0xC02800);
+    emit_inst(aa64_opcode_misc, 0, rd, rs, (ra << 16) | 0xC02800);
   }
 
   // Misc
+  void aa64_emit_adr(uint32_t rd,  uint32_t offset) {
+    emit_inst(aa64_opcode_adr, offset & 3, rd, 0, (offset >> 2) & 0x7ffff);
+  }
   void aa64_emit_csinc(uint32_t rd,  uint32_t rs, uint32_t rm, aa64_condcode cond) {
     emit_inst(aa64_opcode_misc, 0, rd, rs, 0x800400 | (rm << 16) | (cond << 12));
   }
@@ -233,6 +239,55 @@ public:
   void aa64_emit_csetm(uint32_t rd, aa64_condcode cond) {
     aa64_emit_csinv(rd, 31, 31, (aa64_condcode)(cond ^ 1));
   }
+  void aa64_emit_csel(uint32_t rd,  uint32_t rtrue, uint32_t rfalse, aa64_condcode cond) {
+    emit_inst(aa64_opcode_misc, 0, rd, rtrue, (1 << 23) | (rfalse << 16) | (cond << 12));
+  }
+  void aa64_emit_csneg(uint32_t rd,  uint32_t rs, uint32_t rm, aa64_condcode cond) {
+    emit_inst(aa64_opcode_misc, 2, rd, rs, 0x800400 | (rm << 16) | (cond << 12));
+  }
+
+  // Branches & small branching (bit or register test)
+  void aa64_emit_branch(int32_t offset) {
+    emit_inst(aa64_opcode_b, 0, 0, 0, (((u32)(offset))) & 0x3ffffff);
+  }
+  void aa64_emit_brlink(int32_t offset) {
+    emit_inst(aa64_opcode_bl, 0, 0, 0, (((u32)(offset))) & 0x3ffffff);
+  }
+  void aa64_emit_brcond(aa64_condcode cond, int32_t offset) {
+    emit_inst(aa64_opcode_bc, 0, (uint32_t)cond, 0, (((u32)(offset))) & 0x3ffffff);
+  }
+
+  void aa64_emit_tbz(uint32_t rd, uint32_t bitnum, int32_t offset) {
+    emit_inst(aa64_opcode_tbz, 0, rd, 0, ((((u32)(offset)) & 0x3fff) << 5) | (bitnum << 19));
+  }
+  void aa64_emit_tbnz(uint32_t rd, uint32_t bitnum, int32_t offset) {
+    emit_inst(aa64_opcode_tbnz, 0, rd, 0, ((((u32)(offset)) & 0x3fff) << 5) | (bitnum << 19));
+  }
+  void aa64_emit_cbz(uint32_t rd, int32_t offset) {
+    emit_inst(aa64_opcode_cbz, 0, rd, 0, ((((u32)offset) & 0x7ffff)) << 5);
+  }
+  void aa64_emit_cbnz(uint32_t rd, int32_t offset) {
+    emit_inst(aa64_opcode_cbnz, 0, rd, 0, ((((u32)offset) & 0x7ffff)) << 5);
+  }
+
+  // 64 bit operations
+  void aa64_emit_lsr64(uint32_t rd, uint32_t rs, uint32_t amount) {
+    emit_inst(aa64_opcode_bfm, 6, rd, rs, (1 << 22) | (63 << 10) | (amount << 16));
+  }
+  void aa64_emit_orr_shift64(uint32_t rd, uint32_t rs, uint32_t rm, uint32_t st, uint32_t sa) {
+    emit_inst(aa64_opcode_logic, 5, rd, rs, (rm << 16) | (st << 22) | (sa << 10));
+  }
+  void aa64_emit_merge_regs(uint32_t rd, uint32_t rshi, uint32_t rslo) {
+    aa64_emit_orr_shift64(rd, rslo, rshi, 0, 32);
+  }
+
+  // Load/store operations
+  void aa64_emit_ldr(uint32_t rv, uint32_t rb, uint32_t offset) {
+    emit_inst(aa64_opcode_memi, 5, rv, rb, (1 << 22) | (offset << 10));
+  }
+  void aa64_emit_str(uint32_t rv, uint32_t rb, uint32_t offset) {
+    emit_inst(aa64_opcode_memi, 5, rv, rb, (0 << 22) | (offset << 10));
+  }
 
 };
 
@@ -242,65 +297,16 @@ public:
 #define aa64_br_offset_from(label, from)                                      \
   (((uintptr_t)(label) - (uintptr_t)(from)) >> 2)                             \
 
-#define aa64_emit_ldr(rv, rb, offset)                                         \
-  emit_inst(aa64_opcode_memi, 5, rv, rb, (1 << 22) | ((offset) << 10))               \
-
-#define aa64_emit_str(rv, rb, offset)                                         \
-  emit_inst(aa64_opcode_memi, 5, rv, rb, (0 << 22) | ((offset) << 10))               \
-
-#define aa64_emit_branch(offset)                                              \
-  emit_inst(aa64_opcode_b, 0, 0, 0, (((u32)(offset))) & 0x3ffffff)                   \
-
 #define aa64_emit_branch_patch(ptr, offset)                                   \
   *(ptr) = (((*(ptr)) & 0xfc000000) | (((u32)(offset)) & 0x3ffffff))          \
-
-#define aa64_emit_brcond(cond, offset)                                        \
-  emit_inst(aa64_opcode_b, 2, cond, 0, ((((u32)(offset))) & 0x7ffff) << 5)           \
 
 #define aa64_emit_brcond_patch(ptr, offset)                                   \
   *(ptr) = (((*(ptr)) & 0xff00001f) | (((((u32)(offset))) & 0x7ffff) << 5))   \
 
-#define aa64_emit_brlink(offset)                                              \
-  emit_inst(aa64_opcode_b, 4, 0, 0, (((u32)(offset))) & 0x3ffffff)                   \
-
-#define aa64_emit_lsr64(rd, rs, amount)                                       \
-  emit_inst(aa64_opcode_bfm, 6, rd, rs, (1 << 22) | (63 << 10) | ((amount) << 16))   \
-
-#define aa64_emit_tst(rs, rm)                                                 \
-  aa64_emit_ands(31, rs, rm)                                                  \
-
-#define aa64_emit_adr(rd, offset)                                             \
-  emit_inst(aa64_opcode_adr, (offset) & 3, rd, 0, ((offset) >> 2) & 0x7ffff)         \
-
-#define aa64_emit_tbz(rd, bitn, offset)                                       \
-  emit_inst(aa64_opcode_tbz, 1, rd, 0, ((((u32)(offset)) & 0x3fff) << 5) | ((bitn) << 19))
-
-#define aa64_emit_tbnz(rd, bitn, offset)                                      \
-  emit_inst(aa64_opcode_tbnz, 1, rd, 0, ((((u32)(offset)) & 0x3fff) << 5) | ((bitn) << 19))
-
-#define aa64_emit_cbz(rd, offset)                                             \
-  emit_inst(aa64_opcode_b, 1, rd, 0, ((((u32)offset) & 0x7ffff)) << 5)               \
-
-#define aa64_emit_cbnz(rd, offset)                                            \
-  emit_inst(aa64_opcode_b2, 1, rd, 0, ((((u32)offset) & 0x7ffff)) << 5)              \
-
-/* Misc Operations: Cond-select, Cond-Compare, ADC/SBC, CLZ/O, REV ... */
-#define aa64_emit_csel(rd, rtrue, rfalse, cond)                               \
-  emit_inst(aa64_opcode_misc, 0, rd, rtrue, (1<<23)|((rfalse) << 16)|((cond) << 12)) \
-
-#define aa64_emit_csneg(rd, rs, rm, cond)                                     \
-  emit_inst(aa64_opcode_misc, 2, rd, rs, 0x800400 | ((rm) << 16) | ((cond) << 12))   \
-
-#define aa64_emit_ccmpi(rn, immv, flags, cond)                                \
-  emit_inst(aa64_opcode_misc, 3, rn, flags, 0x400800 | ((immv)<<16) | ((cond)<<12))  \
-
-#define aa64_emit_orr_shift64(rd, rs, rm, st, sa)                             \
-  emit_inst(aa64_opcode_logic, 5, rd, rs, ((rm) << 16) | ((st)<<22) | ((sa)<<10))    \
-
-#define aa64_emit_merge_regs(rd, rhi, rlo)                                    \
-  aa64_emit_orr_shift64(rd, rlo, rhi, 0, 32)                                  \
 
 // Unused (TODO: use them to save some insts)
 #define aa64_emit_addshift(rd, rs, rm, st, sa) \
   emit_inst(aa64_opcode_addsub, 0, rd, rs, ((rm) << 16) | ((st)<<22) | ((sa)<<10))
+#define aa64_emit_ccmpi(rn, immv, flags, cond) \
+  emit_inst(aa64_opcode_misc, 3, rn, flags, 0x400800 | ((immv)<<16) | ((cond)<<12))
 

@@ -320,131 +320,6 @@ u32 function_cc execute_spsr_restore(u32 address)
     generate_indirect_branch_dual();                                          \
   }                                                                           \
 
-// These generate a branch on the opposite condition on purpose.
-// For ARM mode we aim to skip instructions (therefore opposite)
-// In Thumb mode we skip the conditional branch in a similar way
-#define generate_condition_eq(ireg)                                           \
-  generate_and_mem(1, base, REG_Z_FLAG * 4);                                  \
-  x86_emit_j_filler(x86_condition_code_z, backpatch_address)                  \
-
-#define generate_condition_ne(ireg)                                           \
-  generate_and_mem(1, base, REG_Z_FLAG * 4);                                  \
-  x86_emit_j_filler(x86_condition_code_nz, backpatch_address)                 \
-
-#define generate_condition_cs(ireg)                                           \
-  generate_and_mem(1, base, REG_C_FLAG * 4);                                  \
-  x86_emit_j_filler(x86_condition_code_z, backpatch_address)                  \
-
-#define generate_condition_cc(ireg)                                           \
-  generate_and_mem(1, base, REG_C_FLAG * 4);                                  \
-  x86_emit_j_filler(x86_condition_code_nz, backpatch_address)                 \
-
-#define generate_condition_mi(ireg)                                           \
-  generate_and_mem(1, base, REG_N_FLAG * 4);                                  \
-  x86_emit_j_filler(x86_condition_code_z, backpatch_address)                  \
-
-#define generate_condition_pl(ireg)                                           \
-  generate_and_mem(1, base, REG_N_FLAG * 4);                                  \
-  x86_emit_j_filler(x86_condition_code_nz, backpatch_address)                 \
-
-#define generate_condition_vs(ireg)                                           \
-  generate_and_mem(1, base, REG_V_FLAG * 4);                                  \
-  x86_emit_j_filler(x86_condition_code_z, backpatch_address)                  \
-
-#define generate_condition_vc(ireg)                                           \
-  generate_and_mem(1, base, REG_V_FLAG * 4);                                  \
-  x86_emit_j_filler(x86_condition_code_nz, backpatch_address)                 \
-
-#define generate_condition_hi(ireg)                                           \
-  generate_load_reg(ireg, REG_C_FLAG);                                        \
-  generate_xor_imm(ireg, 1);                                                  \
-  generate_or_mem(ireg, REG_Z_FLAG);                                          \
-  x86_emit_j_filler(x86_condition_code_nz, backpatch_address)                 \
-
-#define generate_condition_ls(ireg)                                           \
-  generate_load_reg(ireg, REG_C_FLAG);                                        \
-  generate_xor_imm(ireg, 1);                                                  \
-  generate_or_mem(ireg, REG_Z_FLAG);                                          \
-  x86_emit_j_filler(x86_condition_code_z, backpatch_address)                  \
-
-#define generate_condition_ge(ireg)                                           \
-  generate_load_reg(ireg, REG_N_FLAG);                                        \
-  generate_cmp_memreg(ireg, REG_V_FLAG);                                      \
-  x86_emit_j_filler(x86_condition_code_nz, backpatch_address)                 \
-
-#define generate_condition_lt(ireg)                                           \
-  generate_load_reg(ireg, REG_N_FLAG);                                        \
-  generate_cmp_memreg(ireg, REG_V_FLAG);                                      \
-  x86_emit_j_filler(x86_condition_code_z, backpatch_address)                  \
-
-#define generate_condition_gt(ireg)                                           \
-  generate_load_reg(ireg, REG_N_FLAG);                                        \
-  generate_xor_mem(ireg, REG_V_FLAG);                                         \
-  generate_or_mem(ireg, REG_Z_FLAG);                                          \
-  x86_emit_j_filler(x86_condition_code_nz, backpatch_address)                 \
-
-#define generate_condition_le(ireg)                                           \
-  generate_load_reg(ireg, REG_N_FLAG);                                        \
-  generate_xor_mem(ireg, REG_V_FLAG);                                         \
-  generate_or_mem(ireg, REG_Z_FLAG);                                          \
-  x86_emit_j_filler(x86_condition_code_z, backpatch_address)                  \
-
-
-#define generate_condition(ireg)                                              \
-  switch(condition)                                                           \
-  {                                                                           \
-    case 0x0:                                                                 \
-      generate_condition_eq(ireg);                                            \
-      break;                                                                  \
-    case 0x1:                                                                 \
-      generate_condition_ne(ireg);                                            \
-      break;                                                                  \
-    case 0x2:                                                                 \
-      generate_condition_cs(ireg);                                            \
-      break;                                                                  \
-    case 0x3:                                                                 \
-      generate_condition_cc(ireg);                                            \
-      break;                                                                  \
-    case 0x4:                                                                 \
-      generate_condition_mi(ireg);                                            \
-      break;                                                                  \
-    case 0x5:                                                                 \
-      generate_condition_pl(ireg);                                            \
-      break;                                                                  \
-    case 0x6:                                                                 \
-      generate_condition_vs(ireg);                                            \
-      break;                                                                  \
-    case 0x7:                                                                 \
-      generate_condition_vc(ireg);                                            \
-      break;                                                                  \
-    case 0x8:                                                                 \
-      generate_condition_hi(ireg);                                            \
-      break;                                                                  \
-    case 0x9:                                                                 \
-      generate_condition_ls(ireg);                                            \
-      break;                                                                  \
-    case 0xA:                                                                 \
-      generate_condition_ge(ireg);                                            \
-      break;                                                                  \
-    case 0xB:                                                                 \
-      generate_condition_lt(ireg);                                            \
-      break;                                                                  \
-    case 0xC:                                                                 \
-      generate_condition_gt(ireg);                                            \
-      break;                                                                  \
-    case 0xD:                                                                 \
-      generate_condition_le(ireg);                                            \
-      break;                                                                  \
-                                                                              \
-    case 0xE:                                                                 \
-      /* AL       */                                                          \
-      break;                                                                  \
-                                                                              \
-    case 0xF:                                                                 \
-      /* Reserved */                                                          \
-      break;                                                                  \
-  }                                                                           \
-
 
 // Types: add_sub, add_sub_imm, alu_op, imm
 // Affects N/Z/C/V flags
@@ -621,17 +496,16 @@ public:
 
   inline void arm_conditional_block_header(u32 condition, u32 & cycle_count, u8 * & backpatch_address) {
     generate_cycle_update();
-    generate_condition(a0);
+    backpatch_address = emit_opp_condbranch((ARMCondCode)condition);
   }
 
 
   // Condition code generation
-  template <ARMCondCode ccode>
-  inline u8 *emit_opp_condbranch() {
+  inline u8 *emit_opp_condbranch(ARMCondCode ccode) {
     // TODO Take reg num as input.
     // We emit a branch that branches on the opposite condition.
     // Returns the patching address (so the branch offset can be filled)
-    u8 *ret;
+    u8 *ret = NULL;
 
     switch (ccode) {
     case CondEQ:
@@ -987,7 +861,7 @@ public:
     u8 *brtgt = NULL;
 
     generate_cycle_update();
-    u8 *ptch = emit_opp_condbranch<ccode>();
+    u8 *ptch = emit_opp_condbranch(ccode);
     generate_branch_no_cycle_update(brtgt, target);
     generate_branch_patch_conditional(ptch, this->emit_ptr);
     return brtgt;

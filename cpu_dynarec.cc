@@ -1,6 +1,7 @@
 /* gameplaySP
  *
  * Copyright (C) 2006 Exophase <exophase@gmail.com>
+ * Copyright (C) 2026 David Guillen Fandos <david@davidgf.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -72,8 +73,7 @@ u8 *bios_swi_entrypoint = NULL;
 // The rom area has a small header section that contains:
 //  - PC value for the entry
 //  - Offset to the next entry (if any)
-typedef struct
-{
+typedef struct {
   u32 pc_value;
   u32 next_entry;
 } hashhdr_type;
@@ -120,13 +120,6 @@ typedef enum {
 
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
-
-#define arm_decode_branch()                                                   \
-  s32 offset = ((s32)(opcode & 0xFFFFFF) << 8) >> 6                           \
-
-#define thumb_decode_imm()                                                    \
-  u32 imm = opcode & 0xFF;                                                    \
-  (void)imm
 
 /* Include the right emitter headers */
 #if defined(MIPS_ARCH)
@@ -182,7 +175,6 @@ void translate_icache_sync() {
 }
 
 /* End of Cache invalidation */
-
 
 #define check_pc_region(pc)                                                   \
   new_pc_region = (pc >> 15);                                                 \
@@ -1316,7 +1308,7 @@ void translate_icache_sync() {
     case 0x48 ... 0x4F:                                                       \
       /* LDR r0..7, [pc + imm] */                                             \
       {                                                                       \
-        thumb_decode_imm();                                                   \
+        u32 imm = opcode & 0xFF;                                              \
         u32 rdreg = (hiop & 7);                                               \
         u32 aoff = (pc & ~2) + (imm*4) + 4;                                   \
         /* ROM + same page -> optimize as const load */                       \
@@ -1924,7 +1916,7 @@ u8 function_cc *block_lookup_address_thumb(u32 pc)
   block_end_pc += 4                                                           \
 
 #define arm_branch_target()                                                   \
-  branch_target = (block_end_pc + 4 + (((s32)(opcode & 0xFFFFFF) << 8) >> 6)) \
+  u32 branch_target = (block_end_pc + 4 + (((s32)(opcode & 0xFFFFFF) << 8) >> 6))
 
 // Contiguous conditional block flags modification - it will set 0x20 in the
 // condition's bits if this instruction modifies flags. Taken from the CPU
@@ -2021,6 +2013,7 @@ u8 function_cc *block_lookup_address_thumb(u32 pc)
   block_end_pc += 2                                                           \
 
 #define thumb_branch_target()                                                 \
+  u32 branch_target;                                                          \
   if(opcode < 0xE000)                                                         \
   {                                                                           \
     branch_target = block_end_pc + 2 + ((s8)(opcode & 0xFF) * 2);             \
@@ -2230,24 +2223,19 @@ bool translate_block_arm(u32 pc, bool ram_region)
   u32 block_exit_position = 0;
   s32 block_data_position = 0;
   u32 external_block_exit_position = 0;
-  u32 branch_target;
   u32 cycle_count = 0;
   u8 *translation_target;
   u8 *backpatch_address = NULL;
   u32 flag_status;
   block_exit_type external_block_exits[MAX_EXITS];
-  generate_block_extra_vars_arm();
   arm_fix_pc();
 
   if(!pc_address_block)
     pc_address_block = load_gamepak_page(pc_region & 0x3FF);
 
-  if(ram_region)
-  {
+  if(ram_region) {
     scan_block(arm, yes);
-  }
-  else
-  {
+  } else {
     scan_block(arm, no);
   }
 
@@ -2263,14 +2251,9 @@ bool translate_block_arm(u32 pc, bool ram_region)
   ce.emit_block_prologue();
 
   for(unsigned i = 0; i < block_exit_position; i++) {
-    branch_target = block_exits[i].branch_target;
-
-    if((branch_target > block_start_pc) &&
-     (branch_target < block_end_pc))
-    {
-      block_data[(branch_target - block_start_pc) /
-       arm_instruction_width].update_cycles = 1;
-    }
+    u32 tgt = block_exits[i].branch_target;
+    if((tgt > block_start_pc) && (tgt < block_end_pc))
+      block_data[(tgt - block_start_pc) / arm_instruction_width].update_cycles = 1;
   }
 
   arm_dead_flag_eliminate();
@@ -2280,8 +2263,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
 
   last_condition = 0x0E;
 
-  while(pc != block_end_pc)
-  {
+  while (pc != block_end_pc) {
     block_data[block_data_position].block_offset = ce.emit_ptr;
     arm_base_cycles();
 
@@ -2307,11 +2289,8 @@ bool translate_block_arm(u32 pc, bool ram_region)
 
     /* If the next instruction is a block entry point update the
        cycle counter and update */
-    if (pc != block_end_pc &&
-        block_data[block_data_position].update_cycles)
-    {
+    if (pc != block_end_pc && block_data[block_data_position].update_cycles)
       ce.emit_cycle_update(cycle_count);
-    }
   }
 
   /* This can happen if the last instruction is *not* inconditional */
@@ -2326,25 +2305,15 @@ bool translate_block_arm(u32 pc, bool ram_region)
   ce.generate_translation_gate<ModeARM>(pc);
 
   for (unsigned i = 0; i < block_exit_position; i++) {
-    branch_target = block_exits[i].branch_target;
-
-    if((branch_target >= block_start_pc) && (branch_target < block_end_pc))
-    {
+    u32 tgt = block_exits[i].branch_target;
+    if ((tgt >= block_start_pc) && (tgt < block_end_pc)) {
       /* Internal branch, patch to recorded address */
-      translation_target =
-       block_data[(branch_target - block_start_pc) /
-        arm_instruction_width].block_offset;
-
-      generate_branch_patch_unconditional(block_exits[i].branch_source,
-       translation_target);
-    }
-    else
-    {
+      translation_target = block_data[(tgt - block_start_pc) / arm_instruction_width].block_offset;
+      generate_branch_patch_unconditional(block_exits[i].branch_source, translation_target);
+    } else {
       /* External branch, save for later */
-      external_block_exits[external_block_exit_position].branch_target =
-       branch_target;
-      external_block_exits[external_block_exit_position].branch_source =
-       block_exits[i].branch_source;
+      external_block_exits[external_block_exit_position].branch_target = tgt;
+      external_block_exits[external_block_exit_position].branch_source = block_exits[i].branch_source;
       external_block_exit_position++;
     }
   }
@@ -2355,11 +2324,11 @@ bool translate_block_arm(u32 pc, bool ram_region)
     rom_translation_ptr = ce.emit_ptr;
 
   for(unsigned i = 0; i < external_block_exit_position; i++) {
-    branch_target = external_block_exits[i].branch_target;
-    if(branch_target == 0x00000008)
+    u32 tgt = external_block_exits[i].branch_target;
+    if(tgt == 0x00000008)
       translation_target = bios_swi_entrypoint;
     else
-      translation_target = block_lookup_translate_arm(branch_target);
+      translation_target = block_lookup_translate_arm(tgt);
     if (!translation_target)
       return false;
     generate_branch_patch_unconditional(
@@ -2380,12 +2349,10 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   u32 block_exit_position = 0;
   s32 block_data_position = 0;
   u32 external_block_exit_position = 0;
-  u32 branch_target;
   u32 cycle_count = 0;
   u8 *translation_target;
   u32 flag_status;
   block_exit_type external_block_exits[MAX_EXITS];
-  generate_block_extra_vars_thumb();
   thumb_fix_pc();
 
   if(!pc_address_block)
@@ -2412,14 +2379,9 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   ce.emit_block_prologue();
 
   for(unsigned i = 0; i < block_exit_position; i++) {
-    branch_target = block_exits[i].branch_target;
-
-    if((branch_target > block_start_pc) &&
-     (branch_target < block_end_pc))
-    {
-      block_data[(branch_target - block_start_pc) /
-       thumb_instruction_width].update_cycles = 1;
-    }
+    u32 tgt = block_exits[i].branch_target;
+    if ((tgt > block_start_pc) && (tgt < block_end_pc))
+      block_data[(tgt - block_start_pc) / thumb_instruction_width].update_cycles = 1;
   }
 
   thumb_dead_flag_eliminate();
@@ -2427,8 +2389,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   block_exit_position = 0;
   block_data_position = 0;
 
-  while(pc != block_end_pc)
-  {
+  while (pc != block_end_pc) {
     block_data[block_data_position].block_offset = ce.emit_ptr;
     thumb_base_cycles();
 
@@ -2454,11 +2415,8 @@ bool translate_block_thumb(u32 pc, bool ram_region)
 
     /* If the next instruction is a block entry point update the
        cycle counter and update */
-    if (pc != block_end_pc &&
-        block_data[block_data_position].update_cycles)
-    {
+    if (pc != block_end_pc && block_data[block_data_position].update_cycles)
       ce.emit_cycle_update(cycle_count);
-    }
   }
 
   /* Unconditionally generate translation targets. In case we hit one or
@@ -2466,7 +2424,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   ce.generate_translation_gate<ModeThumb>(pc);
 
   for (unsigned i = 0; i < block_exit_position; i++) {
-    branch_target = block_exits[i].branch_target;
+    u32 branch_target = block_exits[i].branch_target;
 
     if((branch_target >= block_start_pc) && (branch_target < block_end_pc))
     {
@@ -2495,7 +2453,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
     rom_translation_ptr = ce.emit_ptr;
 
   for (unsigned i = 0; i < external_block_exit_position; i++) {
-    branch_target = external_block_exits[i].branch_target;
+    u32 branch_target = external_block_exits[i].branch_target;
     if(branch_target == 0x00000008)
       translation_target = bios_swi_entrypoint;
     else

@@ -162,9 +162,6 @@ const arm64_regnum arm_to_a64_reg[] = {
     generate_indirect_branch_dual();                                          \
   }                                                                           \
 
-#define generate_block_extra_vars_arm()
-#define generate_block_extra_vars_thumb()
-
 #define generate_indirect_branch_arm() {                                      \
   if(condition == 0x0E) {                                                     \
     generate_indirect_branch_cycle_update(arm);                               \
@@ -1113,8 +1110,7 @@ public:
     const arm64_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
 
     // Immediate is a 8 bit rotated immediate
-    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
-    const u32 imm = rotr32(it.imm8(), sa);
+    const u32 imm = rotr32(it.imm8(), it.rot4() * 2);
 
     // Set/Clear carry flag if appropriate (rotation result)
     if (it.rot4() != 0 && it.gen_flag_c())
@@ -1147,8 +1143,7 @@ public:
     const arm64_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     // Immediate is a 8 bit rotated immediate
-    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
-    u32 imm = rotr32(it.imm8(), sa);
+    u32 imm = rotr32(it.imm8(), it.rot4() * 2);
 
     // Set/Clear carry flag if appropriate (rotation result)
     if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c())

@@ -620,9 +620,6 @@ inline u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index) {
   }                                                                           \
 }
 
-#define generate_block_extra_vars_arm()
-#define generate_block_extra_vars_thumb()
-
 #define arm_complete_store_reg_pc_no_flags(scratch_reg, reg_index)            \
 {                                                                             \
   if(reg_index == 15)                                                         \

@@ -319,12 +319,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
     generate_indirect_branch_dual();                                          \
   }                                                                           \
 
-
-#define generate_block_extra_vars()                                           \
-
-#define generate_block_extra_vars_arm()                                       \
-  generate_block_extra_vars();                                                \
-
 #define generate_indirect_branch_arm()                                        \
   {                                                                           \
     if(condition == 0x0E)                                                     \
@@ -349,8 +343,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
     }                                                                         \
   }                                                                           \
 
-#define generate_block_extra_vars_thumb()                                     \
-  generate_block_extra_vars()                                                 \
 
 // It should be okay to still generate result flags, spsr will overwrite them.
 // This is pretty infrequent (returning from interrupt handlers, et al) so

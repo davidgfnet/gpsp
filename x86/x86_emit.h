@@ -102,9 +102,6 @@ extern "C" {
   generate_cycle_update();                                                    \
   generate_indirect_branch_no_cycle_update(type);
 
-#define generate_block_extra_vars_arm()
-#define generate_block_extra_vars_thumb()
-
 #define generate_indirect_branch_arm()                                        \
   {                                                                           \
     if(condition == 0x0E) {                                                   \

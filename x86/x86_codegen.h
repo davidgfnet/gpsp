@@ -1,7 +1,7 @@
 /* gameplaySP
  *
  * Copyright (C) 2006 Exophase <exophase@gmail.com>
- * Copyright (C) 2024 David Guillen Fandos <david@davidgf.net>
+ * Copyright (C) 2026 David Guillen Fandos <david@davidgf.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -32,70 +32,15 @@ typedef enum {
   x86_reg_edi = 7
 } x86_regnum;
 
-#define x86_emit_byte(value)                                                  \
-  *this->emit_ptr++ = value;                                                  \
-
-#define x86_emit_dword(value)                                                 \
-  *((u32 *)this->emit_ptr) = value;                                           \
-  this->emit_ptr += 4                                                         \
-
-typedef enum
-{
+typedef enum {
   x86_mod_mem        = 0,
   x86_mod_mem_disp8  = 1,
   x86_mod_mem_disp32 = 2,
   x86_mod_reg        = 3
 } x86_mod;
 
-#define x86_emit_mod_rm(mod, rm, spare)                                       \
-  x86_emit_byte((mod << 6) | (spare << 3) | rm)                               \
 
-#define x86_emit_sib(scale, ridx, rbase)                                      \
-  x86_emit_byte(((scale) << 6) | ((ridx) << 3) | (rbase))                     \
-
-// Memory op: dest = [base + offset]
-#define x86_emit_mem_op(dest, base, offset)                                   \
-  if(offset == 0)                                                             \
-  {                                                                           \
-    x86_emit_mod_rm(x86_mod_mem, base, dest);                                 \
-  }                                                                           \
-  else if(((s32)offset < 127) && ((s32)offset > -128))                        \
-  {                                                                           \
-    x86_emit_mod_rm(x86_mod_mem_disp8, base, dest);                           \
-    x86_emit_byte((s8)offset);                                                \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    x86_emit_mod_rm(x86_mod_mem_disp32, base, dest);                          \
-    x86_emit_dword(offset);                                                   \
-  }                                                                           \
-
-// Memory op: dest =[base + ridx << scale + offset]
-#define x86_emit_mem_sib_op(dest, base, ridx, scale, offset)                  \
-  if(offset == 0)                                                             \
-  {                                                                           \
-    x86_emit_mod_rm(x86_mod_mem, 0x4, dest);                                  \
-    x86_emit_sib(scale, ridx, base);                                          \
-  }                                                                           \
-  else if(((s32)offset < 127) && ((s32)offset > -128))                        \
-  {                                                                           \
-    x86_emit_mod_rm(x86_mod_mem_disp8, 0x4, dest);                            \
-    x86_emit_sib(scale, ridx, base);                                          \
-    x86_emit_byte((s8)offset);                                                \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    x86_emit_mod_rm(x86_mod_mem_disp32, 0x4, dest);                           \
-    x86_emit_sib(scale, ridx, base);                                          \
-    x86_emit_dword(offset);                                                   \
-  }                                                                           \
-
-#define x86_emit_reg_op(dest, source)                                         \
-  x86_emit_mod_rm(x86_mod_reg, source, dest)                                  \
-
-
-typedef enum
-{
+typedef enum {
   x86_opcode_mov_rm_reg                 = 0x89,
   x86_opcode_mov_reg_rm                 = 0x8B,
   x86_opcode_mov_reg_imm                = 0xB8,
@@ -113,8 +58,8 @@ typedef enum
   x86_opcode_call_offset                = 0xE8,
   x86_opcode_ret                        = 0xC3,
   x86_opcode_cmc                        = 0xF5,
-  x86_opcode_test_rm_imm                = 0x00F7,
   x86_opcode_test_reg_rm                = 0x85,
+  x86_opcode_test_rm_imm                = 0x00F7,
   x86_opcode_not_rm                     = 0x02F7,
   x86_opcode_neg_rm                     = 0x03F7,
   x86_opcode_mul_eax_rm                 = 0x04F7,
@@ -147,14 +92,19 @@ typedef enum
 
 typedef enum
 {
+  x86_opcode_cmov_base                  = 0x40,
   x86_opcode_cmovc                      = 0x42,
   x86_opcode_cmovnc                     = 0x43,
   x86_opcode_cmovnl                     = 0x4D,
+  x86_opcode_set_base                   = 0x90,
   x86_opcode_seto                       = 0x90,
+  x86_opcode_setno                      = 0x91,
   x86_opcode_setc                       = 0x92,
   x86_opcode_setnc                      = 0x93,
   x86_opcode_setz                       = 0x94,
   x86_opcode_setnz                      = 0x95,
+  x86_opcode_setna                      = 0x96,
+  x86_opcode_seta                       = 0x97,
   x86_opcode_sets                       = 0x98,
   x86_opcode_setns                      = 0x99,
   x86_opcode_movzxb                     = 0xB6,
@@ -182,249 +132,280 @@ typedef enum
   x86_condition_code_g                  = 0x0F
 } x86_condition_codes;
 
+#define x86_mod_rm(mod, rm, spare)  (((mod) << 6) | ((spare) << 3) | (rm))
+
+class X86Emitter : public CodeEmitterBase {
+private:
+
+  inline void x86_emit_dword(uint32_t value) {
+    *this->emit_ptr++ = value >>  0;
+    *this->emit_ptr++ = value >>  8;
+    *this->emit_ptr++ = value >> 16;
+    *this->emit_ptr++ = value >> 24;
+  }
+
+  inline void x86_emit_memop(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    if (!offset)
+      *this->emit_ptr++ = x86_mod_rm(x86_mod_mem, base, dst);
+    else if (((signed)offset < 127) && ((signed)offset > -128)) {
+      *this->emit_ptr++ = x86_mod_rm(x86_mod_mem_disp8, base, dst);
+      *this->emit_ptr++ = (char)offset;
+    }
+    else {
+      *this->emit_ptr++ = x86_mod_rm(x86_mod_mem_disp32, base, dst);
+      this->x86_emit_dword(offset);
+    }
+  }
+
+  // Emits a 1 byte opcode instruction with two regs
+  inline void emit_x86_1b_reg(x86_opcodes opcode, x86_regnum dst, x86_regnum src) {
+    *this->emit_ptr++ = opcode;
+    *this->emit_ptr++ = x86_mod_rm(x86_mod_reg, src, dst);
+  }
+  // Emits 2 byte opcode instruction (with just one reg)
+  inline void emit_x86_2b_reg(x86_opcodes opcode, x86_regnum dst) {
+    *this->emit_ptr++ = (opcode & 0xFF);
+    *this->emit_ptr++ = x86_mod_rm(x86_mod_reg, dst, opcode >> 8);
+  }
+  // Emits 2 byte opcode instruction with reg and immediate (1 byte)
+  inline void emit_x86_2b_reg_imm(x86_opcodes opcode, x86_regnum dst, uint8_t imm) {
+    *this->emit_ptr++ = (opcode & 0xFF);
+    *this->emit_ptr++ = x86_mod_rm(x86_mod_reg, dst, opcode >> 8);
+    *this->emit_ptr++ = imm;
+  }
+  // Emits 2 byte opcode instruction with reg and immediate (32 bits)
+  inline void emit_x86_2b_reg_imm32(x86_opcodes opcode, x86_regnum dst, uint32_t imm32) {
+    *this->emit_ptr++ = (opcode & 0xFF);
+    *this->emit_ptr++ = x86_mod_rm(x86_mod_reg, dst, opcode >> 8);
+    this->x86_emit_dword(imm32);
+  }
+
+  // Emits a 1 byte opcode instruction with dest reg and source mem ref (base + offset)
+  inline void emit_x86_1b_mem(x86_opcodes opcode, x86_regnum dst, x86_regnum base, uint32_t offset) {
+    *this->emit_ptr++ = opcode;
+    this->x86_emit_memop(dst, base, offset);
+  }
+  inline void emit_x86_2b_mem(x86_opcodes opcode, x86_regnum base, uint32_t offset) {
+    *this->emit_ptr++ = opcode & 0xFF;
+    this->x86_emit_memop((x86_regnum)(opcode >> 8), base, offset);
+  }
+
+public:
+
+  X86Emitter(u8 *emit_ptr, u8 *emit_end)
+   : CodeEmitterBase(emit_ptr, emit_end) {}
+
+  // Move (load store, imm)
+  inline void x86_emit_reg_mov(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_mov_reg_rm, dst, src);
+  }
+  inline void x86_emit_reg_load(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_mov_reg_rm, dst, base, offset);
+  }
+  inline void x86_emit_reg_store(x86_regnum src, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_mov_rm_reg, src, base, offset);
+  }
+  inline void x86_emit_reg_loadub(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    *this->emit_ptr++ = x86_opcode_ext;
+    emit_x86_1b_mem((x86_opcodes)x86_opcode_movzxb, dst, base, offset);
+  }
+  inline void x86_emit_load_imm(x86_regnum dst, uint32_t value) {
+    *this->emit_ptr++ = x86_opcode_mov_reg_imm | dst;
+    this->x86_emit_dword(value);
+  }
+  inline void x86_emit_store_imm32(uint32_t imm32, x86_regnum base, uint32_t offset) {
+    this->emit_x86_2b_mem(x86_opcode_mov_rm_imm, base, offset);
+    this->x86_emit_dword(imm32);
+  }
+
+  // Logic instructions
+  inline void x86_emit_reg_and(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_and_reg_rm, dst, src);
+  }
+  inline void x86_emit_reg_xor(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_xor_reg_rm, dst, src);
+  }
+  inline void x86_emit_reg_or(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_or_reg_rm, dst, src);
+  }
+  inline void x86_emit_mem_and(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_and_reg_rm, dst, base, offset);
+  }
+  inline void x86_emit_mem_xor(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_xor_reg_rm, dst, base, offset);
+  }
+  inline void x86_emit_mem_or(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_or_reg_rm, dst, base, offset);
+  }
+  inline void x86_emit_imm_and(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_and_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_imm_xor(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_xor_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_imm_or(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_or_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_mem_imm_and(uint32_t imm32, x86_regnum base, uint32_t offset) {
+    this->emit_x86_2b_mem(x86_opcode_and_rm_imm, base, offset);
+    this->x86_emit_dword(imm32);
+  }
+
+  // Shift instructions
+  inline void x86_emit_reg_shr(x86_regnum dst) {
+    emit_x86_2b_reg(x86_opcode_shr_reg_rm, dst);
+  }
+  inline void x86_emit_reg_sar(x86_regnum dst) {
+    emit_x86_2b_reg(x86_opcode_sar_reg_rm, dst);
+  }
+  inline void x86_emit_reg_shl(x86_regnum dst) {
+    emit_x86_2b_reg(x86_opcode_shl_reg_rm, dst);
+  }
+  inline void x86_emit_reg_ror(x86_regnum dst) {
+    emit_x86_2b_reg(x86_opcode_ror_reg_rm, dst);
+  }
+  inline void x86_emit_reg_rcr(x86_regnum dst) {
+    emit_x86_2b_reg(x86_opcode_rcr_reg1, dst);
+  }
+  inline void x86_emit_reg_shr_imm(x86_regnum dst, uint8_t imm) {
+    emit_x86_2b_reg_imm(x86_opcode_shr_reg_imm, dst, imm);
+  }
+  inline void x86_emit_reg_sar_imm(x86_regnum dst, uint8_t imm) {
+    emit_x86_2b_reg_imm(x86_opcode_sar_reg_imm, dst, imm);
+  }
+  inline void x86_emit_reg_shl_imm(x86_regnum dst, uint8_t imm) {
+    emit_x86_2b_reg_imm(x86_opcode_shl_reg_imm, dst, imm);
+  }
+  inline void x86_emit_reg_ror_imm(x86_regnum dst, uint8_t imm) {
+    emit_x86_2b_reg_imm(x86_opcode_ror_reg_imm, dst, imm);
+  }
+
+  // Arithmetic instructions
+  inline void x86_emit_reg_add(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_add_reg_rm, dst, src);
+  }
+  inline void x86_emit_reg_sub(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_sub_reg_rm, dst, src);
+  }
+  inline void x86_emit_reg_adc(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_adc_reg_rm, dst, src);
+  }
+  inline void x86_emit_reg_sbb(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_sbb_reg_rm, dst, src);
+  }
+  inline void x86_emit_reg_cmp(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_cmp_reg_rm, dst, src);
+  }
+  inline void x86_emit_reg_test(x86_regnum dst, x86_regnum src) {
+    emit_x86_1b_reg(x86_opcode_test_reg_rm, dst, src);
+  }
+  inline void x86_emit_mem_add(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_add_reg_rm, dst, base, offset);
+  }
+  inline void x86_emit_mem_sub(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_sub_reg_rm, dst, base, offset);
+  }
+  inline void x86_emit_mem_cmp(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_cmp_reg_rm, dst, base, offset);
+  }
+  inline void x86_emit_imm_add(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_add_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_imm_sub(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_sub_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_imm_adc(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_adc_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_imm_sbb(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_sbb_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_imm_cmp(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_cmp_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_imm_test(x86_regnum dst, uint32_t imm32) {
+    emit_x86_2b_reg_imm32(x86_opcode_test_rm_imm, dst, imm32);
+  }
+  inline void x86_emit_reg_neg(x86_regnum dst) {
+    emit_x86_2b_reg(x86_opcode_neg_rm, dst);
+  }
+  inline void x86_emit_reg_not(x86_regnum dst) {
+    emit_x86_2b_reg(x86_opcode_not_rm, dst);
+  }
+
+  inline void x86_emit_mem_imm_add(uint32_t imm32, x86_regnum base, uint32_t offset) {
+    this->emit_x86_2b_mem(x86_opcode_add_rm_imm, base, offset);
+    this->x86_emit_dword(imm32);
+  }
+  inline void x86_emit_mem_imm_sub(uint32_t imm32, x86_regnum base, uint32_t offset) {
+    this->emit_x86_2b_mem(x86_opcode_sub_rm_imm, base, offset);
+    this->x86_emit_dword(imm32);
+  }
+
+  inline void x86_emit_mul_eax(x86_regnum src) {
+    emit_x86_2b_reg(x86_opcode_mul_eax_rm, src);
+  }
+  inline void x86_emit_imul_eax(x86_regnum src) {
+    emit_x86_2b_reg(x86_opcode_imul_eax_rm, src);
+  }
+  inline void x86_emit_idiv_eax(x86_regnum src) {
+    emit_x86_2b_reg(x86_opcode_idiv_eax_rm, src);
+  }
+
+  // Misc stuff
+  inline void x86_emit_setcc_mem(x86_condition_codes code, x86_regnum base, uint32_t offset) {
+    x86_opcodes opc2 = (x86_opcodes)(x86_opcode_set_base + code);
+    *this->emit_ptr++ = x86_opcode_ext;
+    this->emit_x86_1b_mem(opc2, x86_reg_eax, base, offset);
+  }
+  inline void x86_emit_reg_cmov(x86_condition_codes code, x86_regnum dst, x86_regnum src) {
+    x86_opcodes opc2 = (x86_opcodes)(x86_opcode_cmov_base + code);
+    *this->emit_ptr++ = x86_opcode_ext;
+    this->emit_x86_1b_reg(opc2, dst, src);
+  }
+  inline void x86_emit_reg_bittest(x86_regnum src, uint8_t bitnum) {
+    *this->emit_ptr++ = x86_opcode_ext;
+    this->emit_x86_1b_reg((x86_opcodes)x86_opcode_bt, (x86_regnum)0x04, src);
+    *this->emit_ptr++ = bitnum;
+  }
+  inline void x86_emit_mem_bittest(x86_regnum base, uint32_t offset, uint8_t bitnum) {
+    *this->emit_ptr++ = x86_opcode_ext;
+    emit_x86_1b_mem((x86_opcodes)x86_opcode_bt, (x86_regnum)0x04, base, offset);
+    *this->emit_ptr++ = bitnum;
+  }
+  inline void x86_emit_call(uint32_t offset) {
+    *this->emit_ptr++ = x86_opcode_call_offset;
+    this->x86_emit_dword(offset);
+  }
+  inline void x86_emit_lea(x86_regnum dst, x86_regnum base, uint32_t offset) {
+    emit_x86_1b_mem(x86_opcode_lea_reg_rm, dst, base, offset);
+  }
+
+  // Misc single opcodes
+  inline void x86_emit_cdq() { *this->emit_ptr++ = x86_opcode_cdq; }
+  inline void x86_emit_cmc() { *this->emit_ptr++ = x86_opcode_cmc; }
+
+};
+
 #define x86_relative_offset(source, offset, next)                             \
-  ((u32)((uintptr_t)offset - ((uintptr_t)source + next)))                     \
+  ((u32)((uintptr_t)offset - ((uintptr_t)source + next)))
 
-#define x86_emit_opcode_1b_reg(opcode, dest, source)                          \
-{                                                                             \
-  x86_emit_byte(x86_opcode_##opcode);                                         \
-  x86_emit_reg_op(dest, source);                                              \
-}                                                                             \
+#define generate_branch_patch_jecxz(dest, offset)                             \
+  *((u8 *)(dest)) = x86_relative_offset(dest, offset, 1)
 
-#define x86_emit_opcode_1b_mem(opcode, dest, base, offset)                    \
-{                                                                             \
-  x86_emit_byte(x86_opcode_##opcode);                                         \
-  x86_emit_mem_op(dest, base, offset);                                        \
-}                                                                             \
+#define generate_branch_patch_conditional(dest, offset)                       \
+  *((u32 *)(dest)) = x86_relative_offset(dest, offset, 4)
 
-#define x86_emit_opcode_1b_mem_sib(opcode, dest, base, ridx, scale, offset)   \
-{                                                                             \
-  x86_emit_byte(x86_opcode_##opcode);                                         \
-  x86_emit_mem_sib_op(dest, base,                                             \
-                      ridx, scale, offset);                                   \
-}                                                                             \
+#define generate_branch_patch_unconditional(dest, offset)                     \
+  *((u32 *)(dest)) = x86_relative_offset(dest, offset, 4)
 
-#define x86_emit_opcode_1b(opcode, reg)                                       \
-  x86_emit_byte(x86_opcode_##opcode | reg)                                    \
 
-#define x86_emit_opcode_1b_ext_reg(opcode, dest)                              \
-  x86_emit_byte(x86_opcode_##opcode & 0xFF);                                  \
-  x86_emit_reg_op(x86_opcode_##opcode >> 8, dest)                             \
+#define x86_emit_byte(value)                                                  \
+  *this->emit_ptr++ = value;                                                  \
 
-#define x86_emit_opcode_1b_ext_mem(opcode, base, offset)                      \
-  x86_emit_byte(x86_opcode_##opcode & 0xFF);                                  \
-  x86_emit_mem_op(x86_opcode_##opcode >> 8, base, offset)                     \
-
-// Single byte opcode instructions
-#define x86_emit_cdq()                                                        \
-  x86_emit_byte(x86_opcode_cdq)                                               \
-
-#define x86_emit_ret()                                                        \
-  x86_emit_byte(x86_opcode_ret)                                               \
-
-#define x86_emit_cmc()                                                        \
-  x86_emit_byte(x86_opcode_cmc)                                               \
-
-#define x86_emit_mov_reg_mem(dest, base, offset)                              \
-  x86_emit_opcode_1b_mem(mov_reg_rm, dest, base, offset)                      \
-
-#define x86_emit_mov_reg_mem_idx(dest, base, scale, index, offset)            \
-  x86_emit_opcode_1b_mem_sib(mov_reg_rm, dest, base, index, scale, offset)    \
-
-#define x86_emit_mov_mem_idx_reg(dest, base, scale, index, offset)            \
-  x86_emit_opcode_1b_mem_sib(mov_rm_reg, dest, base, index, scale, offset)    \
-
-#define x86_emit_mov_mem_reg(source, base, offset)                            \
-  x86_emit_opcode_1b_mem(mov_rm_reg, source, base, offset)                    \
-
-#define x86_emit_setcc_mem(ccode, base, offset)                               \
-  x86_emit_byte(x86_opcode_ext);                                              \
-  x86_emit_opcode_1b_mem(set##ccode, x86_reg_eax, base, offset);              \
-
-#define x86_emit_cmov(ccode, dest, source)                                    \
-  x86_emit_byte(x86_opcode_ext);                                              \
-  x86_emit_opcode_1b_reg(cmov##ccode, dest, source);                          \
-
-// Note: Only AL, BL, CL and DL can be used as source!
-#define x86_emit_movzxb(dest, src)                                            \
-  x86_emit_byte(x86_opcode_ext);                                              \
-  x86_emit_opcode_1b_reg(movzxb, dest, src);                                  \
-
-#define x86_emit_mem_movzxb(dest, base, offset)                               \
-  x86_emit_byte(x86_opcode_ext);                                              \
-  x86_emit_opcode_1b_mem(movzxb, dest, base, offset);                         \
-
-#define x86_emit_mem_bittest(bitnum, base, offset)                            \
-  x86_emit_byte(x86_opcode_ext);                                              \
-  x86_emit_opcode_1b_mem(bt, 0x04, base, offset);                             \
-  x86_emit_byte(bitnum);                                                      \
-
-#define x86_emit_bittest(src, bitnum)                                         \
-  x86_emit_byte(x86_opcode_ext);                                              \
-  x86_emit_opcode_1b_reg(bt, 0x04, src);                                      \
-  x86_emit_byte(bitnum);                                                      \
-
-#define x86_emit_add_reg_mem(dst, base, offset)                               \
-  x86_emit_opcode_1b_mem(add_reg_rm, dst, base, offset);                      \
-
-#define x86_emit_sub_reg_mem(dst, base, offset)                               \
-  x86_emit_opcode_1b_mem(sub_reg_rm, dst, base, offset);                      \
-
-#define x86_emit_or_reg_mem(dst, base, offset)                                \
-  x86_emit_opcode_1b_mem(or_reg_rm, dst, base, offset);                       \
-
-#define x86_emit_xor_reg_mem(dst, base, offset)                               \
-  x86_emit_opcode_1b_mem(xor_reg_rm, dst, base, offset);                      \
-
-#define x86_emit_cmp_reg_mem(rega, base, offset)                              \
-  x86_emit_opcode_1b_mem(cmp_reg_rm, rega, base, offset);                     \
-
-#define x86_emit_test_reg_mem(rega, base, offset)                             \
-  x86_emit_opcode_1b_mem(test_reg_rm, rega, base, offset);                    \
-
-#define x86_emit_mov_reg_reg(dest, source)                                    \
-  if (dest != source) {                                                       \
-    x86_emit_opcode_1b_reg(mov_reg_rm, dest, source)                          \
-  }                                                                           \
-
-#define x86_emit_mov_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b(mov_reg_imm, dest);                                      \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_mov_mem_imm(imm, base, offset)                               \
-  x86_emit_opcode_1b_ext_mem(mov_rm_imm, base, offset);                       \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_and_mem_imm(imm, base, offset)                               \
-  x86_emit_opcode_1b_ext_mem(and_rm_imm, base, offset);                       \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_add_mem_imm(imm, base, offset)                               \
-  x86_emit_opcode_1b_ext_mem(add_rm_imm, base, offset);                       \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_sub_mem_imm(imm, base, offset)                               \
-  x86_emit_opcode_1b_ext_mem(sub_rm_imm, base, offset);                       \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_shl_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(shl_reg_imm, dest);                              \
-  x86_emit_byte(imm)                                                          \
-
-#define x86_emit_shr_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(shr_reg_imm, dest);                              \
-  x86_emit_byte(imm)                                                          \
-
-#define x86_emit_sar_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(sar_reg_imm, dest);                              \
-  x86_emit_byte(imm)                                                          \
-
-#define x86_emit_ror_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(ror_reg_imm, dest);                              \
-  x86_emit_byte(imm)                                                          \
-
-#define x86_emit_add_reg_reg(dest, source)                                    \
-  x86_emit_opcode_1b_reg(add_reg_rm, dest, source)                            \
-
-#define x86_emit_adc_reg_reg(dest, source)                                    \
-  x86_emit_opcode_1b_reg(adc_reg_rm, dest, source)                            \
-
-#define x86_emit_sub_reg_reg(dest, source)                                    \
-  x86_emit_opcode_1b_reg(sub_reg_rm, dest, source)                            \
-
-#define x86_emit_sbb_reg_reg(dest, source)                                    \
-  x86_emit_opcode_1b_reg(sbb_reg_rm, dest, source)                            \
-
-#define x86_emit_and_reg_reg(dest, source)                                    \
-  x86_emit_opcode_1b_reg(and_reg_rm, dest, source)                            \
-
-#define x86_emit_or_reg_reg(dest, source)                                     \
-  x86_emit_opcode_1b_reg(or_reg_rm, dest, source)                             \
-
-#define x86_emit_xor_reg_reg(dest, source)                                    \
-  x86_emit_opcode_1b_reg(xor_reg_rm, dest, source)                            \
-
-#define x86_emit_add_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(add_rm_imm, dest);                               \
-  x86_emit_dword(imm);                                                        \
-
-#define x86_emit_adc_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(adc_rm_imm, dest);                               \
-  x86_emit_dword(imm);                                                        \
-
-#define x86_emit_sub_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(sub_rm_imm, dest);                               \
-  x86_emit_dword(imm);                                                        \
-
-#define x86_emit_sbb_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(sbb_rm_imm, dest);                               \
-  x86_emit_dword(imm);                                                        \
-
-#define x86_emit_and_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(and_rm_imm, dest);                               \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_or_reg_imm(dest, imm)                                        \
-  x86_emit_opcode_1b_ext_reg(or_rm_imm, dest);                                \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_xor_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(xor_rm_imm, dest);                               \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_test_reg_imm(dest, imm)                                      \
-  x86_emit_opcode_1b_ext_reg(test_rm_imm, dest);                              \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_cmp_reg_reg(dest, source)                                    \
-  x86_emit_opcode_1b_reg(cmp_reg_rm, dest, source)                            \
-
-#define x86_emit_test_reg_reg(dest, source)                                   \
-  x86_emit_opcode_1b_reg(test_reg_rm, dest, source)                           \
-
-#define x86_emit_cmp_reg_imm(dest, imm)                                       \
-  x86_emit_opcode_1b_ext_reg(cmp_rm_imm, dest);                               \
-  x86_emit_dword(imm)                                                         \
-
-#define x86_emit_rot_reg_reg(type, dest)                                      \
-  x86_emit_opcode_1b_ext_reg(type##_reg_rm, dest)                             \
-
-#define x86_emit_rot_reg1(type, dest)                                         \
-  x86_emit_opcode_1b_ext_reg(type##_reg1, dest)                               \
-
-#define x86_emit_shr_reg_reg(dest)                                            \
-  x86_emit_opcode_1b_ext_reg(shr_reg_rm, dest)                                \
-
-#define x86_emit_sar_reg_reg(dest)                                            \
-  x86_emit_opcode_1b_ext_reg(sar_reg_rm, dest)                                \
-
-#define x86_emit_shl_reg_reg(dest)                                            \
-  x86_emit_opcode_1b_ext_reg(shl_reg_rm, dest)                                \
-
-#define x86_emit_mul_eax_reg(source)                                          \
-  x86_emit_opcode_1b_ext_reg(mul_eax_rm, source)                              \
-
-#define x86_emit_imul_eax_reg(source)                                         \
-  x86_emit_opcode_1b_ext_reg(imul_eax_rm, source)                             \
-
-#define x86_emit_idiv_eax_reg(source)                                         \
-  x86_emit_opcode_1b_ext_reg(idiv_eax_rm, source)                             \
-
-#define x86_emit_not_reg(srcdst)                                              \
-  x86_emit_opcode_1b_ext_reg(not_rm, srcdst)                                  \
-
-#define x86_emit_neg_reg(srcdst)                                              \
-  x86_emit_opcode_1b_ext_reg(neg_rm, srcdst)                                  \
-
-#define x86_emit_call_offset(relative_offset)                                 \
-  x86_emit_byte(x86_opcode_call_offset);                                      \
-  x86_emit_dword(relative_offset)                                             \
-
-#define x86_emit_lea_reg_mem(dest, base, offset)                              \
-  x86_emit_opcode_1b_mem(lea_reg_rm, dest, base, offset)                      \
-
-#define x86_emit_lea_reg_mem_idx(dest, base, ridx, scale, offset)             \
-  x86_emit_opcode_1b_mem_sib(lea_reg_rm, dest, base, ridx, scale, offset)     \
+#define mx86_emit_dword(value)                                                 \
+  *((u32 *)this->emit_ptr) = value;                                           \
+  this->emit_ptr += 4                                                         \
 
 #define x86_emit_jecxz_filler(writeback_location)                             \
   x86_emit_byte(x86_opcode_jecxz);                                            \
@@ -440,7 +421,7 @@ typedef enum
 #define x86_emit_j_offset(condition_code, offset)                             \
   x86_emit_byte(x86_opcode_ext);                                              \
   x86_emit_byte(x86_opcode_j | condition_code);                               \
-  x86_emit_dword(offset)                                                      \
+  mx86_emit_dword(offset)                                                     \
 
 #define x86_emit_jmp_filler(writeback_location)                               \
   x86_emit_byte(x86_opcode_jmp);                                              \
@@ -449,170 +430,10 @@ typedef enum
 
 #define x86_emit_jmp_offset(offset)                                           \
   x86_emit_byte(x86_opcode_jmp);                                              \
-  x86_emit_dword(offset)                                                      \
+  mx86_emit_dword(offset)                                                     \
 
-#define x86_emit_jmp_reg(source)                                              \
-  x86_emit_opcode_1b_ext_reg(jmp_reg, source)                                 \
-
-
-/* Offsets from reg_base, see stub.S */
-#define SPSR_BASE_OFF   0xA9100
-
-#define generate_test_imm(ireg, imm)                                          \
-  x86_emit_test_reg_imm(reg_##ireg, imm);                                     \
-
-#define generate_test_memreg(ireg_ref, arm_reg_src)                           \
-  x86_emit_test_reg_mem(reg_##ireg_ref, reg_base, arm_reg_src * 4)            \
-
-#define generate_cmp_memreg(ireg_ref, arm_reg_src)                            \
-  x86_emit_cmp_reg_mem(reg_##ireg_ref, reg_base, arm_reg_src * 4)             \
-
-#define generate_cmp_imm(ireg, imm)                                           \
-  x86_emit_cmp_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_cmp_reg(ireg, ireg2)                                         \
-  x86_emit_cmp_reg_reg(reg_##ireg, reg_##ireg2)                               \
-
-#define generate_update_flag(condcode, regnum)                                \
-  x86_emit_setcc_mem(condcode, reg_base, regnum * 4)                          \
-
-#define generate_load_spsr(ireg, idxr)                                        \
-  x86_emit_mov_reg_mem_idx(reg_##ireg, reg_base, 2, reg_##idxr, SPSR_BASE_OFF);
-
-#define generate_store_spsr(ireg, idxr)                                       \
-  x86_emit_mov_mem_idx_reg(reg_##ireg, reg_base, 2, reg_##idxr, SPSR_BASE_OFF);
-
-#define generate_load_reg(ireg, reg_index)                                    \
-  x86_emit_mov_reg_mem(reg_##ireg, reg_base, reg_index * 4);                  \
-
-#define generate_load_pc(ireg, new_pc)                                        \
-  x86_emit_mov_reg_imm(reg_##ireg, (new_pc))                                  \
-
-#define generate_load_imm(ireg, imm)                                          \
-  x86_emit_mov_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_store_reg(ireg, reg_index)                                   \
-  x86_emit_mov_mem_reg(reg_##ireg, reg_base, (reg_index) * 4)                 \
-
-#define generate_store_reg_i32(imm32, reg_index)                              \
-  x86_emit_mov_mem_imm((imm32), reg_base, (reg_index) * 4)                    \
-
-#define generate_shift_left(ireg, imm)                                        \
-  x86_emit_shl_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_shift_left_var(ireg)                                         \
-  x86_emit_shl_reg_reg(reg_##ireg)                                            \
-
-#define generate_shift_right(ireg, imm)                                       \
-  x86_emit_shr_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_shift_right_var(ireg)                                        \
-  x86_emit_shr_reg_reg(reg_##ireg)                                            \
-
-#define generate_shift_right_arithmetic(ireg, imm)                            \
-  x86_emit_sar_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_shift_right_arithmetic_var(ireg)                             \
-  x86_emit_sar_reg_reg(reg_##ireg)                                            \
-
-#define generate_rotate_right(ireg, imm)                                      \
-  x86_emit_ror_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_rotate_right_var(ireg)                                       \
-  x86_emit_rot_reg_reg(ror, reg_##ireg)                                       \
-
-#define generate_rcr(ireg)                                                    \
-  x86_emit_rot_reg_reg(rcr, reg_##ireg)                                       \
-
-#define generate_rcr1(ireg)                                                   \
-  x86_emit_rot_reg1(rcr, reg_##ireg)                                          \
-
-#define generate_and_mem(imm, ireg_base, offset)                              \
-  x86_emit_and_mem_imm(imm, reg_##ireg_base, (offset))                        \
-
-#define generate_add_mem(imm, ireg_base, offset)                              \
-  x86_emit_add_mem_imm(imm, reg_##ireg_base, (offset))                        \
-
-#define generate_sub_mem(imm, ireg_base, offset)                              \
-  x86_emit_sub_mem_imm(imm, reg_##ireg_base, (offset))                        \
-
-#define generate_and(ireg_dest, ireg_src)                                     \
-  x86_emit_and_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
-
-#define generate_add(ireg_dest, ireg_src)                                     \
-  x86_emit_add_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
-
-#define generate_adc(ireg_dest, ireg_src)                                     \
-  x86_emit_adc_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
-
-#define generate_sub(ireg_dest, ireg_src)                                     \
-  x86_emit_sub_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
-
-#define generate_sbb(ireg_dest, ireg_src)                                     \
-  x86_emit_sbb_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
-
-#define generate_or(ireg_dest, ireg_src)                                      \
-  x86_emit_or_reg_reg(reg_##ireg_dest, reg_##ireg_src)                        \
-
-#define generate_or_mem(ireg_dest, arm_reg_src)                               \
-  x86_emit_or_reg_mem(reg_##ireg_dest, reg_base, arm_reg_src * 4)             \
-
-#define generate_xor(ireg_dest, ireg_src)                                     \
-  x86_emit_xor_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
-
-#define generate_xor_mem(ireg_dest, arm_reg_src)                              \
-  x86_emit_xor_reg_mem(reg_##ireg_dest, reg_base, arm_reg_src * 4)            \
-
-#define generate_xor_imm(ireg, imm)                                           \
-  x86_emit_xor_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_add_reg_reg_imm(ireg_dest, ireg_src, imm)                    \
-  x86_emit_lea_reg_mem(reg_##ireg_dest, reg_##ireg_src, imm)                  \
-
-#define generate_and_imm(ireg, imm)                                           \
-  x86_emit_and_reg_imm(reg_##ireg, imm)                                       \
-
-#define generate_mov(ireg_dest, ireg_src)                                     \
-  x86_emit_mov_reg_reg(reg_##ireg_dest, reg_##ireg_src)                       \
-
-#define generate_not(ireg)                                                    \
-  x86_emit_not_reg(reg_##ireg)                                                \
-
-#define generate_multiply(ireg)                                               \
-  x86_emit_imul_eax_reg(reg_##ireg)                                           \
-
-#define generate_multiply_s64(ireg)                                           \
-  x86_emit_imul_eax_reg(reg_##ireg)                                           \
-
-#define generate_multiply_u64(ireg)                                           \
-  x86_emit_mul_eax_reg(reg_##ireg)                                            \
-
-#define generate_multiply_s64_add(ireg_src, ireg_lo, ireg_hi)                 \
-  x86_emit_imul_eax_reg(reg_##ireg_src);                                      \
-  x86_emit_add_reg_reg(reg_a0, reg_##ireg_lo);                                \
-  x86_emit_adc_reg_reg(reg_a1, reg_##ireg_hi)                                 \
-
-#define generate_multiply_u64_add(ireg_src, ireg_lo, ireg_hi)                 \
-  x86_emit_mul_eax_reg(reg_##ireg_src);                                       \
-  x86_emit_add_reg_reg(reg_a0, reg_##ireg_lo);                                \
-  x86_emit_adc_reg_reg(reg_a1, reg_##ireg_hi)                                 \
-
-
-#define generate_function_call(function_location)                             \
-  x86_emit_call_offset(x86_relative_offset(this->emit_ptr,                    \
-   function_location, 4));                                                    \
-
-#define generate_exit_block()                                                 \
-  x86_emit_ret();                                                             \
-
-#define generate_branch_patch_jecxz(dest, offset)                             \
-  *((u8 *)(dest)) = x86_relative_offset(dest, offset, 1)                      \
-
-#define generate_branch_patch_conditional(dest, offset)                       \
-  *((u32 *)(dest)) = x86_relative_offset(dest, offset, 4)                     \
-
-#define generate_branch_patch_unconditional(dest, offset)                     \
-  *((u32 *)(dest)) = x86_relative_offset(dest, offset, 4)                     \
-
+#define generate_function_call(faddr)                                         \
+  x86_emit_call(x86_relative_offset(this->emit_ptr, faddr, 5));               \
 
 #endif
+

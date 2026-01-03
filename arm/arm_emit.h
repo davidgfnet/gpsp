@@ -983,8 +983,6 @@ public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
    : CodeEmitterBase(emit_ptr, emit_end) {}
 
-  u8 *update_trampoline;     // TODO: Unused, remove!
-
   static unsigned block_prologue_size() { return 0; }
   inline void emit_block_prologue() {}
 

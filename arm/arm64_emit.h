@@ -65,77 +65,42 @@ template <> inline uintptr_t call_str_handler<u32>() { return (uintptr_t)execute
 template <> inline uintptr_t call_str_handler<u16>() { return (uintptr_t)execute_store_u16; }
 template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute_store_u8 ; }
 
-// Host register definition and allocation.
-typedef enum {
-  arm64_reg_x0,    // arg0
-  arm64_reg_x1,    // arg1
-  arm64_reg_x2,    // arg2
-  arm64_reg_x3,    // temporary reg
-  arm64_reg_x4,    // temporary reg
-  arm64_reg_x5,    // temporary reg
-  arm64_reg_x6,    // ARM reg 0 (temporary)
-  arm64_reg_x7,    // ARM reg 1 (temporary)
-  arm64_reg_x8,    // ARM reg 2 (temporary)
-  arm64_reg_x9,    // ARM reg 3 (temporary)
-  arm64_reg_x10,   // ARM reg 4 (temporary)
-  arm64_reg_x11,   // ARM reg 5 (temporary)
-  arm64_reg_x12,   // ARM reg 6 (temporary)
-  arm64_reg_x13,   // ARM reg 7 (temporary)
-  arm64_reg_x14,   // ARM reg 8 (temporary)
-  arm64_reg_x15,   // ARM reg 9 (temporary)
-  arm64_reg_x16,   // ARM reg 10 (temporary)
-  arm64_reg_x17,   // ARM reg 11 (temporary)
-  arm64_reg_x18,
-  arm64_reg_x19,   // save0 (mem-scratch) (saved)
-  arm64_reg_x20,   // base pointer (saved)
-  arm64_reg_x21,   // cycle counter (saved)
-  arm64_reg_x22,   // C-flag (contains 0 or 1, carry bit)
-  arm64_reg_x23,   // V-flag (contains 0 or 1, overflow bit)
-  arm64_reg_x24,   // Z-flag (contains 0 or 1, zero bit)
-  arm64_reg_x25,   // N-flag (contains 0 or 1, sign bit)
-  arm64_reg_x26,   // ARM reg 12 (saved)
-  arm64_reg_x27,   // ARM reg 13 (saved)
-  arm64_reg_x28,   // ARM reg 14 (saved)
-  arm64_reg_x29,   // ARM reg 15 (block start ~ PC) (saved)
-  arm64_reg_lr,
-  arm64_reg_sp,
-} arm64_reg_number;
 
-#define reg_save0   arm64_reg_x19
-#define reg_base    arm64_reg_x20
-#define reg_cycles  arm64_reg_x21
 #define reg_res     arm64_reg_x0
 #define reg_a0      arm64_reg_x0
 #define reg_a1      arm64_reg_x1
 #define reg_a2      arm64_reg_x2
 #define reg_temp    arm64_reg_x3
 #define reg_temp2   arm64_reg_x4
-#define reg_pc      arm64_reg_x29
-#define reg_c_cache arm64_reg_x22
-#define reg_v_cache arm64_reg_x23
-#define reg_z_cache arm64_reg_x24
-#define reg_n_cache arm64_reg_x25
+#define reg_save0   arm64_reg_x19  // saved
+#define reg_base    arm64_reg_x20  // saved
+#define reg_cycles  arm64_reg_x21  // saved
+#define reg_c_cache arm64_reg_x22  // saved
+#define reg_v_cache arm64_reg_x23  // saved
+#define reg_z_cache arm64_reg_x24  // saved
+#define reg_n_cache arm64_reg_x25  // saved
 
-#define reg_r0      arm64_reg_x6
-#define reg_r1      arm64_reg_x7
-#define reg_r2      arm64_reg_x8
-#define reg_r3      arm64_reg_x9
-#define reg_r4      arm64_reg_x10
-#define reg_r5      arm64_reg_x11
-#define reg_r6      arm64_reg_x12
-#define reg_r7      arm64_reg_x13
-#define reg_r8      arm64_reg_x14
-#define reg_r9      arm64_reg_x15
-#define reg_r10     arm64_reg_x16
-#define reg_r11     arm64_reg_x17
-#define reg_r12     arm64_reg_x26
-#define reg_r13     arm64_reg_x27
-#define reg_r14     arm64_reg_x28
+#define reg_r0      arm64_reg_x6   // temporary
+#define reg_r1      arm64_reg_x7   // temporary
+#define reg_r2      arm64_reg_x8   // temporary
+#define reg_r3      arm64_reg_x9   // temporary
+#define reg_r4      arm64_reg_x10  // temporary
+#define reg_r5      arm64_reg_x11  // temporary
+#define reg_r6      arm64_reg_x12  // temporary
+#define reg_r7      arm64_reg_x13  // temporary
+#define reg_r8      arm64_reg_x14  // temporary
+#define reg_r9      arm64_reg_x15  // temporary
+#define reg_r10     arm64_reg_x16  // temporary
+#define reg_r11     arm64_reg_x17  // temporary
+#define reg_r12     arm64_reg_x26  // saved
+#define reg_r13     arm64_reg_x27  // saved
+#define reg_r14     arm64_reg_x28  // saved
+#define reg_pc      arm64_reg_x29  // saved (points to block_pc)
 
 #define reg_zero    arm64_reg_sp  // Careful it's also SP
 
 // Writing to r15 goes straight to a0, to be chained with other ops
-const u32 arm_to_a64_reg[] = {
+const arm64_regnum arm_to_a64_reg[] = {
   reg_r0, reg_r1, reg_r2, reg_r3, reg_r4, reg_r5, reg_r6, reg_r7,
   reg_r8, reg_r9, reg_r10, reg_r11, reg_r12, reg_r13, reg_r14, reg_a0,
 };
@@ -267,7 +232,6 @@ public:
    : ARM64Emitter(emit_ptr, emit_end), block_pc(pc) {}
 
   u32 block_pc;              // PC address for the block base
-  u8 *update_trampoline;     // TODO: Unused, remove!
 
   static unsigned block_prologue_size() { return 0; }
 
@@ -275,7 +239,7 @@ public:
     generate_load_imm(reg_pc, this->block_pc);
   }
 
-  inline void generate_load_pc(uint32_t rd, uint32_t pc) {
+  inline void generate_load_pc(arm64_regnum rd, uint32_t pc) {
     s32 pc_delta = pc - this->block_pc;
     if (pc_delta >= 0) {
       if (pc_delta < 4096)
@@ -291,7 +255,7 @@ public:
   }
 
   // Register allocation (for registers that could contain PC)
-  inline u32 load_alloc_reg(u32 regn, u32 tmp_reg, u32 pcvalue) {
+  inline arm64_regnum load_alloc_reg(u32 regn, arm64_regnum tmp_reg, u32 pcvalue) {
     if (regn != REG_PC)
       return arm_to_a64_reg[regn];
 
@@ -300,20 +264,20 @@ public:
   }
 
   // Forces a register load!
-  inline void force_load_reg(u32 regn, u32 outreg, u32 pcvalue) {
+  inline void force_load_reg(u32 regn, arm64_regnum outreg, u32 pcvalue) {
     if (regn == REG_PC)
       generate_load_pc(outreg, pcvalue);
     else
       aa64_emit_mov(outreg, arm_to_a64_reg[regn]);
   }
 
-  inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
+  inline arm64_regnum store_alloc_reg(u32 regn, arm64_regnum tmp_reg) {
     if (regn == REG_PC)
       return tmp_reg;
     return arm_to_a64_reg[regn];
   }
 
-  inline void load_alloc_reg_lsb(u32 regn, u32 native_reg, u32 pcvalue) {
+  inline void load_alloc_reg_lsb(u32 regn, arm64_regnum native_reg, u32 pcvalue) {
     if (regn == REG_PC)
       aa64_emit_movlo(native_reg, (pcvalue & 0xFF));
     else
@@ -326,7 +290,7 @@ public:
   }
 
   template <FlagOperation flgmode>
-  inline void update_nz_flags(const BaseInst & it, u32 reg) {
+  inline void update_nz_flags(const BaseInst & it, arm64_regnum reg) {
     if (flgmode == SetFlags) {
       if (it.gen_flag_n())
         aa64_emit_lsr(reg_n_cache, reg, 31);
@@ -362,7 +326,7 @@ public:
     }
   }
 
-  inline void generate_load_imm(uint32_t rd, uint32_t imm) {
+  inline void generate_load_imm(arm64_regnum rd, uint32_t imm) {
     if ((s32)(imm) < 0 && (s32)(imm) >= -65536)
       aa64_emit_movne(rd, ~imm);       // immediate like 0xffffxxxx
     else if ((imm & 0xffff) == 0)
@@ -374,7 +338,7 @@ public:
     }
   }
 
-  void aa64_emit_addsubi(uint32_t dreg, uint32_t sreg, int imm) {
+  void aa64_emit_addsubi(arm64_regnum dreg, arm64_regnum sreg, int imm) {
     if (imm >= 0)
       aa64_emit_addi<NoFlags>(dreg, sreg, imm);
     else
@@ -383,7 +347,7 @@ public:
 
   // Adds an arbitrarily big immediate (honoring flag setting if needed)
   template <FlagOperation flg>
-  void aa64_emit_addlimm(uint32_t rd, uint32_t rs, uint32_t imm) {
+  void aa64_emit_addlimm(arm64_regnum rd, arm64_regnum rs, uint32_t imm) {
     // Adds a long immediate using a few insts is possible.
     if (isimm12(imm))
       aa64_emit_addi<flg>(rd, rs, imm);
@@ -400,7 +364,7 @@ public:
   }
 
   template <FlagOperation flg>
-  void aa64_emit_sublimm(uint32_t rd, uint32_t rs, uint32_t imm) {
+  void aa64_emit_sublimm(arm64_regnum rd, arm64_regnum rs, uint32_t imm) {
     // Subss a long immediate using a few insts is possible.
     if (isimm12(imm))
       aa64_emit_subi<flg>(rd, rs, imm);
@@ -532,9 +496,9 @@ public:
   // ======== Thumb instructions ======================================
   template <AluOperation aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
-    u32 rs = arm_to_a64_reg[it.rs()];
-    u32 rn = arm_to_a64_reg[it.rn()];
-    u32 rd = arm_to_a64_reg[it.rd()];
+    const arm64_regnum rs = arm_to_a64_reg[it.rs()];
+    const arm64_regnum rn = arm_to_a64_reg[it.rn()];
+    const arm64_regnum rd = arm_to_a64_reg[it.rd()];
 
     switch (aluop) {
     case OpAdd:
@@ -550,8 +514,8 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
-    u32 rs = arm_to_a64_reg[it.rs()];
-    u32 rd = arm_to_a64_reg[it.rd()];
+    const arm64_regnum rs = arm_to_a64_reg[it.rs()];
+    const arm64_regnum rd = arm_to_a64_reg[it.rd()];
 
     switch (aluop) {
     case OpOrr:
@@ -597,7 +561,7 @@ public:
 
   template <OpType stype, ShiftType st>
   inline void thumb_shft(const ThumbInst & it) {
-    u32 rd = arm_to_a64_reg[it.rd()];
+    const arm64_regnum rd = arm_to_a64_reg[it.rd()];
 
     if (stype == OpImm) {
       if (it.gen_flag_c())
@@ -616,8 +580,8 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluop1(const ThumbInst & it) {
-    u32 rs = arm_to_a64_reg[it.rs()];
-    u32 rd = arm_to_a64_reg[it.rd()];
+    const arm64_regnum rs = arm_to_a64_reg[it.rs()];
+    const arm64_regnum rd = arm_to_a64_reg[it.rd()];
 
     switch (aluop) {
     case OpNeg:
@@ -633,8 +597,8 @@ public:
 
   template <AluOperation testop>
   inline void thumb_testop(const ThumbInst & it) {
-    u32 rs = arm_to_a64_reg[it.rs()];
-    u32 rd = arm_to_a64_reg[it.rd()];
+    const arm64_regnum rs = arm_to_a64_reg[it.rs()];
+    const arm64_regnum rd = arm_to_a64_reg[it.rd()];
 
     switch (testop) {
     case OpTst:
@@ -654,7 +618,7 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluimm2(const ThumbInst & it) {
-    const u32 rd = arm_to_a64_reg[it.rd8()];
+    const arm64_regnum rd = arm_to_a64_reg[it.rd8()];
 
     switch (aluop) {
     case OpMov:
@@ -679,8 +643,8 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluimm3(const ThumbInst & it) {
-    u32 rs = arm_to_a64_reg[it.rs()];
-    u32 rd = arm_to_a64_reg[it.rd()];
+    const arm64_regnum rs = arm_to_a64_reg[it.rs()];
+    const arm64_regnum rd = arm_to_a64_reg[it.rd()];
 
     switch (aluop) {
     case OpAdd:
@@ -696,19 +660,19 @@ public:
 
   template <AluOperation aluop>
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
-    u32 rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
+    const arm64_regnum rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
 
     // TODO: Improve PC writes (reg_a0 *must* contain the new PC, which is not clear).
     if (aluop == OpAdd) {
-      u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
+      const arm64_regnum rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
       aa64_emit_add<NoFlags>(rd, rd, rs);
       check_store_reg_pc_thumb(it.rd_hi());
     } else if (aluop == OpCmp) {
-      u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
+      const arm64_regnum rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
       aa64_emit_sub<SetFlags>(reg_temp, rd, rs);
       update_nzcv_arith_flags<SetFlags>(it);
     } else if (aluop == OpMov) {
-      u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
+      const arm64_regnum rd = store_alloc_reg(it.rd_hi(), reg_a0);
       aa64_emit_mov(rd, rs);
       check_store_reg_pc_thumb(it.rd_hi());
     }
@@ -745,8 +709,8 @@ public:
     case 6:
     case 7:
       {
-        u32 regA = (num == 6) ? reg_r0 : reg_r1;
-        u32 regB = (num == 6) ? reg_r1 : reg_r0;
+        const arm64_regnum regA = (num == 6) ? reg_r0 : reg_r1;
+        const arm64_regnum regB = (num == 6) ? reg_r1 : reg_r0;
 
         aa64_emit_sdiv(reg_r3, regA, regB);
         aa64_emit_msub(reg_r1, regA, regB, reg_r3);
@@ -885,9 +849,9 @@ public:
   }
 
   template <ARMMemOffset offt, MemOffDir dir>
-  inline void arm_memaddr(u32 oreg, const ARMInst & it) {
+  inline void arm_memaddr(arm64_regnum oreg, const ARMInst & it) {
     // Load base register if needed
-    u32 breg = load_alloc_reg(it.rn(), oreg, it.pc + 8);
+    const arm64_regnum breg = load_alloc_reg(it.rn(), oreg, it.pc + 8);
 
     switch (offt) {
     case OffImm12:     // [rn +/- imm12]
@@ -904,7 +868,7 @@ public:
       break;
     case OffHReg:      // [rn +/- rm]
       {
-        u32 secreg = load_alloc_reg(it.rm(), reg_temp, it.pc + 8);
+        const arm64_regnum secreg = load_alloc_reg(it.rm(), reg_temp, it.pc + 8);
         if (dir == OffPositive)
           aa64_emit_add<NoFlags>(oreg, breg, secreg);
         else
@@ -930,7 +894,7 @@ public:
       // Load the base reg to a0
       force_load_reg(it.rn(), reg_a0, it.pc + 4);
       // Calculate the final value to the final reg.
-      u32 wbreg = store_alloc_reg(it.rn(), reg_a2);
+      const arm64_regnum wbreg = store_alloc_reg(it.rn(), reg_a2);
       arm_memaddr<offt, dir>(wbreg, it);
     }
     else {
@@ -956,7 +920,7 @@ public:
       // Load the base reg to a0
       force_load_reg(it.rn(), reg_a0, it.pc + 4);
       // Calculate the final value to the final reg.
-      u32 wbreg = store_alloc_reg(it.rn(), reg_a2);
+      const arm64_regnum wbreg = store_alloc_reg(it.rn(), reg_a2);
       arm_memaddr<offt, dir>(wbreg, it);
     }
     else {
@@ -1006,7 +970,7 @@ public:
                                                    endoff + 4;
 
     // Load base register, clearing the lowest 2 bits (align)
-    u32 screg = load_alloc_reg(basereg, reg_save0, pc + 2*itsize);
+    const arm64_regnum screg = load_alloc_reg(basereg, reg_save0, pc + 2*itsize);
     aa64_emit_andi(reg_save0, screg, 30, 29);  /* clear 2 LSB */
 
     // If base is in the reglist and writeback is enabled, the value of the
@@ -1065,8 +1029,8 @@ public:
   // ======== ARM instructions ======================================
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
-    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
-    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+    const arm64_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
+    const arm64_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     // Immediate is a 8 bit rotated immediate
     const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
@@ -1146,7 +1110,7 @@ public:
 
   template <AluOperation aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
-    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
+    const arm64_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
 
     // Immediate is a 8 bit rotated immediate
     const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
@@ -1180,7 +1144,7 @@ public:
 
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
-    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+    const arm64_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     // Immediate is a 8 bit rotated immediate
     const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
@@ -1206,8 +1170,8 @@ public:
 
   // Calculates operand 2 when register is shifted/rotated by an immediate.
   template<FlagOperation flg>
-  inline void emit_op2_shimm(u32 dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
-    u32 rm;
+  inline void emit_op2_shimm(arm64_regnum dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
+    arm64_regnum rm;
 
     switch (st) {
     case ShiftLSL:
@@ -1257,7 +1221,7 @@ public:
 
   // Calculates operand 2 when register is shifted/rotated by another register.
   template<FlagOperation flg>
-  inline void emit_op2_shreg(u32 dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
+  inline void emit_op2_shreg(arm64_regnum dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
     load_alloc_reg_lsb(areg, reg_a1, pc);  // Loads the LSB byte only!
 
     if (flg == SetFlags) {
@@ -1304,7 +1268,7 @@ public:
           break;
       };
     } else {
-      u32 rm = load_alloc_reg(sreg, dreg, pc);
+      const arm64_regnum rm = load_alloc_reg(sreg, dreg, pc);
       switch (st) {
         case 0:     /* LSL */
           aa64_emit_cmpi(reg_a1, 32);
@@ -1332,7 +1296,7 @@ public:
   // Calculates the flex operand, honoring flag (CF) generation and returns the
   // native register where the value is placed (either reg_a0 or some ARM reg).
   template <FlagOperation flg>
-  inline u32 emit_arm_aluop2(const ARMInst & it) {
+  inline arm64_regnum emit_arm_aluop2(const ARMInst & it) {
     // Calculates the Op2 part and writes it to a0
     if (it.op2imm()) {
       // Special case: LSL with imm = 0 means unmodified register (and Cflag).
@@ -1358,13 +1322,13 @@ public:
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
     // Generate op2 to a0, op1 to a1
-    u32 regop2 = (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
-                  aluop == OpAdc || aluop == OpSbc || aluop == OpRsc) ?
-                  emit_arm_aluop2<NoFlags>(it) :  // Do not generate C flag
-                  emit_arm_aluop2<flg>(it);
+    const arm64_regnum regop2 = (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
+                                 aluop == OpAdc || aluop == OpSbc || aluop == OpRsc) ?
+                                 emit_arm_aluop2<NoFlags>(it) :  // Do not generate C flag
+                                 emit_arm_aluop2<flg>(it);
 
-    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
-    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+    const arm64_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
+    const arm64_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     switch (aluop) {
     case OpAnd:
@@ -1422,8 +1386,8 @@ public:
 
   template <AluOperation aluop, FlagOperation flg>
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
-    u32 regop2 = emit_arm_aluop2<flg>(it);   // Generate op2 to a0
-    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+    const arm64_regnum regop2 = emit_arm_aluop2<flg>(it);   // Generate op2 to a0
+    const arm64_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     switch (aluop) {
     case OpMvn:
@@ -1447,8 +1411,8 @@ public:
   // compare/test instructions
   template <AluOperation aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
-    u32 regop2 = emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
-    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
+    const arm64_regnum regop2 = emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
+    const arm64_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
 
     switch (aluop) {
     case OpAnd:
@@ -1473,12 +1437,12 @@ public:
   // Performs 32 bit multiplications (rd and rn are swapped)
   template<FlagOperation flg, MulMode mm>
   inline void arm_mul32(const ARMInst &it) {
-    u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
-    u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
-    u32 rd = store_alloc_reg(it.rn(), reg_a2);
+    const arm64_regnum rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    const arm64_regnum rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
+    const arm64_regnum rd = store_alloc_reg(it.rn(), reg_a2);
 
     if (mm == MulAdd) {
-      u32 rn = load_alloc_reg(it.rd(), reg_temp, it.pc + 8);
+      const arm64_regnum rn = load_alloc_reg(it.rd(), reg_temp, it.pc + 8);
       aa64_emit_madd(rd, rn, rm, rs);
     }
     else
@@ -1491,12 +1455,12 @@ public:
   // Performs 64 bit multiplications
   template<FlagOperation flg, MulMode mm, bool signmul>
   inline void arm_mul64(const ARMInst &it) {
-    u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
-    u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
-    u32 rdlo = (mm == MulAdd) ? load_alloc_reg(it.rdlo(), reg_temp, it.pc + 8)
-                              : store_alloc_reg(it.rdlo(), reg_temp);
-    u32 rdhi = (mm == MulAdd) ? load_alloc_reg(it.rdhi(), reg_temp2, it.pc + 8)
-                              : store_alloc_reg(it.rdhi(), reg_temp2);
+    const arm64_regnum rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    const arm64_regnum rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
+    const arm64_regnum rdlo = (mm == MulAdd) ? load_alloc_reg(it.rdlo(), reg_temp, it.pc + 8)
+                                             : store_alloc_reg(it.rdlo(), reg_temp);
+    const arm64_regnum rdhi = (mm == MulAdd) ? load_alloc_reg(it.rdhi(), reg_temp2, it.pc + 8)
+                                             : store_alloc_reg(it.rdhi(), reg_temp2);
 
     if (mm == MulAdd) {
       aa64_emit_merge_regs(reg_a2, rdhi, rdlo);

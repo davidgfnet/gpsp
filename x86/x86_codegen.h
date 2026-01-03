@@ -192,7 +192,7 @@ private:
 
 public:
 
-  X86Emitter(u8 *emit_ptr, u8 *emit_end)
+  X86Emitter(uint8_t *emit_ptr, uint8_t *emit_end)
    : CodeEmitterBase(emit_ptr, emit_end) {}
 
   // Move (load store, imm)
@@ -388,23 +388,23 @@ public:
 };
 
 #define x86_relative_offset(source, offset, next)                             \
-  ((u32)((uintptr_t)offset - ((uintptr_t)source + next)))
+  ((uint32_t)((uintptr_t)offset - ((uintptr_t)source + next)))
 
 #define generate_branch_patch_jecxz(dest, offset)                             \
-  *((u8 *)(dest)) = x86_relative_offset(dest, offset, 1)
+  *((uint8_t *)(dest)) = x86_relative_offset(dest, offset, 1)
 
 #define generate_branch_patch_conditional(dest, offset)                       \
-  *((u32 *)(dest)) = x86_relative_offset(dest, offset, 4)
+  *((uint32_t *)(dest)) = x86_relative_offset(dest, offset, 4)
 
 #define generate_branch_patch_unconditional(dest, offset)                     \
-  *((u32 *)(dest)) = x86_relative_offset(dest, offset, 4)
+  *((uint32_t *)(dest)) = x86_relative_offset(dest, offset, 4)
 
 
 #define x86_emit_byte(value)                                                  \
   *this->emit_ptr++ = value;                                                  \
 
-#define mx86_emit_dword(value)                                                 \
-  *((u32 *)this->emit_ptr) = value;                                           \
+#define mx86_emit_dword(value)                                                \
+  *((uint32_t *)this->emit_ptr) = value;                                      \
   this->emit_ptr += 4                                                         \
 
 #define x86_emit_jecxz_filler(writeback_location)                             \

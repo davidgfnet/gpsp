@@ -23,6 +23,7 @@
 
 #include "common.h"
 #include "cpu_dynarec.h"
+#include "basedefs.h"
 
 #if defined(VITA)
 #include <psp2/kernel/sysmem.h>
@@ -2261,8 +2262,6 @@ bool translate_block_arm(u32 pc, bool ram_region)
   CodeEmitter ce(jitbuf, jitend, block_start_pc);
   ce.emit_block_prologue();
 
-  u8 *update_trampoline = ce.update_trampoline;  // TODO: get rid of this
-
   for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;
 
@@ -2411,8 +2410,6 @@ bool translate_block_thumb(u32 pc, bool ram_region)
 
   CodeEmitter ce(jitbuf, jitend, block_start_pc);
   ce.emit_block_prologue();
-
-  u8 *update_trampoline = ce.update_trampoline;  // TODO: get rid of this
 
   for(unsigned i = 0; i < block_exit_position; i++) {
     branch_target = block_exits[i].branch_target;

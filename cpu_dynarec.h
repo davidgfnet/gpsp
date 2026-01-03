@@ -23,19 +23,12 @@
 
 #include "decoder.h"
 
-// Whether the CPU is running in ARM or Thumb mode
-typedef enum { ModeARM, ModeThumb } CPUInstMode;
-// Whether the CPU flags are updated or no.
-typedef enum { NoFlags, SetFlags } FlagOperation;
 // Memory access type
 typedef enum { AccLoad, AccStore } AccMode;
 // PSR register
 typedef enum { RegCPSR, RegSPSR } PSReg;
 // Operand type
 typedef enum { OpReg, OpImm } OpType;
-// ARM shift/rotation type (matches ARM encoding)
-typedef enum { ShiftLSL = 0, ShiftLSR = 1, ShiftASR = 2, ShiftROR = 3 } ShiftType;
-
 
 class BaseInst {
 public:
@@ -63,15 +56,6 @@ public:
   ARMInst(u32 pc, u32 opcode, u16 flag_status)
    : ARMInstDec(opcode), BaseInst(pc, flag_status) {}
 
-};
-
-class CodeEmitterBase {
-public:
-  CodeEmitterBase(u8 *emit_ptr, u8 *emit_end)
-   : emit_ptr(emit_ptr), emit_end(emit_end) {}
-
-  u8 *emit_ptr;              // Points to the JIT buffer, so we can emit code.
-  u8 *emit_end;              // Points to the "end" of the JIT buffer
 };
 
 #ifdef __cplusplus

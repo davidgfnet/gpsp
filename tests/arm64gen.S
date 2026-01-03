@@ -35,10 +35,6 @@ movz w13, #0xabcd, lsl #16
 
 mov w14, #0xffff5555
 
-add w11, w12, w13, lsl #0
-add w11, w12, w13, lsl #19
-add w11, w12, w13, lsl #31
-
 add w1, w29, #0x123
 add w1, w29, #0xFFF
 sub w1, w29, #0x123

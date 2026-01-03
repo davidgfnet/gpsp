@@ -18,6 +18,44 @@
  */
 
 typedef enum {
+  arm64_reg_x0  =  0,
+  arm64_reg_x1  =  1,
+  arm64_reg_x2  =  2,
+  arm64_reg_x3  =  3,
+  arm64_reg_x4  =  4,
+  arm64_reg_x5  =  5,
+  arm64_reg_x6  =  6,
+  arm64_reg_x7  =  7,
+  arm64_reg_x8  =  8,
+  arm64_reg_x9  =  9,
+  arm64_reg_x10 = 10,
+  arm64_reg_x11 = 11,
+  arm64_reg_x12 = 12,
+  arm64_reg_x13 = 13,
+  arm64_reg_x14 = 14,
+  arm64_reg_x15 = 15,
+  arm64_reg_x16 = 16,
+  arm64_reg_x17 = 17,
+  arm64_reg_x18 = 18,
+  arm64_reg_x19 = 19,
+  arm64_reg_x20 = 20,
+  arm64_reg_x21 = 21,
+  arm64_reg_x22 = 22,
+  arm64_reg_x23 = 23,
+  arm64_reg_x24 = 24,
+  arm64_reg_x25 = 25,
+  arm64_reg_x26 = 26,
+  arm64_reg_x27 = 27,
+  arm64_reg_x28 = 28,
+  arm64_reg_x29 = 29,
+  arm64_reg_x30 = 30,
+  arm64_reg_lr  = 30,
+  arm64_reg_x31 = 31,
+  arm64_reg_sp  = 31,
+  arm64_reg_zr  = 31,
+} arm64_regnum;
+
+typedef enum {
   aa64_opcode_logic      = 0x0A,
   aa64_opcode_addsub     = 0x0B,
   aa64_opcode_adr        = 0x10,
@@ -59,233 +97,236 @@ typedef enum {
 class ARM64Emitter : public CodeEmitterBase {
 public:
 
-  void emit_inst(aa64_opcode opcode, uint32_t opce, uint32_t rd, uint32_t rs, uint32_t extra) {
+  inline void emit_inst(aa64_opcode opcode, uint32_t opce, uint32_t rd, uint32_t rs, uint32_t extra) {
     *(uint32_t*)this->emit_ptr = (opcode << 24) | ((opce) << 29) |
                                  ((rs) << 5) | (rd) | (extra);
     this->emit_ptr += 4;
   }
 
-  ARM64Emitter(u8 *emit_ptr, u8 *emit_end)
+  ARM64Emitter(uint8_t *emit_ptr, uint8_t *emit_end)
    : CodeEmitterBase(emit_ptr, emit_end) {}
 
   // Logic instructions
-  void aa64_emit_orr(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_orr(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_logic, 1, rd, rs, rm << 16);
   }
-  void aa64_emit_orn(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_orn(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_logic, 1, rd, rs, (rm << 16) | (1 << 21));
   }
-  void aa64_emit_and(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_and(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_logic, 0, rd, rs, rm << 16);
   }
-  void aa64_emit_ands(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_ands(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_logic, 3, rd, rs, rm << 16);
   }
-  void aa64_emit_bic(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_bic(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_logic, 0, rd, rs, (rm << 16) | (1 << 21));
   }
-  void aa64_emit_xor(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_xor(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_logic, 2, rd, rs, rm << 16);
   }
-  void aa64_emit_mov(uint32_t rd, uint32_t rs) {
-    aa64_emit_orr(rd, 31, rs);
+  inline void aa64_emit_mov(arm64_regnum rd, arm64_regnum rs) {
+    aa64_emit_orr(rd, arm64_reg_zr, rs);
+  }
+  inline void aa64_emit_tst(arm64_regnum rs, arm64_regnum rm) {
+    aa64_emit_ands(arm64_reg_zr, rs, rm);
   }
 
   // Logic immediate instructions
-  void aa64_emit_andi(uint32_t rd, uint32_t rs, uint32_t immr, uint32_t imms) {
+  inline void aa64_emit_andi(arm64_regnum rd, arm64_regnum rs, uint32_t immr, uint32_t imms) {
     emit_inst(aa64_opcode_movi, 0, rd, rs, (imms << 10) | (immr << 16));
   }
-  void aa64_emit_orri(uint32_t rd, uint32_t rs, uint32_t immr, uint32_t imms) {
+  inline void aa64_emit_orri(arm64_regnum rd, arm64_regnum rs, uint32_t immr, uint32_t imms) {
     emit_inst(aa64_opcode_movi, 1, rd, rs, (imms << 10) | (immr << 16));
   }
-  void aa64_emit_eori(uint32_t rd, uint32_t rs, uint32_t immr, uint32_t imms) {
+  inline void aa64_emit_eori(arm64_regnum rd, arm64_regnum rs, uint32_t immr, uint32_t imms) {
     emit_inst(aa64_opcode_movi, 2, rd, rs, (imms << 10) | (immr << 16));
   }
-  void aa64_emit_andi64(uint32_t rd, uint32_t rs, uint32_t immr, uint32_t imms) {
+  inline void aa64_emit_andi64(arm64_regnum rd, arm64_regnum rs, uint32_t immr, uint32_t imms) {
     emit_inst(aa64_opcode_movi, 4, rd, rs, (imms << 10) | (immr << 16) | (1 << 22));
   }
 
   // Useful move-immediate instructions using some imms/immr trickery
   // MovZ, clears the highest bits and sets the lower ones
-  void aa64_emit_movlo(uint32_t rd, uint32_t imm) {
+  inline void aa64_emit_movlo(arm64_regnum rd, uint32_t imm) {
     emit_inst(aa64_opcode_movi, 2, rd, 0, ((imm & 0xffff) << 5) | (4 << 21));
   }
   // MovZ, clears the lowest bits and sets the higher ones
-  void aa64_emit_movhiz(uint32_t rd, uint32_t imm) {
+  inline void aa64_emit_movhiz(arm64_regnum rd, uint32_t imm) {
     emit_inst(aa64_opcode_movi, 2, rd, 0, ((imm & 0xffff) << 5) | (5 << 21));
   }
   // MovK, keeps the other (lower) bits
-  void aa64_emit_movhi(uint32_t rd, uint32_t imm) {
+  inline void aa64_emit_movhi(arm64_regnum rd, uint32_t imm) {
     emit_inst(aa64_opcode_movi, 3, rd, 0, ((imm & 0xffff) << 5) | (5 << 21));
   }
   // MovN, moves the inverted immediate (for negative numbers)
-  void aa64_emit_movne(uint32_t rd, uint32_t imm) {
+  inline void aa64_emit_movne(arm64_regnum rd, uint32_t imm) {
     emit_inst(aa64_opcode_movi, 0, rd, 0, ((imm & 0xffff) << 5) | (4 << 21));
   }
 
   // Basic arithmetic instructions (add/sub)
   template <FlagOperation flg>
-  void aa64_emit_addi(uint32_t rd, uint32_t rs, uint32_t imm) {
+  inline void aa64_emit_addi(arm64_regnum rd, arm64_regnum rs, uint32_t imm) {
     emit_inst(aa64_opcode_addsubi, flg == NoFlags ? 0 : 1, rd, rs, (imm << 10));
   }
   template <FlagOperation flg>
-  void aa64_emit_addi12(uint32_t rd, uint32_t rs, uint32_t imm) {
+  inline void aa64_emit_addi12(arm64_regnum rd, arm64_regnum rs, uint32_t imm) {
     emit_inst(aa64_opcode_addsubi, flg == NoFlags ? 0 : 1, rd, rs, (imm << 10) | (1 << 22));
   }
   template <FlagOperation flg>
-  void aa64_emit_subi(uint32_t rd, uint32_t rs, uint32_t imm) {
+  inline void aa64_emit_subi(arm64_regnum rd, arm64_regnum rs, uint32_t imm) {
     emit_inst(aa64_opcode_addsubi, flg == NoFlags ? 2 : 3, rd, rs, (imm << 10));
   }
   template <FlagOperation flg>
-  void aa64_emit_subi12(uint32_t rd, uint32_t rs, uint32_t imm) {
+  inline void aa64_emit_subi12(arm64_regnum rd, arm64_regnum rs, uint32_t imm) {
     emit_inst(aa64_opcode_addsubi, flg == NoFlags ? 2 : 3, rd, rs, (imm << 10) | (1 << 22));
   }
 
   // More arithmetic instructions
   template <FlagOperation flg>
-  void aa64_emit_add(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_add(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_addsub, flg == NoFlags ? 0 : 1, rd, rs, (rm << 16));
   }
   template <FlagOperation flg>
-  void aa64_emit_sub(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_sub(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_addsub, flg == NoFlags ? 2 : 3, rd, rs, (rm << 16));
   }
 
   template <FlagOperation flg>
-  void aa64_emit_adc(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_adc(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_misc, flg == NoFlags ? 0 : 1, rd, rs, (rm << 16));
   }
   template <FlagOperation flg>
-  void aa64_emit_sbc(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_sbc(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_misc, flg == NoFlags ? 2 : 3, rd, rs, (rm << 16));
   }
 
   // Mult/Div
-  void aa64_emit_mul(uint32_t rd, uint32_t rn, uint32_t rm) {
-    aa64_emit_madd(rd, 31, rn, rm);    // Add zero
+  inline void aa64_emit_mul(arm64_regnum rd, arm64_regnum rn, arm64_regnum rm) {
+    aa64_emit_madd(rd, arm64_reg_zr, rn, rm);    // Add zero
   }
-  void aa64_emit_sdiv(uint32_t rd, uint32_t rs, uint32_t rm) {
+  inline void aa64_emit_sdiv(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {
     emit_inst(aa64_opcode_misc, 0, rd, rs, (rm << 16) | 0xC00C00);
   }
-  void aa64_emit_madd(uint32_t rd, uint32_t ra, uint32_t rn, uint32_t rm) {
+  inline void aa64_emit_madd(arm64_regnum rd, arm64_regnum ra, arm64_regnum rn, arm64_regnum rm) {
     // rd = ra + rn * rm
     emit_inst(aa64_opcode_mul4, 0, rd, rn, (ra << 10) | ((rm) << 16));
   }
-  void aa64_emit_msub(uint32_t rd, uint32_t ra, uint32_t rn, uint32_t rm) {
+  inline void aa64_emit_msub(arm64_regnum rd, arm64_regnum ra, arm64_regnum rn, arm64_regnum rm) {
     // rd = ra - rn * rm
     emit_inst(aa64_opcode_mul4, 0, rd, rn, (ra << 10) | ((rm) << 16) | 0x8000);
   }
-  void aa64_emit_smaddl(uint32_t rd, uint32_t ra, uint32_t rn, uint32_t rm) {
+  inline void aa64_emit_smaddl(arm64_regnum rd, arm64_regnum ra, arm64_regnum rn, arm64_regnum rm) {
     emit_inst(aa64_opcode_mul4, 4, rd, rn, (ra << 10) | (rm << 16) | 0x200000);
   }
-  void aa64_emit_umaddl(uint32_t rd, uint32_t ra, uint32_t rn, uint32_t rm) {
+  inline void aa64_emit_umaddl(arm64_regnum rd, arm64_regnum ra, arm64_regnum rn, arm64_regnum rm) {
     emit_inst(aa64_opcode_mul4, 4, rd, rn, ((ra) << 10) | ((rm) << 16) | 0xA00000);
   }
 
   // Testing instructions
-  void aa64_emit_cmpi(uint32_t rs, uint32_t imm) {
-    aa64_emit_subi<SetFlags>(31, rs, imm);
+  inline void aa64_emit_cmpi(arm64_regnum rs, uint32_t imm) {
+    aa64_emit_subi<SetFlags>(arm64_reg_zr, rs, imm);
   }
 
   // Shift/rotation
-  void aa64_emit_extr(uint32_t rd, uint32_t rs, uint32_t rm, uint32_t amount) {
+  inline void aa64_emit_extr(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm, uint32_t amount) {
     emit_inst(aa64_opcode_bfm, 0, rd, rs, (1 << 23) | ((amount) << 10) | ((rm) << 16));
   }
-  void aa64_emit_ubfm(uint32_t rd, uint32_t rs, uint32_t imms, uint32_t immr) {
+  inline void aa64_emit_ubfm(arm64_regnum rd, arm64_regnum rs, uint32_t imms, uint32_t immr) {
     emit_inst(aa64_opcode_bfm, 2, rd, rs, ((imms) << 10) | ((immr) << 16));
   }
-  void aa64_emit_ubfx(uint32_t rd, uint32_t rs, uint32_t pos, uint32_t size) {
+  inline void aa64_emit_ubfx(arm64_regnum rd, arm64_regnum rs, uint32_t pos, uint32_t size) {
     aa64_emit_ubfm(rd, rs, pos + size - 1, pos);
   }
 
-  void aa64_emit_ror(uint32_t rd, uint32_t rs, uint32_t amount) {
+  inline void aa64_emit_ror(arm64_regnum rd, arm64_regnum rs, uint32_t amount) {
     aa64_emit_extr(rd, rs, rs, amount);
   }
-  void aa64_emit_lsr(uint32_t rd, uint32_t rs, uint32_t amount) {
+  inline void aa64_emit_lsr(arm64_regnum rd, arm64_regnum rs, uint32_t amount) {
     emit_inst(aa64_opcode_bfm, 2, rd, rs, (31 << 10) | (amount << 16));
   }
-  void aa64_emit_lsl(uint32_t rd, uint32_t rs, uint32_t amount) {
+  inline void aa64_emit_lsl(arm64_regnum rd, arm64_regnum rs, uint32_t amount) {
     emit_inst(aa64_opcode_bfm, 2, rd, rs, ((31-amount) << 10) | (((32-amount) & 31) << 16));
   }
-  void aa64_emit_asr(uint32_t rd, uint32_t rs, uint32_t amount) {
+  inline void aa64_emit_asr(arm64_regnum rd, arm64_regnum rs, uint32_t amount) {
     emit_inst(aa64_opcode_bfm, 0, rd, rs, (31 << 10) | (amount << 16));
   }
-  void aa64_emit_rorv(uint32_t rd, uint32_t rs, uint32_t ra) {
+  inline void aa64_emit_rorv(arm64_regnum rd, arm64_regnum rs, arm64_regnum ra) {
     emit_inst(aa64_opcode_misc, 0, rd, rs, (ra << 16) | 0xC02C00);
   }
-  void aa64_emit_lslv(uint32_t rd, uint32_t rs, uint32_t ra) {
+  inline void aa64_emit_lslv(arm64_regnum rd, arm64_regnum rs, arm64_regnum ra) {
     emit_inst(aa64_opcode_misc, 0, rd, rs, (ra << 16) | 0xC02000);
   }
-  void aa64_emit_lsrv(uint32_t rd, uint32_t rs, uint32_t ra) {
+  inline void aa64_emit_lsrv(arm64_regnum rd, arm64_regnum rs, arm64_regnum ra) {
     emit_inst(aa64_opcode_misc, 0, rd, rs, (ra << 16) | 0xC02400);
   }
-  void aa64_emit_asrv(uint32_t rd, uint32_t rs, uint32_t ra) {
+  inline void aa64_emit_asrv(arm64_regnum rd, arm64_regnum rs, arm64_regnum ra) {
     emit_inst(aa64_opcode_misc, 0, rd, rs, (ra << 16) | 0xC02800);
   }
 
   // Misc
-  void aa64_emit_adr(uint32_t rd,  uint32_t offset) {
+  inline void aa64_emit_adr(arm64_regnum rd,  uint32_t offset) {
     emit_inst(aa64_opcode_adr, offset & 3, rd, 0, (offset >> 2) & 0x7ffff);
   }
-  void aa64_emit_csinc(uint32_t rd,  uint32_t rs, uint32_t rm, aa64_condcode cond) {
+  inline void aa64_emit_csinc(arm64_regnum rd,  arm64_regnum rs, arm64_regnum rm, aa64_condcode cond) {
     emit_inst(aa64_opcode_misc, 0, rd, rs, 0x800400 | (rm << 16) | (cond << 12));
   }
-  void aa64_emit_csinv(uint32_t rd,  uint32_t rs, uint32_t rm, aa64_condcode cond) {
+  inline void aa64_emit_csinv(arm64_regnum rd,  arm64_regnum rs, arm64_regnum rm, aa64_condcode cond) {
     emit_inst(aa64_opcode_misc, 2, rd, rs, 0x800000 | (rm << 16) | (cond << 12));
   }
-  void aa64_emit_cset(uint32_t rd, aa64_condcode cond) {
-    aa64_emit_csinc(rd, 31, 31, (aa64_condcode)(cond ^ 1));
+  inline void aa64_emit_cset(arm64_regnum rd, aa64_condcode cond) {
+    aa64_emit_csinc(rd, arm64_reg_zr, arm64_reg_zr, (aa64_condcode)(cond ^ 1));
   }
-  void aa64_emit_csetm(uint32_t rd, aa64_condcode cond) {
-    aa64_emit_csinv(rd, 31, 31, (aa64_condcode)(cond ^ 1));
+  inline void aa64_emit_csetm(arm64_regnum rd, aa64_condcode cond) {
+    aa64_emit_csinv(rd, arm64_reg_zr, arm64_reg_zr, (aa64_condcode)(cond ^ 1));
   }
-  void aa64_emit_csel(uint32_t rd,  uint32_t rtrue, uint32_t rfalse, aa64_condcode cond) {
+  inline void aa64_emit_csel(arm64_regnum rd,  arm64_regnum rtrue, arm64_regnum rfalse, aa64_condcode cond) {
     emit_inst(aa64_opcode_misc, 0, rd, rtrue, (1 << 23) | (rfalse << 16) | (cond << 12));
   }
-  void aa64_emit_csneg(uint32_t rd,  uint32_t rs, uint32_t rm, aa64_condcode cond) {
+  inline void aa64_emit_csneg(arm64_regnum rd,  arm64_regnum rs, arm64_regnum rm, aa64_condcode cond) {
     emit_inst(aa64_opcode_misc, 2, rd, rs, 0x800400 | (rm << 16) | (cond << 12));
   }
 
   // Branches & small branching (bit or register test)
-  void aa64_emit_branch(int32_t offset) {
-    emit_inst(aa64_opcode_b, 0, 0, 0, (((u32)(offset))) & 0x3ffffff);
+  inline void aa64_emit_branch(int32_t offset) {
+    emit_inst(aa64_opcode_b, 0, 0, 0, (((uint32_t)(offset))) & 0x3ffffff);
   }
-  void aa64_emit_brlink(int32_t offset) {
-    emit_inst(aa64_opcode_bl, 0, 0, 0, (((u32)(offset))) & 0x3ffffff);
+  inline void aa64_emit_brlink(int32_t offset) {
+    emit_inst(aa64_opcode_bl, 0, 0, 0, (((uint32_t)(offset))) & 0x3ffffff);
   }
-  void aa64_emit_brcond(aa64_condcode cond, int32_t offset) {
-    emit_inst(aa64_opcode_bc, 0, (uint32_t)cond, 0, (((u32)(offset))) & 0x3ffffff);
+  inline void aa64_emit_brcond(aa64_condcode cond, int32_t offset) {
+    emit_inst(aa64_opcode_bc, 0, (uint32_t)cond, 0, ((uint32_t)(offset) & 0x7ffff) << 5);
   }
 
-  void aa64_emit_tbz(uint32_t rd, uint32_t bitnum, int32_t offset) {
-    emit_inst(aa64_opcode_tbz, 0, rd, 0, ((((u32)(offset)) & 0x3fff) << 5) | (bitnum << 19));
+  inline void aa64_emit_tbz(arm64_regnum rd, uint32_t bitnum, int32_t offset) {
+    emit_inst(aa64_opcode_tbz, 0, rd, 0, ((((uint32_t)(offset)) & 0x3fff) << 5) | (bitnum << 19));
   }
-  void aa64_emit_tbnz(uint32_t rd, uint32_t bitnum, int32_t offset) {
-    emit_inst(aa64_opcode_tbnz, 0, rd, 0, ((((u32)(offset)) & 0x3fff) << 5) | (bitnum << 19));
+  inline void aa64_emit_tbnz(arm64_regnum rd, uint32_t bitnum, int32_t offset) {
+    emit_inst(aa64_opcode_tbnz, 0, rd, 0, ((((uint32_t)(offset)) & 0x3fff) << 5) | (bitnum << 19));
   }
-  void aa64_emit_cbz(uint32_t rd, int32_t offset) {
-    emit_inst(aa64_opcode_cbz, 0, rd, 0, ((((u32)offset) & 0x7ffff)) << 5);
+  inline void aa64_emit_cbz(arm64_regnum rd, int32_t offset) {
+    emit_inst(aa64_opcode_cbz, 0, rd, 0, ((((uint32_t)offset) & 0x7ffff)) << 5);
   }
-  void aa64_emit_cbnz(uint32_t rd, int32_t offset) {
-    emit_inst(aa64_opcode_cbnz, 0, rd, 0, ((((u32)offset) & 0x7ffff)) << 5);
+  inline void aa64_emit_cbnz(arm64_regnum rd, int32_t offset) {
+    emit_inst(aa64_opcode_cbnz, 0, rd, 0, ((((uint32_t)offset) & 0x7ffff)) << 5);
   }
 
   // 64 bit operations
-  void aa64_emit_lsr64(uint32_t rd, uint32_t rs, uint32_t amount) {
+  inline void aa64_emit_lsr64(arm64_regnum rd, arm64_regnum rs, uint32_t amount) {
     emit_inst(aa64_opcode_bfm, 6, rd, rs, (1 << 22) | (63 << 10) | (amount << 16));
   }
-  void aa64_emit_orr_shift64(uint32_t rd, uint32_t rs, uint32_t rm, uint32_t st, uint32_t sa) {
+  inline void aa64_emit_orr_shift64(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm, uint32_t st, uint32_t sa) {
     emit_inst(aa64_opcode_logic, 5, rd, rs, (rm << 16) | (st << 22) | (sa << 10));
   }
-  void aa64_emit_merge_regs(uint32_t rd, uint32_t rshi, uint32_t rslo) {
+  inline void aa64_emit_merge_regs(arm64_regnum rd, arm64_regnum rshi, arm64_regnum rslo) {
     aa64_emit_orr_shift64(rd, rslo, rshi, 0, 32);
   }
 
   // Load/store operations
-  void aa64_emit_ldr(uint32_t rv, uint32_t rb, uint32_t offset) {
+  inline void aa64_emit_ldr(arm64_regnum rv, arm64_regnum rb, uint32_t offset) {
     emit_inst(aa64_opcode_memi, 5, rv, rb, (1 << 22) | (offset << 10));
   }
-  void aa64_emit_str(uint32_t rv, uint32_t rb, uint32_t offset) {
+  inline void aa64_emit_str(arm64_regnum rv, arm64_regnum rb, uint32_t offset) {
     emit_inst(aa64_opcode_memi, 5, rv, rb, (0 << 22) | (offset << 10));
   }
 
@@ -298,10 +339,10 @@ public:
   (((uintptr_t)(label) - (uintptr_t)(from)) >> 2)                             \
 
 #define aa64_emit_branch_patch(ptr, offset)                                   \
-  *(ptr) = (((*(ptr)) & 0xfc000000) | (((u32)(offset)) & 0x3ffffff))          \
+  *(ptr) = (((*(ptr)) & 0xfc000000) | (((uint32_t)(offset)) & 0x3ffffff))
 
 #define aa64_emit_brcond_patch(ptr, offset)                                   \
-  *(ptr) = (((*(ptr)) & 0xff00001f) | (((((u32)(offset))) & 0x7ffff) << 5))   \
+  *(ptr) = (((*(ptr)) & 0xff00001f) | (((((uint32_t)(offset))) & 0x7ffff) << 5))
 
 
 // Unused (TODO: use them to save some insts)

@@ -56,6 +56,10 @@ private:
     this->emit_ptr += 4;
   }
 
+  inline void emit_memop(uint32_t rd, uint32_t rn, uint32_t opcode, uint32_t imm) {
+    emit_inst(0xE, (rd << 12) | (rn << 16) | (opcode << 20) | imm);
+  }
+
   template <armcg_op op, FlagOperation flg>
   inline void emit_aluop_reg(uint32_t rd, uint32_t rn, uint32_t op2) {
     emit_inst(0xE, (flg == SetFlags ? (1<<20) : 0) | (rd << 12) | (rn << 16) | (op << 21) | op2);
@@ -86,7 +90,7 @@ public:
 
   // Performs an ALU operation (with/out flag setting) with some immediate shift amount
   template <armcg_op op, FlagOperation flg>
-  inline void emit_alu_reg_immshift(uint32_t rd, uint32_t rn, uint32_t rm, uint32_t smode, uint32_t samount) {
+  inline void emit_alu_reg_immshift(uint32_t rd, uint32_t rn, uint32_t rm, uint32_t smode = ShiftLSL, uint32_t samount = 0) {
     emit_aluop_reg<op, flg>(rd, rn, op2regimm(rm, smode, samount));
   }
 
@@ -104,7 +108,7 @@ public:
 
   // 2 Operands (testing), always generates flags.
   template <armcg_op op>
-  inline void emit_test_reg_immshift(uint32_t rn, uint32_t rm, uint32_t smode, uint32_t samount) {
+  inline void emit_test_reg_immshift(uint32_t rn, uint32_t rm, uint32_t smode = ShiftLSL, uint32_t samount = 0) {
     emit_aluop_reg<op, SetFlags>(0, rn, op2regimm(rm, smode, samount));
   }
   template <armcg_op op>
@@ -118,7 +122,7 @@ public:
 
   // Unary operations, ie. mov/mvn
   template <armcg_op op, FlagOperation flg>
-  inline void emit_mov_reg_immshift(uint32_t rd, uint32_t rm, uint32_t smode, uint32_t samount) {
+  inline void emit_mov_reg_immshift(uint32_t rd, uint32_t rm, uint32_t smode = ShiftLSL, uint32_t samount = 0) {
     emit_aluop_reg<op, flg>(rd, 0, op2regimm(rm, smode, samount));
   }
   template <armcg_op op, FlagOperation flg>
@@ -138,6 +142,19 @@ public:
   template <armcg_op op>
   inline void emit_alus_imm(uint32_t rd, uint32_t rn, uint8_t imm8, uint8_t sa = 0) {
     emit_alu_imm<op, SetFlags>(rd, rn, sa, imm8);
+  }
+
+  inline void emit_ldr_imm(uint32_t rd, uint32_t rb, uint16_t imm12) {
+    emit_memop(rd, rb, 0x59, imm12);
+  }
+  inline void emit_str_imm(uint32_t rd, uint32_t rb, uint16_t imm12) {
+    emit_memop(rd, rb, 0x58, imm12);
+  }
+  inline void emit_ldr_reg(uint32_t rd, uint32_t rb, uint32_t rm, uint32_t smode, uint32_t samount) {
+    emit_memop(rd, rb, 0x79, op2regimm(rm, smode, samount));
+  }
+  inline void emit_str_reg(uint32_t rd, uint32_t rb, uint32_t rm, uint32_t smode, uint32_t samount) {
+    emit_memop(rd, rb, 0x78, op2regimm(rm, smode, samount));
   }
 
 };

@@ -98,14 +98,14 @@ typedef enum {
   MulOnly, MulAdd
 } MulMode;
 
-typedef enum {
+/*typedef enum {
   OpAnd, OpOrr, OpXor, OpBic,
   OpAdd, OpAdc, OpSub, OpSbc,
   OpRsb, OpRsc,
   OpMul,
   OpNeg, OpMov, OpMvn,
   OpTst, OpTeq, OpCmp, OpCmn
-} AluOperation;
+} AluOperation;*/
 
 typedef enum { OffReg, OffPC, OffImm5, OffImm8 } ThumbMemOffset;
 
@@ -534,7 +534,7 @@ void translate_icache_sync() {
         }                                                                     \
       }                                                                       \
       else         /* TST rn, reg_op */                                       \
-        ce.arm_alureg2<OpAnd, SetFlags>(inst);                                \
+        ce.arm_alureg2<OpTst, SetFlags>(inst);                                \
       break;                                                                  \
                                                                               \
     case 0x12:                                                                \
@@ -563,7 +563,7 @@ void translate_icache_sync() {
         }                                                                     \
       }                                                                       \
       else         /* TEQ rn, reg_op */                                       \
-        ce.arm_alureg2<OpXor, SetFlags>(inst);                                \
+        ce.arm_alureg2<OpTeq, SetFlags>(inst);                                \
       break;                                                                  \
                                                                               \
     case 0x14:                                                                \

@@ -1,11 +1,20 @@
 
 X86PFX=
+ARMV32PFX=/opt/buildroot-armv6el-eabi-uclibc/bin/arm-buildroot-linux-uclibcgnueabi-
 ARMV8PFX=/opt/buildroot-armv8el-uclibc/bin/aarch64-buildroot-linux-uclibc-
 MIPS32PFX=/opt/buildroot-mipsel32-o32-uclibc/bin/mipsel-buildroot-linux-uclibc-
 
 COVERAGE_FLAGS=-ftest-coverage -fprofile-arcs
 
 all:
+	g++ -o arm32gen.elf arm32gen.c -ggdb -I../arm/ -I.. $(COVERAGE_FLAGS)
+	./arm32gen.elf > bytecode.bin
+	lcov -c -d . -o arm32gen.info
+	$(ARMV32PFX)as -o bytecoderef.o arm32gen.S
+	$(ARMV32PFX)objcopy -O binary bytecoderef.o bytecoderef.bin
+	@ cmp bytecoderef.bin bytecode.bin || echo "Bytecode mismatch"
+	@ cmp bytecoderef.bin bytecode.bin && echo "Test passed!"
+	
 	g++ -o arm64gen.elf arm64gen.c -ggdb -I../arm/ -I.. $(COVERAGE_FLAGS)
 	./arm64gen.elf > bytecode.bin
 	lcov -c -d . -o arm64gen.info

@@ -491,7 +491,7 @@ public:
   }
 
   // ======== Thumb instructions ======================================
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
     const arm64_regnum rs = arm_to_a64_reg[it.rs()];
     const arm64_regnum rn = arm_to_a64_reg[it.rn()];
@@ -509,7 +509,7 @@ public:
     update_nzcv_arith_flags<SetFlags>(it);
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
     const arm64_regnum rs = arm_to_a64_reg[it.rs()];
     const arm64_regnum rd = arm_to_a64_reg[it.rd()];
@@ -575,7 +575,7 @@ public:
     update_nz_flags<SetFlags>(it, rd);
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluop1(const ThumbInst & it) {
     const arm64_regnum rs = arm_to_a64_reg[it.rs()];
     const arm64_regnum rd = arm_to_a64_reg[it.rd()];
@@ -592,7 +592,7 @@ public:
     };
   }
 
-  template <AluOperation testop>
+  template <ARMOp testop>
   inline void thumb_testop(const ThumbInst & it) {
     const arm64_regnum rs = arm_to_a64_reg[it.rs()];
     const arm64_regnum rd = arm_to_a64_reg[it.rd()];
@@ -613,7 +613,7 @@ public:
     };
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluimm2(const ThumbInst & it) {
     const arm64_regnum rd = arm_to_a64_reg[it.rd8()];
 
@@ -638,7 +638,7 @@ public:
     };
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluimm3(const ThumbInst & it) {
     const arm64_regnum rs = arm_to_a64_reg[it.rs()];
     const arm64_regnum rd = arm_to_a64_reg[it.rd()];
@@ -655,7 +655,7 @@ public:
     update_nzcv_arith_flags<SetFlags>(it);
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
     const arm64_regnum rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
 
@@ -1024,7 +1024,7 @@ public:
 
 
   // ======== ARM instructions ======================================
-  template <AluOperation aluop, FlagOperation flg>
+  template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
     const arm64_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
     const arm64_regnum rd = store_alloc_reg(it.rd(), reg_a0);
@@ -1105,7 +1105,7 @@ public:
     }
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
     const arm64_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
 
@@ -1138,7 +1138,7 @@ public:
     };
   }
 
-  template <AluOperation aluop, FlagOperation flg>
+  template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
     const arm64_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
@@ -1314,7 +1314,7 @@ public:
   }
 
   // 3 regs (with op2) instructions
-  template <AluOperation aluop, FlagOperation flg>
+  template <ARMOp aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
     // Generate op2 to a0, op1 to a1
     const arm64_regnum regop2 = (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
@@ -1379,7 +1379,7 @@ public:
     }
   }
 
-  template <AluOperation aluop, FlagOperation flg>
+  template <ARMOp aluop, FlagOperation flg>
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
     const arm64_regnum regop2 = emit_arm_aluop2<flg>(it);   // Generate op2 to a0
     const arm64_regnum rd = store_alloc_reg(it.rd(), reg_a0);
@@ -1404,17 +1404,17 @@ public:
   }
 
   // compare/test instructions
-  template <AluOperation aluop, FlagOperation c_flag>
+  template <ARMOp aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
     const arm64_regnum regop2 = emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
     const arm64_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
 
     switch (aluop) {
-    case OpAnd:
+    case OpTst:
        aa64_emit_and(reg_temp, rn, regop2);
        update_nz_flags<SetFlags>(it, reg_temp);
        break;
-    case OpXor:
+    case OpTeq:
        aa64_emit_xor(reg_temp, rn, regop2);
        update_nz_flags<SetFlags>(it, reg_temp);
        break;

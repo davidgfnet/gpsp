@@ -21,6 +21,7 @@
 #define ARM_EMIT_H
 
 #include "arm_codegen.h"
+#include "arm32_codegen.h"
 
 extern "C" {
   void generate_indirect_branch_arm(void);
@@ -263,6 +264,8 @@ u32 thumb_register_allocation[] =
   mem_reg,
 };
 
+#define lshift_to_immshf(sa)   ((32 - sa) >> 1)
+
 #define arm_imm_lsl_to_rot(value)                                             \
   (32 - value)                                                                \
 
@@ -368,22 +371,6 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 #define generate_load_imm(ireg, imm, imm_ror)                                 \
   ARM_MOV_REG_IMM(0, ireg, imm, imm_ror)                                      \
 
-
-#define generate_rotate_right(ireg, imm)                                      \
-  ARM_MOV_REG_IMMSHIFT(0, ireg, ireg, ARMSHIFT_ROR, imm)                      \
-
-#define generate_add(ireg_dest, ireg_src)                                     \
-  ARM_ADD_REG_REG(0, ireg_dest, ireg_dest, ireg_src)                          \
-
-#define generate_sub(ireg_dest, ireg_src)                                     \
-  ARM_SUB_REG_REG(0, ireg_dest, ireg_dest, ireg_src)                          \
-
-#define generate_or(ireg_dest, ireg_src)                                      \
-  ARM_ORR_REG_REG(0, ireg_dest, ireg_dest, ireg_src)                          \
-
-#define generate_xor(ireg_dest, ireg_src)                                     \
-  ARM_EOR_REG_REG(0, ireg_dest, ireg_dest, ireg_src)                          \
-
 #define generate_add_imm(ireg, imm, imm_ror)                                  \
   ARM_ADD_REG_IMM(0, ireg, ireg, imm, imm_ror)                                \
 
@@ -394,17 +381,8 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
     ARM_SUB_REG_IMM(0, (dreg), (sreg), (-(imm255)), 0);                       \
   }                                                                           \
 
-#define generate_sub_imm(ireg, imm, imm_ror)                                  \
-  ARM_SUB_REG_IMM(0, ireg, ireg, imm, imm_ror)                                \
-
-#define generate_xor_imm(ireg, imm, imm_ror)                                  \
-  ARM_EOR_REG_IMM(0, ireg, ireg, imm, imm_ror)                                \
-
 #define generate_add_reg_reg_imm(ireg_dest, ireg_src, imm, imm_ror)           \
   ARM_ADD_REG_IMM(0, ireg_dest, ireg_src, imm, imm_ror)                       \
-
-#define generate_and_imm(ireg, imm, imm_ror)                                  \
-  ARM_AND_REG_IMM(0, ireg, ireg, imm, imm_ror)                                \
 
 #define generate_mov(ireg_dest, ireg_src)                                     \
   if(ireg_dest != ireg_src)                                                   \
@@ -695,82 +673,11 @@ u32 execute_spsr_restore_body(u32 pc)
 }                                                                             \
 
 
-#define generate_op_and_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_AND_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
+#define generate_op_movs_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
+  generate_op_reg_regshift_uflags(MOVS, _rd, _rm, shift_type, _rs)            \
 
-#define generate_op_orr_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_ORR_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_eor_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_EOR_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_bic_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_BIC_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_sub_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_SUB_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_rsb_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_RSB_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_sbc_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_SBC_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_rsc_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_RSC_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_add_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_ADD_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_adc_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_ADC_REG_IMMSHIFT(0, _rd, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_mov_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_MOV_REG_IMMSHIFT(0, _rd, _rm, shift_type, shift)                        \
-
-#define generate_op_mvn_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  ARM_MVN_REG_IMMSHIFT(0, _rd, _rm, shift_type, shift)                        \
-
-
-#define generate_op_and_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_AND_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_orr_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_ORR_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_eor_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_EOR_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_bic_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_BIC_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_sub_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_SUB_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_rsb_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_RSB_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_sbc_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_SBC_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_rsc_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_RSC_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_add_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_ADD_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_adc_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_ADC_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_mov_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_MOV_REG_REGSHIFT(0, _rd, _rm, shift_type, _rs)                          \
-
-#define generate_op_mvn_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  ARM_MVN_REG_REGSHIFT(0, _rd, _rm, shift_type, _rs)                          \
-
-
-#define generate_op_reg_immshift_lflags(name, _rd, _rn, _rm, st, shift)       \
-  ARM_##name##_REG_IMMSHIFT(0, _rd, _rn, _rm, st, shift)                      \
+#define generate_op_reg_regshift_uflags(name, _rd, _rm, shift_type, _rs)      \
+  ARM_##name##_REG_REGSHIFT(0, _rd, _rm, shift_type, _rs)                     \
 
 #define generate_op_reg_immshift_aflags(name, _rd, _rn, _rm, st, shift)       \
   ARM_##name##_REG_IMMSHIFT(0, _rd, _rn, _rm, st, shift)                      \
@@ -784,51 +691,8 @@ u32 execute_spsr_restore_body(u32 pc)
 #define generate_op_reg_immshift_tflags(name, _rn, _rm, shift_type, shift)    \
   ARM_##name##_REG_IMMSHIFT(0, _rn, _rm, shift_type, shift)                   \
 
-
-#define generate_op_reg_regshift_lflags(name, _rd, _rn, _rm, shift_type, _rs) \
-  ARM_##name##_REG_REGSHIFT(0, _rd, _rn, _rm, shift_type, _rs)                \
-
-#define generate_op_reg_regshift_aflags(name, _rd, _rn, _rm, st, _rs)         \
-  ARM_##name##_REG_REGSHIFT(0, _rd, _rn, _rm, st, _rs)                        \
-
-#define generate_op_reg_regshift_aflags_load_c(name, _rd, _rn, _rm, st, _rs)  \
-  ARM_##name##_REG_REGSHIFT(0, _rd, _rn, _rm, st, _rs)                        \
-
-#define generate_op_reg_regshift_uflags(name, _rd, _rm, shift_type, _rs)      \
-  ARM_##name##_REG_REGSHIFT(0, _rd, _rm, shift_type, _rs)                     \
-
-#define generate_op_reg_regshift_tflags(name, _rn, _rm, shift_type, _rs)      \
-  ARM_##name##_REG_REGSHIFT(0, _rn, _rm, shift_type, _rs)                     \
-
-#define generate_op_ands_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_lflags(ANDS, _rd, _rn, _rm, shift_type, shift)     \
-
-#define generate_op_orrs_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_lflags(ORRS, _rd, _rn, _rm, shift_type, shift)     \
-
-#define generate_op_eors_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_lflags(EORS, _rd, _rn, _rm, shift_type, shift)     \
-
-#define generate_op_bics_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_lflags(BICS, _rd, _rn, _rm, shift_type, shift)     \
-
 #define generate_op_subs_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
   generate_op_reg_immshift_aflags(SUBS, _rd, _rn, _rm, shift_type, shift)     \
-
-#define generate_op_rsbs_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_aflags(RSBS, _rd, _rn, _rm, shift_type, shift)     \
-
-#define generate_op_sbcs_reg_immshift(_rd, _rn, _rm, st, shift)               \
-  generate_op_reg_immshift_aflags_load_c(SBCS, _rd, _rn, _rm, st, shift)      \
-
-#define generate_op_rscs_reg_immshift(_rd, _rn, _rm, st, shift)               \
-  generate_op_reg_immshift_aflags_load_c(RSCS, _rd, _rn, _rm, st, shift)      \
-
-#define generate_op_adds_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_aflags(ADDS, _rd, _rn, _rm, shift_type, shift)     \
-
-#define generate_op_adcs_reg_immshift(_rd, _rn, _rm, st, shift)               \
-  generate_op_reg_immshift_aflags_load_c(ADCS, _rd, _rn, _rm, st, shift)      \
 
 #define generate_op_movs_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
   generate_op_reg_immshift_uflags(MOVS, _rd, _rm, shift_type, shift)          \
@@ -841,12 +705,6 @@ u32 execute_spsr_restore_body(u32 pc)
  * apropriate operands.
  */
 
-#define generate_op_neg_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-{                                                                             \
-  generate_load_imm(reg_rn, 0, 0);                                            \
-  generate_op_subs_reg_immshift(_rd, reg_rn, _rm, ARMSHIFT_LSL, 0);           \
-}                                                                             \
-
 #define generate_op_muls_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
   ARM_MULS(0, _rd, _rn, _rm);                                                 \
 
@@ -854,63 +712,7 @@ u32 execute_spsr_restore_body(u32 pc)
 #define generate_op_cmp_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
   generate_op_reg_immshift_tflags(CMP, _rn, _rm, shift_type, shift)           \
 
-#define generate_op_cmn_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  generate_op_reg_immshift_tflags(CMN, _rn, _rm, shift_type, shift)           \
 
-#define generate_op_tst_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  generate_op_reg_immshift_tflags(TST, _rn, _rm, shift_type, shift)           \
-
-#define generate_op_teq_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  generate_op_reg_immshift_tflags(TEQ, _rn, _rm, shift_type, shift)           \
-
-
-#define generate_op_ands_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_lflags(ANDS, _rd, _rn, _rm, shift_type, _rs)       \
-
-#define generate_op_orrs_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_lflags(ORRS, _rd, _rn, _rm, shift_type, _rs)       \
-
-#define generate_op_eors_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_lflags(EORS, _rd, _rn, _rm, shift_type, _rs)       \
-
-#define generate_op_bics_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_lflags(BICS, _rd, _rn, _rm, shift_type, _rs)       \
-
-#define generate_op_subs_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_aflags(SUBS, _rd, _rn, _rm, shift_type, _rs)       \
-
-#define generate_op_rsbs_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_aflags(RSBS, _rd, _rn, _rm, shift_type, _rs)       \
-
-#define generate_op_sbcs_reg_regshift(_rd, _rn, _rm, st, _rs)                 \
-  generate_op_reg_regshift_aflags_load_c(SBCS, _rd, _rn, _rm, st, _rs)        \
-
-#define generate_op_rscs_reg_regshift(_rd, _rn, _rm, st, _rs)                 \
-  generate_op_reg_regshift_aflags_load_c(RSCS, _rd, _rn, _rm, st, _rs)        \
-
-#define generate_op_adds_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_aflags(ADDS, _rd, _rn, _rm, shift_type, _rs)       \
-
-#define generate_op_adcs_reg_regshift(_rd, _rn, _rm, st, _rs)                 \
-  generate_op_reg_regshift_aflags_load_c(ADCS, _rd, _rn, _rm, st, _rs)        \
-
-#define generate_op_movs_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_uflags(MOVS, _rd, _rm, shift_type, _rs)            \
-
-#define generate_op_mvns_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_uflags(MVNS, _rd, _rm, shift_type, _rs)            \
-
-#define generate_op_cmp_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  generate_op_reg_regshift_tflags(CMP, _rn, _rm, shift_type, _rs)             \
-
-#define generate_op_cmn_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  generate_op_reg_regshift_tflags(CMN, _rn, _rm, shift_type, _rs)             \
-
-#define generate_op_tst_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  generate_op_reg_regshift_tflags(TST, _rn, _rm, shift_type, _rs)             \
-
-#define generate_op_teq_reg_regshift(_rd, _rn, _rm, shift_type, _rs)          \
-  generate_op_reg_regshift_tflags(TEQ, _rn, _rm, shift_type, _rs)             \
 
 void *div6, *divarm7;
 
@@ -963,7 +765,6 @@ void *div6, *divarm7;
 #define generate_load_call_u32()        generate_load_call(8, 2)
 
 
-
 #define complete_store_reg_pc_thumb()                                         \
   if (it.rd_hi() == REG_PC)                                                   \
   {                                                                           \
@@ -975,10 +776,10 @@ void *div6, *divarm7;
   }                                                                           \
 
 
-class CodeEmitter : public CodeEmitterBase {
+class CodeEmitter : public ARMEmitter {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
-   : CodeEmitterBase(emit_ptr, emit_end) {}
+   : ARMEmitter(emit_ptr, emit_end) {}
 
   static unsigned block_prologue_size() { return 0; }
   inline void emit_block_prologue() {}
@@ -1081,63 +882,30 @@ public:
 
 
   // Thumb instruction set
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
     u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
     u32 rn = thumb_prepare_load_reg(reg_rn, it.rn());
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
-
-    switch (aluop) {
-    case OpAdd:
-      generate_op_adds_reg_immshift(rd, rs, rn, ARMSHIFT_LSL, 0);
-      break;
-    case OpSub:
-      generate_op_subs_reg_immshift(rd, rs, rn, ARMSHIFT_LSL, 0);
-      break;
-    };
-
+    emit_alus_reg<aluop>(rd, rs, rn);
     thumb_complete_store_reg(reg_rd, it.rd());
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
     u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
     u32 rd = thumb_prepare_load_reg(reg_rd, it.rd());
 
-    switch (aluop) {
-    case OpOrr:
-      generate_op_orrs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpAnd:
-      generate_op_ands_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpXor:
-      generate_op_eors_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpBic:
-      generate_op_bics_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpMul:
+    if (aluop == OpMul) {
       generate_op_muls_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpAdd:
-      generate_op_adds_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpSub:
-      generate_op_subs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpAdc:
-      generate_op_adcs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpSbc:
-      generate_op_sbcs_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    };
+    } else {
+      emit_alus_reg<aluop>(rd, rd, rs);
+    }
 
     thumb_complete_store_reg(reg_rd, it.rd());
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluop1(const ThumbInst & it) {
     u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
@@ -1174,7 +942,7 @@ public:
     thumb_complete_store_reg(rd, it.rd());
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluimm2(const ThumbInst & it) {
     switch (aluop) {
     case OpMov:
@@ -1185,16 +953,10 @@ public:
       }
       break;
     case OpAdd:
-      {
-        u32 rd = thumb_prepare_load_reg(reg_rd, it.rd8());
-        ARM_ADDS_REG_IMM(0, rd, rd, it.imm8(), 0);
-        thumb_complete_store_reg(reg_rd, it.rd8());
-      }
-      break;
     case OpSub:
       {
         u32 rd = thumb_prepare_load_reg(reg_rd, it.rd8());
-        ARM_SUBS_REG_IMM(0, rd, rd, it.imm8(), 0);
+        emit_alus_imm<aluop>(rd, rd, it.imm8());
         thumb_complete_store_reg(reg_rd, it.rd8());
       }
       break;
@@ -1207,48 +969,28 @@ public:
     };
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluimm3(const ThumbInst & it) {
     u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
-
-    switch (aluop) {
-    case OpAdd:
-      ARM_ADDS_REG_IMM(0, rd, rs, it.imm3(), 0);
-      break;
-    case OpSub:
-      ARM_SUBS_REG_IMM(0, rd, rs, it.imm3(), 0);
-      break;
-    };
-
+    emit_alus_imm<aluop>(rd, rs, it.imm3());
     thumb_complete_store_reg(reg_rd, it.rd());
   }
 
-  template <AluOperation testop>
+  template <ARMOp testop>
   inline void thumb_testop(const ThumbInst & it) {
     u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
     u32 rd = thumb_prepare_load_reg(reg_rd, it.rd());
-
-    switch (testop) {
-    case OpTst:
-      generate_op_tst_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpCmp:
-      generate_op_cmp_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    case OpCmn:
-      generate_op_cmn_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
-      break;
-    };
+    emit_test_reg_immshift<testop>(rd, rs, ShiftLSL, 0);
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
     u32 rs = thumb_prepare_load_reg_pc(reg_rn, it.rs_hi(), it.pc + 4);
 
     if (aluop == OpAdd) {
       u32 rd = thumb_prepare_load_reg_pc(reg_rd, it.rd_hi(), it.pc + 4);
-      generate_op_add_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      emit_alu_reg_immshift<OpAdd, NoFlags>(rd, rd, rs, ShiftLSL, 0);
       complete_store_reg_pc_thumb();
     } else if (aluop == OpCmp) {
       u32 rd = thumb_prepare_load_reg_pc(reg_rd, it.rd_hi(), it.pc + 4);
@@ -1276,11 +1018,10 @@ public:
 
   inline void thumb_spadj(s8 offset) {
     u32 sp = thumb_prepare_load_reg(reg_a0, REG_SP);
-    if (offset >= 0) {
-      ARM_ADD_REG_IMM(0, sp, sp,  offset, arm_imm_lsl_to_rot(2));
-    } else {
-      ARM_SUB_REG_IMM(0, sp, sp, -offset, arm_imm_lsl_to_rot(2));
-    }
+    if (offset >= 0)
+      emit_alu_imm<OpAdd, NoFlags>(sp, sp, lshift_to_immshf(2), offset);
+    else
+      emit_alu_imm<OpSub, NoFlags>(sp, sp, lshift_to_immshf(2), -offset);
     thumb_complete_store_reg(reg_a0, REG_SP);
   }
 
@@ -1460,59 +1201,35 @@ public:
   inline void arm_memaddr(u32 oreg, const ARMInst & it) {
     // Load base register if needed
     u32 breg = arm_prepare_load_reg_pc(oreg, it.rn(), it.pc + 8);
+    constexpr ARMOp aop = dir == OffPositive ? OpAdd : OpSub;
 
     switch (offt) {
     case OffImm12:     // [rn +/- imm12]
-      // TODO: Make this more readable
-      if (dir == OffPositive) {
-        if (it.off12() < 256) {
-          ARM_ADD_REG_IMM(0, oreg, breg, it.off12(), 0);
-        } else if (!(it.off12() & 0xF)) {
-          ARM_ADD_REG_IMM(0, oreg, breg, (it.off12() >> 4), arm_imm_lsl_to_rot(4));
-        } else if (!(it.off12() & 0xC03)) {
-          ARM_ADD_REG_IMM(0, oreg, breg, (it.off12() >> 2), arm_imm_lsl_to_rot(2));
-        } else {
-          ARM_ADD_REG_IMM(0, oreg, breg, (it.off12() & 0xFF), 0);
-          ARM_ADD_REG_IMM(0, oreg, oreg, (it.off12() >> 8), arm_imm_lsl_to_rot(8));
-        }
-      } else {
-        if (it.off12() < 256) {
-          ARM_SUB_REG_IMM(0, oreg, breg, it.off12(), 0);
-        } else if (!(it.off12() & 0xF)) {
-          ARM_SUB_REG_IMM(0, oreg, breg, (it.off12() >> 4), arm_imm_lsl_to_rot(4));
-        } else if (!(it.off12() & 0xC03)) {
-          ARM_SUB_REG_IMM(0, oreg, breg, (it.off12() >> 2), arm_imm_lsl_to_rot(2));
-        } else {
-          ARM_SUB_REG_IMM(0, oreg, breg, (it.off12() & 0xFF), 0);
-          ARM_SUB_REG_IMM(0, oreg, oreg, (it.off12() >> 8), arm_imm_lsl_to_rot(8));
-        }
+      // Try to minimize the number of instructions we need to calculate the -/+12 offset.
+      if (it.off12() < 256)
+        emit_alu_imm<aop, NoFlags>(oreg, breg, 0, it.off12());
+      else if (!(it.off12() & 0xF))
+        emit_alu_imm<aop, NoFlags>(oreg, breg, lshift_to_immshf(4), it.off12() >> 4);
+      else if (!(it.off12() & 0xC03))
+        emit_alu_imm<aop, NoFlags>(oreg, breg, lshift_to_immshf(2), it.off12() >> 2);
+      else {
+        emit_alu_imm<aop, NoFlags>(oreg, breg, 0, it.off12() & 0xFF);
+        emit_alu_imm<aop, NoFlags>(oreg, oreg, lshift_to_immshf(8), it.off12() >> 8);
       }
       break;
     case OffHImm8:     // [rn +/- imm8]
-      if (dir == OffPositive) {
-        ARM_ADD_REG_IMM(0, oreg, breg, it.off8(), 0);
-      } else {
-        ARM_SUB_REG_IMM(0, oreg, breg, it.off8(), 0);
-      }
+      emit_alu_imm<aop, NoFlags>(oreg, breg, 0, it.off8());
       break;
     case OffHReg:      // [rn +/- rm]
       {
         u32 secreg = arm_prepare_load_reg_pc(reg_a2, it.rm(), it.pc + 8);
-        if (dir == OffPositive) {
-          ARM_ADD_REG_REG(0, oreg, breg, secreg);
-        } else {
-          ARM_SUB_REG_REG(0, oreg, breg, secreg);
-        }
+        emit_alu_reg_immshift<aop, NoFlags>(oreg, breg, secreg, ShiftLSL, 0);
       }
       break;
     case OffOp2Reg:    // [rn +/- rm shift/rot amount]
       {
         u32 secreg = arm_prepare_load_reg_pc(reg_a2, it.rm(), it.pc + 8);
-        if (dir == OffPositive) {
-           generate_op_add_reg_immshift(oreg, breg, secreg, it.op2smode(), it.op2sa());
-        } else {
-           generate_op_sub_reg_immshift(oreg, breg, secreg, it.op2smode(), it.op2sa());
-        }
+        emit_alu_reg_immshift<aop, NoFlags>(oreg, breg, secreg, it.op2smode(), it.op2sa());
       }
       break;
     };
@@ -1692,87 +1409,12 @@ public:
 
 
   // ======== ARM instructions ======================================
-  template <AluOperation aluop, FlagOperation flg>
+  template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
     u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
 
-    // Immediate is a 8 bit rotated immediate
-    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
-    const u32 imm8 = it.imm8();
-
-    switch (aluop) {
-    case OpAnd:
-      if (flg == SetFlags) {
-        ARM_ANDS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_AND_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpOrr:
-      if (flg == SetFlags) {
-        ARM_ORRS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_ORR_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpXor:
-      if (flg == SetFlags) {
-        ARM_EORS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_EOR_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpBic:
-      if (flg == SetFlags) {
-        ARM_BICS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_BIC_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpAdd:
-      if (flg == SetFlags) {
-        ARM_ADDS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_ADD_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpAdc:
-      if (flg == SetFlags) {
-        ARM_ADCS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_ADC_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpSub:
-      if (flg == SetFlags) {
-        ARM_SUBS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_SUB_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpRsb:
-      if (flg == SetFlags) {
-        ARM_RSBS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_RSB_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpSbc:
-      if (flg == SetFlags) {
-        ARM_SBCS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_SBC_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    case OpRsc:
-      if (flg == SetFlags) {
-        ARM_RSCS_REG_IMM(0, rd, rn, imm8, sa);
-      } else {
-        ARM_RSC_REG_IMM(0, rd, rn, imm8, sa);
-      }
-      break;
-    };
+    emit_alu_imm<aluop, flg>(rd, rn, it.rot4(), it.imm8());
 
     const u8 condition = it.cond();        // TODO remove this
     if (flg == SetFlags) {
@@ -1782,53 +1424,17 @@ public:
     }
   }
 
-  template <AluOperation aluop>
+  template <ARMOp aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
     u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
-
-    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
-    const u32 imm8 = it.imm8();
-
-    switch (aluop) {
-    case OpTst:
-      ARM_TST_REG_IMM(0, rn, imm8, sa);
-      break;
-    case OpTeq:
-      ARM_TEQ_REG_IMM(0, rn, imm8, sa);
-      break;
-    case OpCmp:
-      ARM_CMP_REG_IMM(0, rn, imm8, sa);
-      break;
-    case OpCmn:
-      ARM_CMN_REG_IMM(0, rn, imm8, sa);
-      break;
-    };
+    emit_test_imm<aluop>(rn, it.rot4(), it.imm8());
   }
 
-  template <AluOperation aluop, FlagOperation flg>
+  template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
 
-    // Immediate is a 8 bit rotated immediate
-    const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
-    const u32 imm8 = it.imm8();
-
-    switch (aluop) {
-    case OpMov:
-      if (flg == SetFlags) {
-        ARM_MOVS_REG_IMM(0, rd, imm8, sa);
-      } else {
-        ARM_MOV_REG_IMM(0, rd, imm8, sa);
-      }
-      break;
-    case OpMvn:
-      if (flg == SetFlags) {
-        ARM_MVNS_REG_IMM(0, rd, imm8, sa);
-      } else {
-        ARM_MVN_REG_IMM(0, rd, imm8, sa);
-      }
-      break;
-    }
+    emit_mov_imm<aluop, flg>(rd, it.rot4(), it.imm8());
 
     const u8 condition = it.cond();        // TODO remove this
     if (flg == SetFlags) {
@@ -1839,7 +1445,7 @@ public:
   }
 
   // 3 regs (with op2) instructions
-  template <AluOperation aluop, FlagOperation flg>
+  template <ARMOp aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
 
@@ -1847,146 +1453,13 @@ public:
       u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
       u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
 
-      // TODO merge this into a native ARM encoder to simplify the code.
-      if (flg == SetFlags) {
-        switch (aluop) {
-        case OpAnd:
-           generate_op_ands_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpOrr:
-           generate_op_orrs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpXor:
-           generate_op_eors_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpBic:
-           generate_op_bics_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpAdd:
-           generate_op_adds_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpAdc:
-           generate_op_adcs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpSub:
-           generate_op_subs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpRsb:
-           generate_op_rsbs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpSbc:
-           generate_op_sbcs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpRsc:
-           generate_op_rscs_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        };
-      } else {
-        switch (aluop) {
-        case OpAnd:
-           generate_op_and_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpOrr:
-           generate_op_orr_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpXor:
-           generate_op_eor_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpBic:
-           generate_op_bic_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpAdd:
-           generate_op_add_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpAdc:
-           generate_op_adc_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpSub:
-           generate_op_sub_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpRsb:
-           generate_op_rsb_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpSbc:
-           generate_op_sbc_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpRsc:
-           generate_op_rsc_reg_immshift(rd, rn, rm, it.op2smode(), it.op2sa());
-           break;
-        };
-      }
+      emit_alu_reg_immshift<aluop, flg>(rd, rn, rm, it.op2smode(), it.op2sa());
     } else {
       u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 12);
       u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
       u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
 
-      if (flg == SetFlags) {
-        switch (aluop) {
-        case OpAnd:
-           generate_op_ands_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpOrr:
-           generate_op_orrs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpXor:
-           generate_op_eors_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpBic:
-           generate_op_bics_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpAdd:
-           generate_op_adds_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpAdc:
-           generate_op_adcs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpSub:
-           generate_op_subs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpRsb:
-           generate_op_rsbs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpSbc:
-           generate_op_sbcs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpRsc:
-           generate_op_rscs_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        };
-      } else {
-        switch (aluop) {
-        case OpAnd:
-           generate_op_and_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpOrr:
-           generate_op_orr_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpXor:
-           generate_op_eor_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpBic:
-           generate_op_bic_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpAdd:
-           generate_op_add_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpAdc:
-           generate_op_adc_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpSub:
-           generate_op_sub_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpRsb:
-           generate_op_rsb_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpSbc:
-           generate_op_sbc_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        case OpRsc:
-           generate_op_rsc_reg_regshift(rd, rn, rm, it.op2smode(), rs);
-           break;
-        };
-      }
+      emit_alu_reg_regshift<aluop, flg>(rd, rn, rm, it.op2smode(), rs);
     }
 
     const u8 condition = it.cond();        // TODO remove this
@@ -1997,55 +1470,16 @@ public:
     }
   }
 
-  template <AluOperation aluop, FlagOperation flg>
+  template <ARMOp aluop, FlagOperation flg>
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
     if (it.op2imm()) {
       u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
-
-      // TODO merge this into a native ARM encoder to simplify the code.
-      if (flg == SetFlags) {
-        switch (aluop) {
-        case OpMvn:
-           generate_op_mvns_reg_immshift(rd, 0, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpMov:
-           generate_op_movs_reg_immshift(rd, 0, rm, it.op2smode(), it.op2sa());
-           break;
-        };
-      } else {
-        switch (aluop) {
-        case OpMvn:
-           generate_op_mvn_reg_immshift(rd, 0, rm, it.op2smode(), it.op2sa());
-           break;
-        case OpMov:
-           generate_op_mov_reg_immshift(rd, 0, rm, it.op2smode(), it.op2sa());
-           break;
-        };
-      }
+      emit_mov_reg_immshift<aluop, flg>(rd, rm, it.op2smode(), it.op2sa());
     } else {
       u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
       u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
-
-      if (flg == SetFlags) {
-        switch (aluop) {
-        case OpMvn:
-           generate_op_mvns_reg_regshift(rd, 0, rm, it.op2smode(), rs);
-           break;
-        case OpMov:
-           generate_op_movs_reg_regshift(rd, 0, rm, it.op2smode(), rs);
-           break;
-        };
-      } else {
-        switch (aluop) {
-        case OpMvn:
-           generate_op_mvn_reg_regshift(rd, 0, rm, it.op2smode(), rs);
-           break;
-        case OpMov:
-           generate_op_mov_reg_regshift(rd, 0, rm, it.op2smode(), rs);
-           break;
-        };
-      }
+      emit_mov_reg_regshift<aluop, flg>(rd, rm, it.op2smode(), rs);
     }
 
     const u8 condition = it.cond();        // TODO remove this
@@ -2057,46 +1491,19 @@ public:
   }
 
   // compare/test instructions
-  template <AluOperation aluop, FlagOperation c_flag>
+  template <ARMOp aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
     if (it.op2imm()) {
       u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
       u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
 
-      // TODO merge this into a native ARM encoder to simplify the code.
-      switch (aluop) {
-      case OpAnd:
-         ARM_TST_REG_IMMSHIFT(0, rn, rm, it.op2smode(), it.op2sa());
-         break;
-      case OpXor:
-         ARM_TEQ_REG_IMMSHIFT(0, rn, rm, it.op2smode(), it.op2sa());
-         break;
-      case OpCmp:
-         ARM_CMP_REG_IMMSHIFT(0, rn, rm, it.op2smode(), it.op2sa());
-         break;
-      case OpCmn:
-         ARM_CMN_REG_IMMSHIFT(0, rn, rm, it.op2smode(), it.op2sa());
-         break;
-      };
+      emit_test_reg_immshift<aluop>(rn, rm, it.op2smode(), it.op2sa());
     } else {
       u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 12);
       u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
       u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
 
-      switch (aluop) {
-      case OpAnd:
-         ARM_TST_REG_REGSHIFT(0, rn, rm, it.op2smode(), rs);
-         break;
-      case OpXor:
-         ARM_TEQ_REG_REGSHIFT(0, rn, rm, it.op2smode(), rs);
-         break;
-      case OpCmp:
-         ARM_CMP_REG_REGSHIFT(0, rn, rm, it.op2smode(), rs);
-         break;
-      case OpCmn:
-         ARM_CMN_REG_REGSHIFT(0, rn, rm, it.op2smode(), rs);
-         break;
-      };
+      emit_test_reg_regshift<aluop>(rn, rm, it.op2smode(), rs);
     }
   }
 

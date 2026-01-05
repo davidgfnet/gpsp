@@ -47,6 +47,9 @@ extern "C" {
   void execute_swi_arm(u32 pc);
   void execute_swi_thumb(u32 pc);
   u32 execute_arm_translate_internal(u32 cycles, void *regptr);
+
+  void div_emu_sw6();
+  void div_emu_sw7();
 }
 
 extern u32 st_handler_functions[4][17];
@@ -87,8 +90,10 @@ template <> inline u32 ldr_handler_offset<u32>() { return 8; }
 #define armfn_indirect_thumb      11
 #define armfn_indirect_dual_arm   12
 #define armfn_indirect_dual_thumb 13
-#define armfn_debug_trace_arm     14
-#define armfn_debug_trace_thumb   15
+#define armfn_swi6_emu            14
+#define armfn_swi7_emu            15
+#define armfn_debug_trace_arm     16
+#define armfn_debug_trace_thumb   17
 
 #define STORE_TBL_OFF     0x118
 #define SPSR_RAM_OFF      0x100
@@ -465,7 +470,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 /* a0 holds the destination */
 
 #define generate_indirect_branch_no_cycle_update(type)                        \
-  ARM_LDR_IMM(0, ARMREG_PC, reg_base, 4*(REG_USERDEF + armfn_indirect_##type));
+  emit_ldr_imm(armcg_regpc, reg_base, 4*(REG_USERDEF + armfn_indirect_##type));
 
 #define generate_indirect_branch_cycle_update(type)                           \
   generate_cycle_update();                                                    \
@@ -497,9 +502,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
     ARM_MOV_REG_REG(0, store_dest, ireg);                                     \
   }                                                                           \
   else                                                                        \
-  {                                                                           \
-    ARM_STR_IMM(0, ireg, reg_base, (reg_index * 4));                          \
-  }                                                                           \
+    emit_str_imm(ireg, reg_base, (reg_index) * 4);                            \
 }                                                                             \
 
 #define thumb_generate_store_reg(ireg, reg_index)                             \
@@ -510,13 +513,11 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
     ARM_MOV_REG_REG(0, store_dest, ireg);                                     \
   }                                                                           \
   else                                                                        \
-  {                                                                           \
-    ARM_STR_IMM(0, ireg, reg_base, (reg_index * 4));                          \
-  }                                                                           \
+    emit_str_imm(ireg, reg_base, (reg_index) * 4);                            \
 }
 
 #define generate_load_memreg(ireg, reg_index)                                 \
-  ARM_LDR_IMM(0, ireg, reg_base, ((reg_index) * 4));                          \
+  emit_ldr_imm(ireg, reg_base, (reg_index) * 4);
 
 #define arm_generate_load_reg(ireg, reg_index)                                \
 {                                                                             \
@@ -527,7 +528,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
   }                                                                           \
   else                                                                        \
   {                                                                           \
-    ARM_LDR_IMM(0, ireg, reg_base, ((reg_index) * 4));                        \
+    emit_ldr_imm(ireg, reg_base, (reg_index) * 4);                            \
   }                                                                           \
 }                                                                             \
 
@@ -540,7 +541,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
   }                                                                           \
   else                                                                        \
   {                                                                           \
-    ARM_LDR_IMM(0, ireg, reg_base, ((reg_index) * 4));                        \
+    emit_ldr_imm(ireg, reg_base, (reg_index) * 4);                            \
   }                                                                           \
 }                                                                             \
 
@@ -585,17 +586,13 @@ inline u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index) {
 #define arm_complete_store_reg(scratch_reg, reg_index)                        \
 {                                                                             \
   if(arm_register_allocation[reg_index] == mem_reg)                           \
-  {                                                                           \
-    ARM_STR_IMM(0, scratch_reg, reg_base, (reg_index * 4));                   \
-  }                                                                           \
+    emit_str_imm(scratch_reg, reg_base, (reg_index) * 4);                     \
 }
 
 #define thumb_complete_store_reg(scratch_reg, reg_index)                      \
 {                                                                             \
   if(thumb_register_allocation[reg_index] == mem_reg)                         \
-  {                                                                           \
-    ARM_STR_IMM(0, scratch_reg, reg_base, (reg_index * 4));                   \
-  }                                                                           \
+    emit_str_imm(scratch_reg, reg_base, (reg_index) * 4);                     \
 }
 
 #define arm_complete_store_reg_pc_no_flags(scratch_reg, reg_index)            \
@@ -673,33 +670,6 @@ u32 execute_spsr_restore_body(u32 pc)
 }                                                                             \
 
 
-#define generate_op_movs_reg_regshift(_rd, _rn, _rm, shift_type, _rs)         \
-  generate_op_reg_regshift_uflags(MOVS, _rd, _rm, shift_type, _rs)            \
-
-#define generate_op_reg_regshift_uflags(name, _rd, _rm, shift_type, _rs)      \
-  ARM_##name##_REG_REGSHIFT(0, _rd, _rm, shift_type, _rs)                     \
-
-#define generate_op_reg_immshift_aflags(name, _rd, _rn, _rm, st, shift)       \
-  ARM_##name##_REG_IMMSHIFT(0, _rd, _rn, _rm, st, shift)                      \
-
-#define generate_op_reg_immshift_aflags_load_c(name, _rd, _rn, _rm, st, sh)   \
-  ARM_##name##_REG_IMMSHIFT(0, _rd, _rn, _rm, st, sh)                         \
-
-#define generate_op_reg_immshift_uflags(name, _rd, _rm, shift_type, shift)    \
-  ARM_##name##_REG_IMMSHIFT(0, _rd, _rm, shift_type, shift)                   \
-
-#define generate_op_reg_immshift_tflags(name, _rn, _rm, shift_type, shift)    \
-  ARM_##name##_REG_IMMSHIFT(0, _rn, _rm, shift_type, shift)                   \
-
-#define generate_op_subs_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_aflags(SUBS, _rd, _rn, _rm, shift_type, shift)     \
-
-#define generate_op_movs_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_uflags(MOVS, _rd, _rm, shift_type, shift)          \
-
-#define generate_op_mvns_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  generate_op_reg_immshift_uflags(MVNS, _rd, _rm, shift_type, shift)          \
-
 /* The reg operand is in reg_rm, not reg_rn like expected, so rsbs isn't
  * being used here. When rsbs is fully inlined it can be used with the
  * apropriate operands.
@@ -707,14 +677,6 @@ u32 execute_spsr_restore_body(u32 pc)
 
 #define generate_op_muls_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
   ARM_MULS(0, _rd, _rn, _rm);                                                 \
-
-// TODO: Get rid of _rd paramenter
-#define generate_op_cmp_reg_immshift(_rd, _rn, _rm, shift_type, shift)        \
-  generate_op_reg_immshift_tflags(CMP, _rn, _rm, shift_type, shift)           \
-
-
-
-void *div6, *divarm7;
 
 
 /* We use USAT + ROR to map addresses to the handler table. For ARMv5 we use
@@ -744,13 +706,13 @@ void *div6, *divarm7;
 #define generate_load_call(tblnum, abits)                                     \
   mem_calc_region(abits);                                                     \
   generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*tblnum + 4) >> 2, 0);          \
-  ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);                   \
+  emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);                        \
   ARM_BLX(0, reg_a2);                                                         \
 
 #define generate_store_call(tblnum)                                           \
   mem_calc_region(0);                                                         \
   generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*tblnum + 4) >> 2, 0);          \
-  ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);                   \
+  emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);                        \
   ARM_BLX(0, reg_a2);                                                         \
 
 
@@ -790,7 +752,7 @@ public:
     if(reg_use != mem_reg)
       return reg_use;
 
-    ARM_LDR_IMM(0, scratch_reg, reg_base, (reg_index * 4));
+    emit_ldr_imm(scratch_reg, reg_base, reg_index * 4);
     return scratch_reg;
   }
 
@@ -807,7 +769,7 @@ public:
     if(reg_use != mem_reg)
       return reg_use;
 
-    ARM_LDR_IMM(0, scratch_reg, reg_base, (reg_index * 4));
+    emit_ldr_imm(scratch_reg, reg_base, reg_index * 4);
     return scratch_reg;
   }
 
@@ -825,9 +787,8 @@ public:
     u32 regn = thumb_register_allocation[reg_index];
     if (regn != mem_reg) {
       ARM_MOV_REG_REG(0, dest_reg, regn);
-    } else {
-      ARM_LDR_IMM(0, dest_reg, reg_base, (reg_index * 4));
-    }
+    } else
+      emit_ldr_imm(dest_reg, reg_base, reg_index * 4);
   }
 
   // Forces a register load!
@@ -838,20 +799,18 @@ public:
       u32 regn = arm_register_allocation[reg_index];
       if (regn != mem_reg) {
         ARM_MOV_REG_REG(0, dest_reg, regn);
-      } else {
-        ARM_LDR_IMM(0, dest_reg, reg_base, (reg_index * 4));
-      }
+      } else
+        emit_ldr_imm(dest_reg, reg_base, reg_index * 4);
     }
   }
 
   template <CPUInstMode cm>
   inline void generate_translation_gate(u32 pc) {
     generate_update_pc(pc);
-    if (cm == ModeARM) {
-      ARM_LDR_IMM(0, ARMREG_PC, reg_base, 4*(REG_USERDEF + armfn_indirect_arm));
-    } else {
-      ARM_LDR_IMM(0, ARMREG_PC, reg_base, 4*(REG_USERDEF + armfn_indirect_thumb));
-    }
+    if (cm == ModeARM)
+      emit_ldr_imm(armcg_regpc, reg_base, 4*(REG_USERDEF + armfn_indirect_arm));
+    else
+      emit_ldr_imm(armcg_regpc, reg_base, 4*(REG_USERDEF + armfn_indirect_thumb));
   }
 
   inline void emit_cycle_update(u32 & cycle_count) {
@@ -913,10 +872,10 @@ public:
     switch (aluop) {
     case OpNeg:
       generate_load_imm(reg_rn, 0, 0);
-      generate_op_subs_reg_immshift(rd, reg_rn, rs, ARMSHIFT_LSL, 0);
+      emit_alu_reg_immshift<OpSub, SetFlags>(rd, reg_rn, rs);
       break;
     case OpMvn:
-      generate_op_mvns_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
+      emit_mov_reg_immshift<OpMvn, SetFlags>(rd, rs);
       break;
     };
 
@@ -932,11 +891,11 @@ public:
                        (st == ShiftLSR) ? ARMSHIFT_LSR :
                        (st == ShiftASR) ? ARMSHIFT_ASR : ARMSHIFT_ROR;
 
-    if (stype == OpImm) {
-      generate_op_movs_reg_immshift(rd, 0, rs, shtype, it.imm5());
-    } else {
+    if (stype == OpImm)
+      emit_mov_reg_immshift<OpMov, SetFlags>(rd, rs, shtype, it.imm5());
+    else {
       u32 rm = thumb_prepare_load_reg(reg_rd, it.rd());
-      generate_op_movs_reg_regshift(rd, 0, rm, shtype, rs);
+      emit_mov_reg_regshift<OpMov, SetFlags>(rd, rm, shtype, rs);
     }
 
     thumb_complete_store_reg(rd, it.rd());
@@ -963,7 +922,7 @@ public:
     case OpCmp:
       {
         u32 rd = thumb_prepare_load_reg(reg_rd, it.rd8());
-        ARM_CMP_REG_IMM(0, rd, it.imm8(), 0);
+        emit_test_imm<OpCmp>(rd, 0, it.imm8());
       }
       break;
     };
@@ -994,7 +953,7 @@ public:
       complete_store_reg_pc_thumb();
     } else if (aluop == OpCmp) {
       u32 rd = thumb_prepare_load_reg_pc(reg_rd, it.rd_hi(), it.pc + 4);
-      generate_op_cmp_reg_immshift(0, rd, rs, ARMSHIFT_LSL, 0);
+      emit_test_reg_immshift<OpCmp>(rd, rs);
     } else if (aluop == OpMov) {
       u32 rd = thumb_prepare_store_reg(reg_rd, it.rd_hi());
       ARM_MOV_REG_REG(0, rd, rs);
@@ -1041,12 +1000,12 @@ public:
     case 6:
       cycle_count += 64;
       cycle_count += 11 + 32;    // TODO just 64 cycles like other archs.
-      generate_function_call(div6);
+      generate_function_far_call(armfn_swi6_emu);
       return true;
     case 7:
       cycle_count += 64;
       cycle_count += 14 + 32;    // TODO just 64 cycles like other archs.
-      generate_function_call(divarm7);
+      generate_function_far_call(armfn_swi7_emu);
       return true;
     default:
       return false;
@@ -1175,7 +1134,7 @@ public:
     u32 nbits = sizeof(memtype) / 2;  // log2(size)
     mem_calc_region(nbits);
     generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
-    ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);
+    emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
     ARM_BLX(0, reg_a2);
     write32(it.pc);
     thumb_generate_store_reg(reg_rv, regd);
@@ -1190,7 +1149,7 @@ public:
     u32 sttype = str_handler_offset<memtype>();
     mem_calc_region(0);
     generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*sttype + 4) >> 2, 0);
-    ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);
+    emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
     thumb_generate_load_reg(reg_a1, regd);
     ARM_BLX(0, reg_a2);
     write32((it.pc + 2));
@@ -1357,7 +1316,7 @@ public:
           u32 ldtype = ldr_handler_offset<u32>();
           mem_calc_region(0);
           generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
-          ARM_LDR_REG_REG_SHIFT(0, reg_a2, reg_base, reg_a2, 0, 2);
+          emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
           ARM_BLX(0, reg_a2);
           write32(pc + itsize);
           if (cpum == ModeThumb) {
@@ -1589,9 +1548,9 @@ public:
       ARM_ORR_REG_REG(0, rd, rd, reg_flags);
     } else {
       ARM_ADD_REG_IMM(0, reg_a2, reg_base, SPSR_RAM_OFF >> 2, 30);
-      ARM_LDR_IMM(0, reg_a1, reg_base, CPU_MODE * 4);
+      emit_ldr_imm(reg_a1, reg_base, CPU_MODE * 4);
       ARM_AND_REG_IMM(0, reg_a1, reg_a1, 0xF, 0);
-      ARM_LDR_REG_REG_SHIFT(0, rd, reg_a2, reg_a1, ARMSHIFT_LSL, 2);
+      emit_ldr_reg(rd, reg_a2, reg_a1, ShiftLSL, 2);
     }
 
     arm_complete_store_reg(rd, it.rd())
@@ -1613,14 +1572,14 @@ public:
       write32(it.pc);
     } else {
       arm_load_imm_32bit(reg_a1, spsr_masks[it.field_fc()]);
-      ARM_LDR_IMM(0, reg_a2, reg_base, (CPU_MODE * 4));
+      emit_ldr_imm(reg_a2, reg_base, (CPU_MODE * 4));
       ARM_AND_REG_IMM(0, reg_a2, reg_a2, 0xF, 0);
-      ARM_ADD_REG_IMMSHIFT(0, ARMREG_LR, reg_base, reg_a2, ARMSHIFT_LSL, 2);
-      ARM_AND_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a1, ARMSHIFT_LSL, 0);
-      ARM_LDR_IMM(0, reg_a2, ARMREG_LR, SPSR_RAM_OFF);
-      ARM_BIC_REG_IMMSHIFT(0, reg_a2, reg_a2, reg_a1, ARMSHIFT_LSL, 0);
-      ARM_ORR_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a2, ARMSHIFT_LSL, 0);
-      ARM_STR_IMM(0, reg_a0, ARMREG_LR, SPSR_RAM_OFF);
+      emit_alu_reg_immshift<OpAdd, NoFlags>(armcg_reglr, reg_base, reg_a2, ShiftLSL, 2);
+      emit_alu_reg_immshift<OpAnd, NoFlags>(reg_a0, reg_a0, reg_a1);
+      emit_ldr_imm(reg_a2, armcg_reglr, SPSR_RAM_OFF);
+      emit_alu_reg_immshift<OpBic, NoFlags>(reg_a2, reg_a2, reg_a1);
+      emit_alu_reg_immshift<OpOrr, NoFlags>(reg_a0, reg_a0, reg_a2);
+      emit_str_imm(reg_a0, armcg_reglr, SPSR_RAM_OFF);
     }
   }
 
@@ -1630,11 +1589,9 @@ public:
     const u32 *rt = (cm == ModeThumb) ? thumb_register_allocation
                                       : arm_register_allocation;
 
-    for (unsigned i = 0; i < 15; i++) {
-      if (rt[i] != mem_reg) {
-        ARM_STR_IMM(0, rt[i], reg_base, (i*4));
-      }
-    }
+    for (unsigned i = 0; i < 15; i++)
+      if (rt[i] != mem_reg)
+        emit_str_imm(rt[i], reg_base, i*4);
     generate_save_flags();
     ARM_STMDB_WB(0, ARMREG_SP, 0x500C);
     arm_load_imm_32bit(reg_a0, pc);
@@ -1651,61 +1608,6 @@ public:
 
   void emit_stubs() {
     rom_cache_watermark = INITIAL_ROM_WATERMARK;
-
-    // Generate ARMv5+ division code, uses a mix of libgcc and some open bioses.
-    // This is meant for ARMv5 or higher, uses CLZ
-
-    // Invert operands for SWI 7 (divarm)
-    divarm7 = this->emit_ptr;
-    ARM_MOV_REG_REG(0, reg_a2, reg_x0);
-    ARM_MOV_REG_REG(0, reg_x0, reg_x1);
-    ARM_MOV_REG_REG(0, reg_x1, reg_a2);
-
-    div6 = this->emit_ptr;
-    // Save flags before using them
-    generate_save_flags();
-    // Stores result and remainder signs 
-    ARM_ANDS_REG_IMM(0, reg_a2, reg_x1, 0x80, arm_imm_lsl_to_rot(24));
-    ARM_EOR_REG_IMMSHIFT(0, reg_a2, reg_a2, reg_x0, ARMSHIFT_ASR, 1);
-
-    // Make numbers positive if they are negative
-    ARM_RSB_REG_IMM_COND(0, reg_x1, reg_x1, 0, 0, ARMCOND_MI);
-    ARM_TST_REG_REG(0, reg_x0, reg_x0);
-    ARM_RSB_REG_IMM_COND(0, reg_x0, reg_x0, 0, 0, ARMCOND_MI);
-
-    // Calculates the number of iterations to division, and jumps to unrolled code
-    ARM_CLZ(0, reg_a0, reg_x0);
-    ARM_CLZ(0, reg_a1, reg_x1);
-    ARM_SUBS_REG_REG(0, reg_a0, reg_a1, reg_a0);          // Align and check if a<b
-    ARM_RSB_REG_IMM(0, reg_a0, reg_a0, 31, 0);
-    ARM_MOV_REG_IMM_COND(0, reg_a0, 32, 0, ARMCOND_MI);   // Cap to 32 (skip division)
-    ARM_ADD_REG_IMMSHIFT(0, reg_a0, reg_a0, reg_a0, ARMSHIFT_LSL, 1);
-    ARM_MOV_REG_IMM(0, reg_a1, 0, 0);
-    ARM_ADD_REG_IMMSHIFT(0, ARMREG_PC, ARMREG_PC, reg_a0, ARMSHIFT_LSL, 2);
-    ARM_NOP(0);
-
-    for (int i = 31; i >= 0; i--) {
-      ARM_CMP_REG_IMMSHIFT(0, reg_x0, reg_x1, ARMSHIFT_LSL, i);
-      ARM_ADC_REG_REG(0, reg_a1, reg_a1, reg_a1);
-      ARM_SUB_REG_IMMSHIFT_COND(0, reg_x0, reg_x0, reg_x1, ARMSHIFT_LSL, i, ARMCOND_HS);
-    }
-
-    ARM_MOV_REG_REG(0, reg_x1, reg_x0);
-    ARM_MOV_REG_REG(0, reg_x0, reg_a1);
-    // Negate result if sign is negative
-    ARM_SHLS_IMM(0, reg_a2, reg_a2, 1);
-    ARM_RSB_REG_IMM_COND(0, reg_x0, reg_x0, 0, 0, ARMCOND_HS);
-    ARM_RSB_REG_IMM_COND(0, reg_x1, reg_x1, 0, 0, ARMCOND_MI);
-
-    // Register R3 stores the abs(r0/r1), store it in the right reg/mem-reg
-    generate_load_memreg(reg_a2, REG_CPSR);
-    ARM_TST_REG_IMM8(0, reg_a2, 0x20);
-    arm_generate_store_reg(reg_a1, 3 /* r3 */);
-    ARM_MOV_REG_REG_COND(0, reg_x3, reg_a1, ARMCOND_NE);
-
-    // Return and continue regular emulation
-    generate_restore_flags();
-    ARM_BX(0, ARMREG_LR);
   }
 
 };
@@ -1745,6 +1647,8 @@ void init_emitter(bool must_swap) {
   reg[REG_USERDEF + armfn_indirect_thumb] = (u32)arm_indirect_branch_thumb;
   reg[REG_USERDEF + armfn_indirect_dual_arm]   = (u32)arm_indirect_branch_dual_arm;
   reg[REG_USERDEF + armfn_indirect_dual_thumb] = (u32)arm_indirect_branch_dual_thumb;
+  reg[REG_USERDEF + armfn_swi6_emu] = (u32)div_emu_sw6;
+  reg[REG_USERDEF + armfn_swi7_emu] = (u32)div_emu_sw7;
   reg[REG_USERDEF + armfn_debug_trace_arm] = (u32)trace_instruction_hook_arm;
   reg[REG_USERDEF + armfn_debug_trace_thumb] = (u32)trace_instruction_hook_thumb;
 }

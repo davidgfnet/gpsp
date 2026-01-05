@@ -20,7 +20,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include "basedefs.h"
-#include "arm_newcodegen.h"
+#include "arm32_codegen.h"
 
 int main() {
   uint8_t buffer[8*1024];
@@ -147,6 +147,24 @@ int main() {
   ce.emit_mov_imm<OpMov, SetFlags>(armcg_reg11, 6, 0xA1);
   ce.emit_mov_imm<OpMvn, NoFlags>(armcg_reg1, 10, 0xB1);
   ce.emit_mov_imm<OpMvn, SetFlags>(armcg_reg3, 14, 0xD1);
+
+  ce.emit_ldr_imm(armcg_reg1, armcg_reg2, 0x000);
+  ce.emit_ldr_imm(armcg_reg3, armcg_reg4, 0x034);
+  ce.emit_ldr_imm(armcg_reg5, armcg_reg6, 0x7FC);
+  ce.emit_str_imm(armcg_reg7, armcg_reg8, 0x000);
+  ce.emit_str_imm(armcg_reg9, armcg_reg10, 0x020);
+  ce.emit_str_imm(armcg_reg11, armcg_reg12, 0xABC);
+
+  ce.emit_ldr_reg(armcg_reg0, armcg_reg1, armcg_reg2, ShiftLSL, 0);
+  ce.emit_ldr_reg(armcg_reg3, armcg_reg4, armcg_reg5, ShiftLSL, 2);
+  ce.emit_ldr_reg(armcg_reg6, armcg_reg7, armcg_reg8, ShiftLSR, 3);
+  ce.emit_ldr_reg(armcg_reg9, armcg_reg10, armcg_reg11, ShiftASR, 1);
+  ce.emit_ldr_reg(armcg_reg12, armcg_reg13, armcg_reg14, ShiftROR, 4);
+  ce.emit_str_reg(armcg_reg2, armcg_reg3, armcg_reg4, ShiftLSL, 0);
+  ce.emit_str_reg(armcg_reg5, armcg_reg6, armcg_reg7, ShiftLSL, 1);
+  ce.emit_str_reg(armcg_reg8, armcg_reg9, armcg_reg10, ShiftLSR, 2);
+  ce.emit_str_reg(armcg_reg11, armcg_reg12, armcg_reg13, ShiftASR, 3);
+  ce.emit_str_reg(armcg_reg14, armcg_reg15, armcg_reg0, ShiftROR, 1);
 
   fwrite(buffer, 1, ce.emit_ptr-buffer, stdout);
 }

@@ -121,3 +121,22 @@ movs r11, #0x0A100000
 mvn  r1, #0x000B1000
 mvns r3, #0x00000D10
 
+ldr r1, [r2]
+ldr r3, [r4, #52]
+ldr r5, [r6, #2044]
+str r7, [r8]
+str r9, [r10, #32]
+str r11, [r12, #2748]
+
+ldr r0, [r1, r2]
+ldr r3, [r4, r5, lsl #2]
+ldr r6, [r7, r8, lsr #3]
+ldr r9, [r10, r11, asr #1]
+ldr r12, [r13, r14, ror #4]
+str r2, [r3, r4]
+str r5, [r6, r7, lsl #1]
+str r8, [r9, r10, lsr #2]
+str r11, [r12, r13, asr #3]
+str r14, [r15, r0, ror #1]
+
+

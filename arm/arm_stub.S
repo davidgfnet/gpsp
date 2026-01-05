@@ -884,6 +884,61 @@ execute_load_builder(u16, 1, read_memory16 )
 execute_load_builder(s16, 1, read_memory16s)
 execute_load_builder(u32, 2, read_memory32 )
 
+
+/* Division emulation for ARMv5+ */
+defsymbl(div_emu_sw7)
+  mov reg_a2, reg_x0
+  mov reg_x0, reg_x1
+  mov reg_x1, reg_a2
+
+defsymbl(div_emu_sw6)
+  save_flags()
+
+  ands reg_a2, reg_x1, #0x80000000
+  eor reg_a2, reg_a2, reg_x0, asr #1
+
+  rsbmi reg_x1, reg_x1, #0             // Make number positive if it's negative
+  tst reg_x0, reg_x0
+  rsbmi reg_x0, reg_x0, #0
+
+  // Calculate how many iterations we need and skip the N first iterations.
+  clz reg_a0, reg_x0
+  clz reg_a1, reg_x1
+  subs reg_a0, reg_a1, reg_a0          // Subtract leading zeros (number of iterations)
+  rsb reg_a0, reg_a0, #31
+  movmi reg_a0, #32
+  add reg_a0, reg_a0, reg_a0, lsl #1   // Multiply by 3 (each iteration is 3 insts)
+  mov reg_a1, #0
+
+  add pc, pc, reg_a0, lsl #2           // Skip to the right interation (PC+8)
+  nop
+
+  .set i, 32
+  .rept 32
+    .set i, i-1
+    cmp reg_x0, reg_x1, lsl #i
+    adc reg_a1, reg_a1, reg_a1         // Shift left by one and set LSB based on the cmp
+    subhs reg_x0, reg_x0, reg_x1, lsl #i
+  .endr
+
+  mov reg_x1, reg_x0
+  mov reg_x0, reg_a1
+
+  // Negate result if sign is negative
+  lsls reg_a2, reg_a2, #1
+  rsbhs reg_x0, reg_x0, #0
+  rsbmi reg_x1, reg_x1, #0
+
+  // Register R3 stores the abs(r0/r1), store it in the right reg/mem-reg
+  ldr reg_a2, [reg_base, #REG_CPSR]
+  tst reg_a2, #0x20
+  str reg_a1, [reg_base, #REG_R3]
+  movne reg_x3, reg_a1
+
+  restore_flags()
+  bx lr
+
+
 .data
 .align 4
 

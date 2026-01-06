@@ -1,6 +1,7 @@
 /* gameplaySP
  *
  * Copyright (C) 2006 Exophase <exophase@gmail.com>
+ * Copyright (C) 2026 David Guillen Fandos <david@davidgf.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -274,6 +275,7 @@ u32 thumb_register_allocation[] =
 #define arm_imm_lsl_to_rot(value)                                             \
   (32 - value)                                                                \
 
+// TODO: New immediate generation, using mov/movn and orr/bic
 u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 {
   u32 store_count = 0;
@@ -344,37 +346,9 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
   }
 }
 
-#if __ARM_ARCH >= 7
-  #define arm_load_imm_32bit(ireg, imm)                                       \
-  {                                                                           \
-    ARM_MOVW(0, ireg, (imm));                                                 \
-    if ((imm) >> 16) {                                                        \
-      ARM_MOVT(0, ireg, ((imm) >> 16));                                       \
-    }                                                                         \
-  }
-#else
-  #define arm_load_imm_32bit(ireg, imm)                                       \
-  {                                                                           \
-    u32 stores[4];                                                            \
-    u32 rotations[4];                                                         \
-    u32 store_count = arm_disect_imm_32bit(imm, stores, rotations);           \
-    u32 i;                                                                    \
-                                                                              \
-    ARM_MOV_REG_IMM(0, ireg, stores[0], rotations[0]);                        \
-                                                                              \
-    for(i = 1; i < store_count; i++)                                          \
-    {                                                                         \
-      ARM_ORR_REG_IMM(0, ireg, ireg, stores[i], rotations[i]);                \
-    }                                                                         \
-  }
-#endif
-
 
 #define generate_load_pc(ireg, new_pc)                                        \
-  arm_load_imm_32bit(ireg, (new_pc))                                          \
-
-#define generate_load_imm(ireg, imm, imm_ror)                                 \
-  ARM_MOV_REG_IMM(0, ireg, imm, imm_ror)                                      \
+  load_imm32(ireg, new_pc)                                                    \
 
 #define generate_add_imm(ireg, imm, imm_ror)                                  \
   ARM_ADD_REG_IMM(0, ireg, ireg, imm, imm_ror)                                \
@@ -389,19 +363,13 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 #define generate_add_reg_reg_imm(ireg_dest, ireg_src, imm, imm_ror)           \
   ARM_ADD_REG_IMM(0, ireg_dest, ireg_src, imm, imm_ror)                       \
 
-#define generate_mov(ireg_dest, ireg_src)                                     \
-  if(ireg_dest != ireg_src)                                                   \
-  {                                                                           \
-    ARM_MOV_REG_REG(0, ireg_dest, ireg_src);                                  \
-  }                                                                           \
-
 /* Calls functions present in the rom/ram cache (near) */
 #define generate_function_call(function_location)                             \
   ARM_BL(0, arm_relative_offset(this->emit_ptr, function_location))           \
 
 /* Calls functions that might be far, via the function table at reg_base */
 #define generate_function_far_call(function_number)                           \
-  generate_load_memreg(ARMREG_LR, function_number + (u32)REG_USERDEF);        \
+  load_memreg(ARMREG_LR, function_number + (u32)REG_USERDEF);                 \
   ARM_BLX(0, ARMREG_LR)                                                       \
 
 /* The branch target is to be filled in later (thus a 0 for now) */
@@ -454,12 +422,9 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 
 
 #define generate_branch_no_cycle_update(writeback_location, new_pc, mode)     \
-  if(pc == idle_loop_target_pc)                                               \
-  {                                                                           \
+  if(pc == idle_loop_target_pc) {                                             \
     generate_branch_idle_eliminate(writeback_location, new_pc, mode);         \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
+  } else {                                                                    \
     generate_branch_update(writeback_location, new_pc, mode);                 \
   }                                                                           \
 
@@ -476,10 +441,8 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
   generate_cycle_update();                                                    \
   generate_indirect_branch_no_cycle_update(type)                              \
 
-#define generate_indirect_branch_arm()                                        \
-  {                                                                           \
-    if(condition == 0x0E)                                                     \
-    {                                                                         \
+#define generate_indirect_branch_arm() {                                      \
+    if(condition == 0x0E) {                                                   \
       generate_cycle_update();                                                \
     }                                                                         \
     generate_indirect_branch_no_cycle_update(arm);                            \
@@ -487,83 +450,21 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 
 #define generate_indirect_branch_dual()                                       \
   {                                                                           \
-    if(condition == 0x0E)                                                     \
-    {                                                                         \
+    if(condition == 0x0E) {                                                   \
       generate_cycle_update();                                                \
     }                                                                         \
     generate_indirect_branch_no_cycle_update(dual_arm);                       \
   }                                                                           \
 
-#define arm_generate_store_reg(ireg, reg_index)                               \
-{                                                                             \
-  u32 store_dest = arm_register_allocation[reg_index];                        \
-  if(store_dest != mem_reg)                                                   \
-  {                                                                           \
-    ARM_MOV_REG_REG(0, store_dest, ireg);                                     \
-  }                                                                           \
-  else                                                                        \
-    emit_str_imm(ireg, reg_base, (reg_index) * 4);                            \
-}                                                                             \
-
 #define thumb_generate_store_reg(ireg, reg_index)                             \
 {                                                                             \
   u32 store_dest = thumb_register_allocation[reg_index];                      \
   if(store_dest != mem_reg)                                                   \
-  {                                                                           \
-    ARM_MOV_REG_REG(0, store_dest, ireg);                                     \
-  }                                                                           \
+    emit_mov_reg_immshift<OpMov, NoFlags>(store_dest, ireg);                  \
   else                                                                        \
     emit_str_imm(ireg, reg_base, (reg_index) * 4);                            \
 }
 
-#define generate_load_memreg(ireg, reg_index)                                 \
-  emit_ldr_imm(ireg, reg_base, (reg_index) * 4);
-
-#define arm_generate_load_reg(ireg, reg_index)                                \
-{                                                                             \
-  u32 load_src = arm_register_allocation[reg_index];                          \
-  if(load_src != mem_reg)                                                     \
-  {                                                                           \
-    ARM_MOV_REG_REG(0, ireg, load_src);                                       \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    emit_ldr_imm(ireg, reg_base, (reg_index) * 4);                            \
-  }                                                                           \
-}                                                                             \
-
-#define thumb_generate_load_reg(ireg, reg_index)                              \
-{                                                                             \
-  u32 load_src = thumb_register_allocation[reg_index];                        \
-  if(load_src != mem_reg)                                                     \
-  {                                                                           \
-    ARM_MOV_REG_REG(0, ireg, load_src);                                       \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    emit_ldr_imm(ireg, reg_base, (reg_index) * 4);                            \
-  }                                                                           \
-}                                                                             \
-
-#define arm_generate_load_reg_pc(ireg, reg_index, pc_offset)                  \
-  if(reg_index == 15)                                                         \
-  {                                                                           \
-    generate_load_pc(ireg, pc + pc_offset);                                   \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    arm_generate_load_reg(ireg, reg_index);                                   \
-  }                                                                           \
-
-#define thumb_generate_load_reg_pc(ireg, reg_index, pc_offset)                \
-  if(reg_index == 15)                                                         \
-  {                                                                           \
-    generate_load_pc(ireg, pc + pc_offset);                                   \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    thumb_generate_load_reg(ireg, reg_index);                                 \
-  }                                                                           \
 
 inline u32 arm_prepare_store_reg(u32 scratch_reg, u32 reg_index) {
   u32 reg_use = arm_register_allocation[reg_index];
@@ -640,7 +541,7 @@ inline u32 thumb_prepare_store_reg(u32 scratch_reg, u32 reg_index) {
   }                                                                           \
 
 #define arm_generate_store_reg_pc_no_flags(ireg, reg_index)                   \
-  arm_generate_store_reg(ireg, reg_index);                                    \
+  arm_force_store_reg(ireg, reg_index);                                       \
   if(reg_index == 15)                                                         \
   {                                                                           \
     generate_indirect_branch_arm();                                           \
@@ -746,22 +647,67 @@ public:
   static unsigned block_prologue_size() { return 0; }
   inline void emit_block_prologue() {}
 
+  inline void load_imm32(u32 reg, u32 value) {
+    #if __ARM_ARCH >= 7
+      ARM_MOVW(0, reg, value);
+      if (value >> 16) {
+        ARM_MOVT(0, reg, ((value) >> 16));
+      }
+    #else
+      u32 stores[4], rotations[4];
+      u32 store_count = arm_disect_imm_32bit(value, stores, rotations);
 
-  inline u32 arm_prepare_load_reg(u32 scratch_reg, u32 reg_index) {
+      ARM_MOV_REG_IMM(0, reg, stores[0], rotations[0]);
+      for(unsigned i = 1; i < store_count; i++) {
+        ARM_ORR_REG_IMM(0, reg, reg, stores[i], rotations[i]);
+      }
+    #endif
+  }
+
+  inline void load_memreg(u32 dreg, u32 regnum) {
+    emit_ldr_imm(dreg, reg_base, regnum * 4);
+  }
+  inline void store_memreg(u32 sreg, u32 regnum) {
+    emit_str_imm(sreg, reg_base, regnum * 4);
+  }
+
+  // Returns the register number and loads it to a scratch reg if needed.
+  inline u32 arm_prepare_load_reg(u32 scratch_reg, u32 reg_index, u32 pc_value) {
+    if (reg_index == REG_PC) {
+      load_imm32(scratch_reg, pc_value);
+      return scratch_reg;
+    }
+
     u32 reg_use = arm_register_allocation[reg_index];
-    if(reg_use != mem_reg)
+    if (reg_use != mem_reg)
       return reg_use;
 
     emit_ldr_imm(scratch_reg, reg_base, reg_index * 4);
     return scratch_reg;
   }
 
-  inline u32 arm_prepare_load_reg_pc(u32 scratch_reg, u32 reg_index, u32 pc_value) {
-    if (reg_index != REG_PC)
-      return arm_prepare_load_reg(scratch_reg, reg_index);
+  // Forces a register load into the destination register (including PC value)
+  template <CPUInstMode cpum>
+  inline void force_load_reg(u32 dest_reg, u32 reg_index, u32 pc_value) {
+    if (reg_index == REG_PC)
+      load_imm32(dest_reg, pc_value);
+    else {
+      u32 regn = (cpum == ModeARM) ? arm_register_allocation[reg_index]
+                                   : thumb_register_allocation[reg_index];
+      if (regn != mem_reg)
+        emit_mov_reg_immshift<OpMov, NoFlags>(dest_reg, regn);
+      else
+        emit_ldr_imm(dest_reg, reg_base, reg_index * 4);
+    }
+  }
 
-    generate_load_pc(scratch_reg, pc_value);
-    return scratch_reg;
+  // Stores a register value back to its register or memory.
+  inline void arm_force_store_reg(u32 reg, u32 reg_index) {
+    u32 store_dest = arm_register_allocation[reg_index];
+    if (store_dest != mem_reg)
+      emit_mov_reg_immshift<OpMov, NoFlags>(store_dest, reg);
+    else
+      emit_str_imm(reg, reg_base, (reg_index) * 4);
   }
 
   inline u32 thumb_prepare_load_reg(u32 scratch_reg, u32 reg_index) {
@@ -782,27 +728,6 @@ public:
     return scratch_reg;
   }
 
-  // Forces a register load!
-  inline void thumb_force_load_reg(u32 dest_reg, u32 reg_index, u32 pc_value) {
-    u32 regn = thumb_register_allocation[reg_index];
-    if (regn != mem_reg) {
-      ARM_MOV_REG_REG(0, dest_reg, regn);
-    } else
-      emit_ldr_imm(dest_reg, reg_base, reg_index * 4);
-  }
-
-  // Forces a register load!
-  inline void arm_force_load_reg(u32 dest_reg, u32 reg_index, u32 pc_value) {
-    if (reg_index == REG_PC) {
-      generate_load_pc(dest_reg, pc_value);
-    } else {
-      u32 regn = arm_register_allocation[reg_index];
-      if (regn != mem_reg) {
-        ARM_MOV_REG_REG(0, dest_reg, regn);
-      } else
-        emit_ldr_imm(dest_reg, reg_base, reg_index * 4);
-    }
-  }
 
   template <CPUInstMode cm>
   inline void generate_translation_gate(u32 pc) {
@@ -828,7 +753,7 @@ public:
 
   inline void emit_load_const_pool(u32 regn, u32 value) {
     u32 rgdst = thumb_prepare_store_reg(reg_a0, regn);
-    arm_load_imm_32bit(rgdst, (value));
+    load_imm32(rgdst, value);
     thumb_complete_store_reg(rgdst, regn)
   }
 
@@ -870,13 +795,8 @@ public:
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
 
     switch (aluop) {
-    case OpNeg:
-      generate_load_imm(reg_rn, 0, 0);
-      emit_alu_reg_immshift<OpSub, SetFlags>(rd, reg_rn, rs);
-      break;
-    case OpMvn:
-      emit_mov_reg_immshift<OpMvn, SetFlags>(rd, rs);
-      break;
+    case OpNeg: emit_alu_imm<OpRsb, SetFlags>(rd, rs, 0, 0);    break;
+    case OpMvn: emit_mov_reg_immshift<OpMvn, SetFlags>(rd, rs); break;
     };
 
     thumb_complete_store_reg(reg_rd, it.rd());
@@ -887,15 +807,11 @@ public:
     u32 rd = thumb_prepare_store_reg(reg_rd, it.rd());
     u32 rs = thumb_prepare_load_reg(reg_rs, it.rs());
 
-    const u32 shtype = (st == ShiftLSL) ? ARMSHIFT_LSL :
-                       (st == ShiftLSR) ? ARMSHIFT_LSR :
-                       (st == ShiftASR) ? ARMSHIFT_ASR : ARMSHIFT_ROR;
-
     if (stype == OpImm)
-      emit_mov_reg_immshift<OpMov, SetFlags>(rd, rs, shtype, it.imm5());
+      emit_mov_reg_immshift<OpMov, SetFlags>(rd, rs, st, it.imm5());
     else {
       u32 rm = thumb_prepare_load_reg(reg_rd, it.rd());
-      emit_mov_reg_regshift<OpMov, SetFlags>(rd, rm, shtype, rs);
+      emit_mov_reg_regshift<OpMov, SetFlags>(rd, rm, st, rs);
     }
 
     thumb_complete_store_reg(rd, it.rd());
@@ -907,7 +823,7 @@ public:
     case OpMov:
       {
         u32 rd = thumb_prepare_store_reg(reg_rd, it.rd8());
-        ARM_MOVS_REG_IMM(0, rd, it.imm8(), 0);
+        emit_mov_imm<OpMov, SetFlags>(rd, 0, it.imm8());
         thumb_complete_store_reg(reg_rd, it.rd8());
       }
       break;
@@ -956,7 +872,7 @@ public:
       emit_test_reg_immshift<OpCmp>(rd, rs);
     } else if (aluop == OpMov) {
       u32 rd = thumb_prepare_store_reg(reg_rd, it.rd_hi());
-      ARM_MOV_REG_REG(0, rd, rs);
+      emit_mov_reg_immshift<OpMov, NoFlags>(rd, rs);
       complete_store_reg_pc_thumb();
     }
   }
@@ -985,13 +901,13 @@ public:
   }
 
   inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
-    thumb_generate_load_reg_pc(reg_a0, regn, 4);
+    force_load_reg<ModeThumb>(reg_a0, regn, pc + 4);
     generate_indirect_branch_cycle_update(dual_thumb);
   }
 
   inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
     const u8 condition = it.cond();        // TODO remove this
-    arm_force_load_reg(reg_a0, it.rm(), it.pc + 8);
+    force_load_reg<ModeARM>(reg_a0, it.rm(), it.pc + 8);
     generate_indirect_branch_dual();
   }
 
@@ -1080,7 +996,7 @@ public:
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     generate_update_pc(pc + 4);
-    arm_generate_store_reg(reg_a0, REG_LR);
+    arm_force_store_reg(reg_a0, REG_LR);
     if (it.cond() == CondAL) {
       generate_branch_cycle_update(brtgt, target, arm);
     } else {
@@ -1094,7 +1010,7 @@ public:
     u32 offhi = (offset) >> 8;
 
     generate_update_pc(((pc + 2) | 0x01));
-    thumb_generate_load_reg(reg_a1, REG_LR);
+    force_load_reg<ModeThumb>(reg_a1, REG_LR, pc + 4);
     thumb_generate_store_reg(reg_a0, REG_LR);
     generate_add_reg_reg_imm(reg_a0, reg_a1, offlo, 0);
     if (offhi) {
@@ -1150,7 +1066,7 @@ public:
     mem_calc_region(0);
     generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*sttype + 4) >> 2, 0);
     emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
-    thumb_generate_load_reg(reg_a1, regd);
+    force_load_reg<ModeThumb>(reg_a1, regd, it.pc + 4);
     ARM_BLX(0, reg_a2);
     write32((it.pc + 2));
   }
@@ -1159,7 +1075,7 @@ public:
   template <ARMMemOffset offt, MemOffDir dir>
   inline void arm_memaddr(u32 oreg, const ARMInst & it) {
     // Load base register if needed
-    u32 breg = arm_prepare_load_reg_pc(oreg, it.rn(), it.pc + 8);
+    u32 breg = arm_prepare_load_reg(oreg, it.rn(), it.pc + 8);
     constexpr ARMOp aop = dir == OffPositive ? OpAdd : OpSub;
 
     switch (offt) {
@@ -1181,13 +1097,13 @@ public:
       break;
     case OffHReg:      // [rn +/- rm]
       {
-        u32 secreg = arm_prepare_load_reg_pc(reg_a2, it.rm(), it.pc + 8);
+        u32 secreg = arm_prepare_load_reg(reg_a2, it.rm(), it.pc + 8);
         emit_alu_reg_immshift<aop, NoFlags>(oreg, breg, secreg, ShiftLSL, 0);
       }
       break;
     case OffOp2Reg:    // [rn +/- rm shift/rot amount]
       {
-        u32 secreg = arm_prepare_load_reg_pc(reg_a2, it.rm(), it.pc + 8);
+        u32 secreg = arm_prepare_load_reg(reg_a2, it.rm(), it.pc + 8);
         emit_alu_reg_immshift<aop, NoFlags>(oreg, breg, secreg, it.op2smode(), it.op2sa());
       }
       break;
@@ -1201,7 +1117,7 @@ public:
     // Generate the final address and base address, and write back if necessary
     if (idxm == MemIdxPostWB) {
       // Load the base reg to a0
-      arm_force_load_reg(reg_a0, it.rn(), it.pc + 4);
+      force_load_reg<ModeARM>(reg_a0, it.rn(), it.pc + 4);
       // Calculate the final value to the final reg.
       u32 wbreg = arm_prepare_store_reg(reg_a1, it.rn());
       arm_memaddr<offt, dir>(wbreg, it);
@@ -1209,13 +1125,12 @@ public:
     }
     else {
       arm_memaddr<offt, dir>(reg_a0, it);  // Calculate final addr to a0
-      if (idxm == MemIdxPreWB) {
-        arm_generate_store_reg(reg_a0, it.rn());
-      }
+      if (idxm == MemIdxPreWB)
+        arm_force_store_reg(reg_a0, it.rn());
     }
 
     // Generate call to handler, load the value to write to a1
-    arm_force_load_reg(reg_a1, it.rd(), it.pc + 12);
+    force_load_reg<ModeARM>(reg_a1, it.rd(), it.pc + 12);
     generate_store_call(str_handler_offset<memtype>());
     write32((it.pc + 4));
   }
@@ -1228,7 +1143,7 @@ public:
     // Generate the final address and base address, and write back if necessary
     if (idxm == MemIdxPostWB) {
       // Load the base reg to a0
-      arm_force_load_reg(reg_a0, it.rn(), it.pc + 4);
+      force_load_reg<ModeARM>(reg_a0, it.rn(), it.pc + 4);
       // Calculate the final value to the final reg.
       u32 wbreg = arm_prepare_store_reg(reg_a1, it.rn());
       arm_memaddr<offt, dir>(wbreg, it);
@@ -1236,9 +1151,8 @@ public:
     }
     else {
       arm_memaddr<offt, dir>(reg_a0, it);  // Calculate final addr to a0
-      if (idxm == MemIdxPreWB) {
-        arm_generate_store_reg(reg_a0, it.rn());
-      }
+      if (idxm == MemIdxPreWB)
+        arm_force_store_reg(reg_a0, it.rn());
     }
 
     // Generate call to handler, load the value to write to a1
@@ -1253,14 +1167,14 @@ public:
 
     // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
 
-    arm_force_load_reg(reg_a0, it.rn(), it.pc + 4);
+    force_load_reg<ModeARM>(reg_a0, it.rn(), it.pc + 4);
     generate_store_call(ldr_handler_offset<memtype>());
     write32(it.pc);
 
-    generate_mov(reg_a2, reg_rv);
-    arm_force_load_reg(reg_a0, it.rn(), it.pc + 4);
-    arm_force_load_reg(reg_a1, it.rm(), it.pc + 4);
-    arm_generate_store_reg(reg_a2, it.rd());
+    emit_mov_reg_immshift<OpMov, NoFlags>(reg_a2, reg_rv);
+    force_load_reg<ModeARM>(reg_a0, it.rn(), it.pc + 4);
+    force_load_reg<ModeARM>(reg_a1, it.rm(), it.pc + 4);
+    arm_force_store_reg(reg_a2, it.rd());
     generate_store_call(str_handler_offset<memtype>());
     write32((it.pc + 4));
   }
@@ -1280,9 +1194,9 @@ public:
 
     // Load base register, clear its lower bits.
     u32 nreg = (cpum == ModeThumb) ? thumb_prepare_load_reg_pc(reg_a1, basereg, pc + 4) :
-                                     arm_prepare_load_reg_pc(reg_a1, basereg, pc + 8);
+                                     arm_prepare_load_reg(reg_a1, basereg, pc + 8);
     ARM_BIC_REG_IMM(0, reg_a0, nreg, 0x03, 0);
-    arm_generate_store_reg(reg_a0, REG_SAVE);   // TODO: Eliminate stores to "extended" regsiters
+    store_memreg(reg_a0, REG_SAVE);
 
     // If base is in the reglist and writeback is enabled, the value of the
     // written register depends on the write cycle (ARM7TDM manual 4.11.6).
@@ -1303,14 +1217,14 @@ public:
       } else {
         u32 scratch = arm_prepare_store_reg(reg_a2, basereg);
         generate_addsubi(scratch, nreg, endoff);
-        arm_generate_store_reg(scratch, basereg);
+        arm_force_store_reg(scratch, basereg);
       }
     }
 
     u32 aoff = 0;
     for (u32 i = 0; i < 16; i++) {
       if (rlist & (1 << i)) {
-        thumb_generate_load_reg(reg_a0, REG_SAVE);
+        load_memreg(reg_a0, REG_SAVE);
         generate_addsubi(reg_a0, reg_a0, (aoff + inioff));
         if (amode == AccLoad) {
           u32 ldtype = ldr_handler_offset<u32>();
@@ -1322,14 +1236,10 @@ public:
           if (cpum == ModeThumb) {
             thumb_generate_store_reg(reg_rv, i);
           } else {
-            arm_generate_store_reg(reg_rv, i);
+            arm_force_store_reg(reg_rv, i);
           }
         } else {
-          if (cpum == ModeThumb) {
-            thumb_generate_load_reg(reg_a1, i);
-          } else {
-            arm_generate_load_reg_pc(reg_a1, i, pc + 12);
-          }
+          force_load_reg<cpum>(reg_a1, i, pc + 12);
 
           // Update the base register right after the first read if necessary
           if (writeback && !writeback_first) {
@@ -1338,9 +1248,9 @@ public:
               generate_addsubi(scratch, scratch, endoff);
               thumb_generate_store_reg(scratch, basereg);
             } else {
-              u32 scratch = arm_prepare_load_reg_pc(reg_a2, basereg, pc + 8);
+              u32 scratch = arm_prepare_load_reg(reg_a2, basereg, pc + 8);
               generate_addsubi(scratch, scratch, endoff);
-              arm_generate_store_reg(scratch, basereg);
+              arm_force_store_reg(scratch, basereg);
             }
             writeback_first = true;
           }
@@ -1370,7 +1280,7 @@ public:
   // ======== ARM instructions ======================================
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
-    u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
+    u32 rn = arm_prepare_load_reg(reg_rn, it.rn(), it.pc + 8);
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
 
     emit_alu_imm<aluop, flg>(rd, rn, it.rot4(), it.imm8());
@@ -1385,7 +1295,7 @@ public:
 
   template <ARMOp aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
-    u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
+    u32 rn = arm_prepare_load_reg(reg_rn, it.rn(), it.pc + 8);
     emit_test_imm<aluop>(rn, it.rot4(), it.imm8());
   }
 
@@ -1409,14 +1319,14 @@ public:
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
 
     if (it.op2imm()) {
-      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
-      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
+      u32 rn = arm_prepare_load_reg(reg_rn, it.rn(), it.pc + 8);
+      u32 rm = arm_prepare_load_reg(reg_rm, it.rm(), it.pc + 8);
 
       emit_alu_reg_immshift<aluop, flg>(rd, rn, rm, it.op2smode(), it.op2sa());
     } else {
-      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 12);
-      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
-      u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
+      u32 rn = arm_prepare_load_reg(reg_rn, it.rn(), it.pc + 12);
+      u32 rm = arm_prepare_load_reg(reg_rm, it.rm(), it.pc + 12);
+      u32 rs = arm_prepare_load_reg(reg_rs, it.rs(), it.pc + 12);
 
       emit_alu_reg_regshift<aluop, flg>(rd, rn, rm, it.op2smode(), rs);
     }
@@ -1433,11 +1343,11 @@ public:
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
     u32 rd = arm_prepare_store_reg(reg_rd, it.rd());
     if (it.op2imm()) {
-      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
+      u32 rm = arm_prepare_load_reg(reg_rm, it.rm(), it.pc + 8);
       emit_mov_reg_immshift<aluop, flg>(rd, rm, it.op2smode(), it.op2sa());
     } else {
-      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
-      u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
+      u32 rm = arm_prepare_load_reg(reg_rm, it.rm(), it.pc + 12);
+      u32 rs = arm_prepare_load_reg(reg_rs, it.rs(), it.pc + 12);
       emit_mov_reg_regshift<aluop, flg>(rd, rm, it.op2smode(), rs);
     }
 
@@ -1453,14 +1363,14 @@ public:
   template <ARMOp aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
     if (it.op2imm()) {
-      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 8);
-      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
+      u32 rn = arm_prepare_load_reg(reg_rn, it.rn(), it.pc + 8);
+      u32 rm = arm_prepare_load_reg(reg_rm, it.rm(), it.pc + 8);
 
       emit_test_reg_immshift<aluop>(rn, rm, it.op2smode(), it.op2sa());
     } else {
-      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rn(), it.pc + 12);
-      u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 12);
-      u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 12);
+      u32 rn = arm_prepare_load_reg(reg_rn, it.rn(), it.pc + 12);
+      u32 rm = arm_prepare_load_reg(reg_rm, it.rm(), it.pc + 12);
+      u32 rs = arm_prepare_load_reg(reg_rs, it.rs(), it.pc + 12);
 
       emit_test_reg_regshift<aluop>(rn, rm, it.op2smode(), rs);
     }
@@ -1469,12 +1379,12 @@ public:
   // Performs 32 bit multiplications (rd and rn are swapped)
   template<FlagOperation flg, MulMode mm>
   inline void arm_mul32(const ARMInst &it) {
-    u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
-    u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 8);
+    u32 rm = arm_prepare_load_reg(reg_rm, it.rm(), it.pc + 8);
+    u32 rs = arm_prepare_load_reg(reg_rs, it.rs(), it.pc + 8);
     u32 rd = arm_prepare_store_reg(reg_a2, it.rn());
 
     if (mm == MulAdd) {
-      u32 rn = arm_prepare_load_reg_pc(reg_rn, it.rd(), it.pc + 8);
+      u32 rn = arm_prepare_load_reg(reg_rn, it.rd(), it.pc + 8);
       if (flg == SetFlags) {
         ARM_MLAS(0, rd, rm, rs, rn);
       } else {
@@ -1494,11 +1404,11 @@ public:
   // Performs 64 bit multiplications
   template<FlagOperation flg, MulMode mm, bool signmul>
   inline void arm_mul64(const ARMInst &it) {
-    u32 rm = arm_prepare_load_reg_pc(reg_rm, it.rm(), it.pc + 8);
-    u32 rs = arm_prepare_load_reg_pc(reg_rs, it.rs(), it.pc + 8);
-    u32 rdlo = (mm == MulAdd) ? arm_prepare_load_reg_pc(reg_a1, it.rdlo(), it.pc + 8)
+    u32 rm = arm_prepare_load_reg(reg_rm, it.rm(), it.pc + 8);
+    u32 rs = arm_prepare_load_reg(reg_rs, it.rs(), it.pc + 8);
+    u32 rdlo = (mm == MulAdd) ? arm_prepare_load_reg(reg_a1, it.rdlo(), it.pc + 8)
                               : arm_prepare_store_reg(reg_a1, it.rdlo());
-    u32 rdhi = (mm == MulAdd) ? arm_prepare_load_reg_pc(reg_a2, it.rdhi(), it.pc + 8)
+    u32 rdhi = (mm == MulAdd) ? arm_prepare_load_reg(reg_a2, it.rdhi(), it.pc + 8)
                               : arm_prepare_store_reg(reg_a2, it.rdhi());
 
     if (signmul) {
@@ -1541,7 +1451,7 @@ public:
     u32 rd = arm_prepare_store_reg(reg_a0, it.rd());
 
     if (reg == RegCPSR) {
-      generate_load_memreg(rd, REG_CPSR);
+      load_memreg(rd, REG_CPSR);
       generate_save_flags();
       ARM_BIC_REG_IMM(0, rd, rd, 0xF0, arm_imm_lsl_to_rot(24));
       ARM_AND_REG_IMM(0, reg_flags, reg_flags, 0xF0, arm_imm_lsl_to_rot(24));
@@ -1559,11 +1469,10 @@ public:
   // PSR register write
   template<PSReg reg, OpType opt>
   inline void arm_write_psr(const ARMInst &it) {
-    if (opt == OpReg) {
-      arm_force_load_reg(reg_a0, it.rm(), it.pc + 8);
-    } else {
-      generate_load_imm(reg_a0, it.imm8(), it.rot4() * 2);
-    }
+    if (opt == OpReg)
+      force_load_reg<ModeARM>(reg_a0, it.rm(), it.pc + 8);
+    else
+      emit_mov_imm<OpMov, NoFlags>(reg_a0, it.rot4(), it.imm8());
 
     if (reg == RegCPSR) {
       generate_function_far_call(armfn_store_cpsr);
@@ -1571,7 +1480,7 @@ public:
       write32(cpsr_masks[it.field_fc()][1]);
       write32(it.pc);
     } else {
-      arm_load_imm_32bit(reg_a1, spsr_masks[it.field_fc()]);
+      load_imm32(reg_a1, spsr_masks[it.field_fc()]);
       emit_ldr_imm(reg_a2, reg_base, (CPU_MODE * 4));
       ARM_AND_REG_IMM(0, reg_a2, reg_a2, 0xF, 0);
       emit_alu_reg_immshift<OpAdd, NoFlags>(armcg_reglr, reg_base, reg_a2, ShiftLSL, 2);
@@ -1594,8 +1503,8 @@ public:
         emit_str_imm(rt[i], reg_base, i*4);
     generate_save_flags();
     ARM_STMDB_WB(0, ARMREG_SP, 0x500C);
-    arm_load_imm_32bit(reg_a0, pc);
-    arm_load_imm_32bit(reg_a1, opcode);
+    load_imm32(reg_a0, pc);
+    load_imm32(reg_a1, opcode);
     if (cm == ModeThumb) {
       generate_function_far_call(armfn_debug_trace_thumb);
     } else {

@@ -21,7 +21,6 @@
 #ifndef ARM_EMIT_H
 #define ARM_EMIT_H
 
-#include "arm_codegen.h"
 #include "arm32_codegen.h"
 
 extern "C" {
@@ -311,22 +310,18 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
   load_imm32(ireg, new_pc)                                                    \
 
 #define generate_add_imm(ireg, imm, imm_ror)                                  \
-  ARM_ADD_REG_IMM(0, ireg, ireg, imm, imm_ror)                                \
-
-/* Calls functions present in the rom/ram cache (near) */
-#define generate_function_call(function_location)                             \
-  ARM_BL(0, arm_relative_offset(this->emit_ptr, function_location))           \
+  emit_alu_imm<OpAdd, NoFlags>(ireg, ireg, imm_ror, imm);
 
 /* Calls functions that might be far, via the function table at reg_base */
 #define generate_function_far_call(function_number)                           \
   load_memreg(armcg_reglr, function_number + (u32)REG_USERDEF);               \
-  ARM_BLX(0, ARMREG_LR)                                                       \
+  emit_blx(armcg_reglr)                                                       \
 
 /* The branch target is to be filled in later (thus a 0 for now) */
 
 #define generate_branch_filler(condition_code, writeback_location)            \
   (writeback_location) = this->emit_ptr;                                      \
-  ARM_B_COND(0, condition_code, 0)                                            \
+  emit_bcond(condition_code, 0);
 
 #define generate_update_pc(new_pc)                                            \
   generate_load_pc(reg_a0, new_pc)                                            \
@@ -348,15 +343,15 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 #define generate_branch_idle_eliminate(writeback_location, new_pc, mode)      \
   generate_function_far_call(armfn_gbaup_idle_##mode);                        \
   write32(new_pc);                                                            \
-  generate_branch_filler(ARMCOND_AL, writeback_location)                      \
+  generate_branch_filler(CondAL, writeback_location)                          \
 
 #define generate_branch_update(writeback_location, new_pc, mode)              \
-  ARM_MOV_REG_IMMSHIFT(0, reg_a0, reg_cycles, ARMSHIFT_LSR, 31);              \
+  emit_mov_reg_immshift<OpMov, NoFlags>(reg_a0, reg_cycles, ShiftLSR, 31);    \
   /* If counter is negative, skip the update call (2 insts) */                \
-  ARM_ADD_REG_IMMSHIFT(0, ARMREG_PC, ARMREG_PC, reg_a0, ARMSHIFT_LSL, 3);     \
+  emit_alu_reg_immshift<OpAdd, NoFlags>(armcg_regpc, armcg_regpc, reg_a0, ShiftLSL, 3); \
   write32(new_pc);                                                            \
   generate_function_far_call(armfn_gbaup_##mode);   /* 2 instructions */      \
-  generate_branch_filler(ARMCOND_AL, writeback_location)                      \
+  generate_branch_filler(CondAL, writeback_location)                          \
 
 
 #define generate_branch_no_cycle_update(writeback_location, new_pc, mode)     \
@@ -428,12 +423,6 @@ u32 execute_spsr_restore_body(u32 pc) {
   return pc;
 }
 
-#define generate_save_flags()                                                 \
-  ARM_MRS_CPSR(0, reg_flags)                                                  \
-
-#define generate_restore_flags()                                              \
-  ARM_MSR_REG(0, ARM_PSR_F, reg_flags, ARM_CPSR)                              \
-
 #define generate_branch(mode) {                                               \
   generate_branch_cycle_update(                                               \
    block_exits[block_exit_position].branch_source,                            \
@@ -441,41 +430,18 @@ u32 execute_spsr_restore_body(u32 pc) {
   block_exit_position++;                                                      \
 }                                                                             \
 
-/* We use USAT + ROR to map addresses to the handler table. For ARMv5 we use
-   the table -1 entry to map any out of range/unaligned access, and some fun
-   math/logical tricks to avoid using USAT */
-
-#if __ARM_ARCH >= 6
-  #define mem_calc_region(abits)                                              \
-    if (abits) {                                                              \
-      ARM_MOV_REG_IMMSHIFT(0, reg_a2, reg_a0, ARMSHIFT_ROR, abits)            \
-      ARM_USAT_ASR(0, reg_a2, 4, reg_a2, 24-abits, ARMCOND_AL);               \
-    } else {                                                                  \
-      ARM_USAT_ASR(0, reg_a2, 4, reg_a0, 24, ARMCOND_AL);                     \
-    }
-#else
-  #define mem_calc_region(abits)                                              \
-    if (abits) {                                                              \
-      ARM_ORR_REG_IMMSHIFT(0, reg_a2, reg_a0, reg_a0, ARMSHIFT_LSL, 32-abits);\
-      ARM_MOV_REG_IMMSHIFT(0, reg_a2, reg_a2, ARMSHIFT_LSR, 24);              \
-    } else {                                                                  \
-      ARM_MOV_REG_IMMSHIFT(0, reg_a2, reg_a0, ARMSHIFT_LSR, 24);              \
-    }                                                                         \
-    ARM_RSB_REG_IMM(0, ARMREG_LR, reg_a2, 15, 0);                             \
-    ARM_ORR_REG_IMMSHIFT(0, reg_a2, reg_a2, ARMREG_LR, ARMSHIFT_ASR, 31);
-#endif
 
 #define generate_load_call(tblnum, abits)                                     \
   mem_calc_region(abits);                                                     \
   generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*tblnum + 4) >> 2, 0);          \
   emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);                        \
-  ARM_BLX(0, reg_a2);                                                         \
+  emit_blx(reg_a2);                                                           \
 
 #define generate_store_call(tblnum)                                           \
   mem_calc_region(0);                                                         \
   generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*tblnum + 4) >> 2, 0);          \
   emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);                        \
-  ARM_BLX(0, reg_a2);                                                         \
+  emit_blx(reg_a2);                                                           \
 
 
 #define generate_store_call_u8()        generate_store_call(0)
@@ -586,6 +552,30 @@ public:
       emit_alu_imm<OpAdd, NoFlags>(dreg, sreg, shifta, imm);
     else
       emit_alu_imm<OpSub, NoFlags>(dreg, sreg, shifta, -imm);
+  }
+
+  inline void mem_calc_region(unsigned numbits) {
+    // We use USAT + ROR to map addresses to the handler table. For ARMv5 we use
+    // the table -1 entry to map any out of range/unaligned access, and some fun
+    // math/logical tricks to avoid using USAT.
+
+    #if __ARM_ARCH >= 6
+      if (!numbits)
+        emit_usat_asr(reg_a2, 4, reg_a0, 24);
+      else {
+        emit_mov_reg_immshift<OpMov, NoFlags>(reg_a2, reg_a0, ShiftROR, numbits);
+        emit_usat_asr(reg_a2, 4, reg_a2, 24-numbits);
+      }
+    #else
+      if (!numbits)
+        emit_mov_reg_immshift<OpMov, NoFlags>(reg_a2, reg_a0, ShiftLSR, 24);
+      else {
+        emit_alu_imm<OpOrr, NoFlags>(reg_a2, reg_a0, ShiftLSL, 32-numbits);
+        emit_mov_reg_immshift<OpMov, NoFlags>(reg_a2, reg_a2, ShiftLSR, 24);
+      }
+      emit_alu_imm<OpRsb, NoFlags>(armcg_reglr, reg_a2, 0, 15);
+      emit_alu_reg_immshift<OpOrr, NoFlags>(reg_a2, reg_a2, armcg_reglr, ShiftASR, 31);
+    #endif
   }
 
   template <CPUInstMode cm>
@@ -915,7 +905,7 @@ public:
     mem_calc_region(nbits);
     generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
     emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
-    ARM_BLX(0, reg_a2);
+    emit_blx(reg_a2);
     write32(it.pc);
     force_store_reg<ModeThumb>(reg_rv, regd);
   }
@@ -931,7 +921,7 @@ public:
     generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*sttype + 4) >> 2, 0);
     emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
     force_load_reg<ModeThumb>(reg_a1, regd, it.pc + 4);
-    ARM_BLX(0, reg_a2);
+    emit_blx(reg_a2);
     write32((it.pc + 2));
   }
 
@@ -1093,7 +1083,7 @@ public:
           mem_calc_region(0);
           generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
           emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
-          ARM_BLX(0, reg_a2);
+          emit_blx(reg_a2);
           write32(pc + itsize);
           force_store_reg<cpum>(reg_rv, i);
         } else {
@@ -1276,7 +1266,7 @@ public:
 
     if (reg == RegCPSR) {
       load_memreg(rd, REG_CPSR);
-      generate_save_flags();
+      emit_mrs_cpsr(reg_flags);
       emit_alu_imm<OpBic, NoFlags>(rd, rd, lshift_to_immshf(24), 0xF0);
       emit_alu_imm<OpAnd, NoFlags>(reg_flags, reg_flags, lshift_to_immshf(24), 0xF0);
       emit_alu_reg_immshift<OpOrr, NoFlags>(rd, rd, reg_flags);
@@ -1322,8 +1312,8 @@ public:
     for (unsigned i = 0; i < 15; i++)
       if (reg_alloc[cm][i] != mem_reg)
         emit_str_imm(reg_alloc[cm][i], reg_base, i*4);
-    generate_save_flags();
-    ARM_STMDB_WB(0, ARMREG_SP, 0x500C);
+    emit_mrs_cpsr(reg_flags);
+    emit_stmdb(armcg_regsp, 0x500C);
     load_imm32(reg_a0, pc);
     load_imm32(reg_a1, opcode);
     if (cm == ModeThumb) {
@@ -1331,8 +1321,8 @@ public:
     } else {
       generate_function_far_call(armfn_debug_trace_arm);
     }
-    ARM_LDMIA_WB(0, ARMREG_SP, 0x500C);
-    generate_restore_flags();
+    emit_ldmia(armcg_regsp, 0x500C);
+    emit_msr_cpsr(reg_flags, armgc_psr_f);
     #endif
   }
 

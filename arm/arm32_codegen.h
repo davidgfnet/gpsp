@@ -58,6 +58,13 @@ typedef enum {
   armgc_smlal = 0x7,
 } armcg_mulopc;
 
+typedef enum {
+  armgc_psr_c = 1,
+  armgc_psr_x = 2,
+  armgc_psr_s = 4,
+  armgc_psr_f = 8,
+} armcg_psrmask;
+
 typedef ARMOp armcg_op;
 
 class ARMEmitter : public CodeEmitterBase {
@@ -70,6 +77,15 @@ private:
 
   inline void emit_memop(uint32_t rd, uint32_t rn, uint32_t opcode, uint32_t imm) {
     emit_inst(0xE, (rd << 12) | (rn << 16) | (opcode << 20) | imm);
+  }
+
+  template <bool load, bool wrb, bool up, bool prei>
+  inline void emit_ldmstm(armcg_regnum breg, uint16_t reglist) {
+    emit_inst(0xE, reglist | (breg << 16) | 0x08000000 |
+                   ((load ? 1 : 0) << 20) |
+                   ((wrb  ? 1 : 0) << 21) |
+                   ((up   ? 1 : 0) << 23) |
+                   ((prei ? 1 : 0) << 24));
   }
 
   template <armcg_op op, FlagOperation flg>
@@ -169,12 +185,40 @@ public:
     emit_memop(rd, rb, 0x78, op2regimm(rm, smode, samount));
   }
 
+  inline void emit_stmdb(armcg_regnum breg, uint16_t reglist) {
+    emit_ldmstm<false, true, false, true>(breg, reglist);
+  }
+  inline void emit_ldmia(armcg_regnum breg, uint16_t reglist) {
+    emit_ldmstm<true, true, true, false>(breg, reglist);
+  }
+
   // Other instructions
   inline void emit_movw(armcg_regnum rd, uint16_t imm16) {
     emit_inst(0xE, (rd << 12) | (imm16 & 0xFFF) | ((imm16 << 4) & 0xF0000) | 0x0300000);
   }
   inline void emit_movt(armcg_regnum rd, uint16_t imm16) {
     emit_inst(0xE, (rd << 12) | (imm16 & 0xFFF) | ((imm16 << 4) & 0xF0000) | 0x0340000);
+  }
+
+  inline void emit_usat_asr(armcg_regnum rd, uint8_t imm, armcg_regnum rs, uint8_t samount) {
+    emit_inst(0xE, rs | (samount << 7) | (rd << 12) | (imm << 16) | 0x06E00050);
+  }
+
+  inline void emit_blx(armcg_regnum rn) {
+    emit_inst(0xE, 0x12FFF30 | rn);
+  }
+  inline void emit_bx(armcg_regnum rn) {
+    emit_inst(0xE, 0x12FFF10 | rn);
+  }
+  inline void emit_bcond(uint32_t cond, uint32_t offset) {
+    emit_inst(cond, (5 << 25) | offset);
+  }
+
+  inline void emit_mrs_cpsr(armcg_regnum rd) {
+    emit_inst(0xE, 0x010F0000 | (rd << 12));
+  }
+  inline void emit_msr_cpsr(armcg_regnum rs, uint8_t mask) {
+    emit_inst(0xE, rs | 0x0120F000 | (mask << 16));
   }
 
   template <armcg_mulopc opc, FlagOperation flg>

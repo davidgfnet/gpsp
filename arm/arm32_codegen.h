@@ -46,6 +46,13 @@ typedef enum {
   armcg_regpc = 15,
 } armcg_regnum;
 
+typedef enum {
+  armgc_umull = 0x4,
+  armgc_umlal = 0x5,
+  armgc_smull = 0x6,
+  armgc_smlal = 0x7,
+} armcg_mulopc;
+
 typedef ARMOp armcg_op;
 
 class ARMEmitter : public CodeEmitterBase {
@@ -155,6 +162,12 @@ public:
   }
   inline void emit_str_reg(uint32_t rd, uint32_t rb, uint32_t rm, uint32_t smode, uint32_t samount) {
     emit_memop(rd, rb, 0x78, op2regimm(rm, smode, samount));
+  }
+
+  // Other instructions
+  template <armcg_mulopc opc, FlagOperation flg>
+  inline void emit_mull(uint32_t rdlo, uint32_t rdhi, uint32_t rn, uint32_t rm) {
+    emit_inst(0xE, 0x90 | rn | (rm << 8) | (rdlo << 12) | (rdhi << 16) | (flg == SetFlags ? (1<<20) : 0) | (opc << 21));
   }
 
 };

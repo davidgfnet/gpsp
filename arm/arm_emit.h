@@ -107,23 +107,21 @@ template <> inline u32 ldr_handler_offset<u32>() { return 8; }
   (((((u32)offset - (u32)source) - 8) >> 2) & 0xFFFFFF)                       \
 
 
-#define reg_a0          ARMREG_R0
-#define reg_a1          ARMREG_R1
-#define reg_a2          ARMREG_R2
+#define reg_rv          armcg_reg0
 
-/* scratch0 is shared with flags, be careful! */
-#define reg_s0          ARMREG_R9
-#define reg_base        ARMREG_R11
-#define reg_flags       ARMREG_R9
+#define reg_a0          armcg_reg0
+#define reg_a1          armcg_reg1
+#define reg_a2          armcg_reg2
 
-#define reg_cycles      ARMREG_R12
+#define reg_base        armcg_reg11
+#define reg_flags       armcg_reg9
 
-#define reg_rv          ARMREG_R0
+#define reg_cycles      armcg_reg12
 
-#define reg_rm          ARMREG_R0
-#define reg_rn          ARMREG_R1
-#define reg_rs          ARMREG_R14
-#define reg_rd          ARMREG_R0
+#define reg_rm          armcg_reg0
+#define reg_rn          armcg_reg1
+#define reg_rs          armcg_reg14
+#define reg_rd          armcg_reg0
 
 
 /* Register allocation layout for ARM and Thumb:
@@ -147,14 +145,12 @@ template <> inline u32 ldr_handler_offset<u32>() { return 8; }
  * indirect branch functions upon write.
  */
 
-#define reg_x0         ARMREG_R3
-#define reg_x1         ARMREG_R4
-#define reg_x2         ARMREG_R5
-#define reg_x3         ARMREG_R6
-#define reg_x4         ARMREG_R7
-#define reg_x5         ARMREG_R8
-
-#define mem_reg        (~0U)
+#define reg_x0         armcg_reg3
+#define reg_x1         armcg_reg4
+#define reg_x2         armcg_reg5
+#define reg_x3         armcg_reg6
+#define reg_x4         armcg_reg7
+#define reg_x5         armcg_reg8
 
 /*
 
@@ -196,7 +192,10 @@ r15: 0.091287% (-- 100.000000%)
 
 */
 
-const u32 arm_register_allocation[] = {
+#define mem_reg     armcg_reginvalid
+
+const armcg_regnum reg_alloc[2][16] = {
+{ // ARM mode
   reg_x0,       /* GBA r0  */
   reg_x1,       /* GBA r1  */
   mem_reg,      /* GBA r2  */
@@ -213,9 +212,8 @@ const u32 arm_register_allocation[] = {
   mem_reg,      /* GBA r13 */
   reg_x5,       /* GBA r14 */
   reg_a0,       /* GBA r15 */
-};
-
-const u32 thumb_register_allocation[] = {
+},
+{ // Thumb mode
   reg_x0,       /* GBA r0  */
   reg_x1,       /* GBA r1  */
   reg_x2,       /* GBA r2  */
@@ -232,12 +230,10 @@ const u32 thumb_register_allocation[] = {
   mem_reg,      /* GBA r13 */
   mem_reg,      /* GBA r14 */
   reg_a0,       /* GBA r15 */
-};
+}};
 
-#define lshift_to_immshf(sa)   ((32 - sa) >> 1)
+#define lshift_to_immshf(sa)   (((32 - sa) >> 1) & 15)
 
-#define arm_imm_lsl_to_rot(value)                                             \
-  (32 - value)                                                                \
 
 // TODO: New immediate generation, using mov/movn and orr/bic
 u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
@@ -323,7 +319,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 
 /* Calls functions that might be far, via the function table at reg_base */
 #define generate_function_far_call(function_number)                           \
-  load_memreg(ARMREG_LR, function_number + (u32)REG_USERDEF);                 \
+  load_memreg(armcg_reglr, function_number + (u32)REG_USERDEF);               \
   ARM_BLX(0, ARMREG_LR)                                                       \
 
 /* The branch target is to be filled in later (thus a 0 for now) */
@@ -390,8 +386,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
     generate_indirect_branch_no_cycle_update(arm);                            \
   }                                                                           \
 
-#define generate_indirect_branch_dual()                                       \
-  {                                                                           \
+#define generate_indirect_branch_dual() {                                     \
     if(condition == 0x0E) {                                                   \
       emit_cycle_update(cycle_count);                                         \
     }                                                                         \
@@ -417,12 +412,6 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
     complete_store_reg<ModeARM>(scratch_reg, reg_index);                      \
   }                                                                           \
 }                                                                             \
-
-#define arm_generate_store_reg_pc_no_flags(ireg, reg_index)                   \
-  force_store_reg<ModeARM>(ireg, reg_index);                                  \
-  if(reg_index == REG_PC) {                                                   \
-    generate_indirect_branch_arm();                                           \
-  }                                                                           \
 
 u32 execute_spsr_restore_body(u32 pc) {
   set_cpu_mode(cpu_modes[reg[REG_CPSR] & 0xF]);
@@ -451,16 +440,6 @@ u32 execute_spsr_restore_body(u32 pc) {
    block_exits[block_exit_position].branch_target, mode);                     \
   block_exit_position++;                                                      \
 }                                                                             \
-
-
-/* The reg operand is in reg_rm, not reg_rn like expected, so rsbs isn't
- * being used here. When rsbs is fully inlined it can be used with the
- * apropriate operands.
- */
-
-#define generate_op_muls_reg_immshift(_rd, _rn, _rm, shift_type, shift)       \
-  ARM_MULS(0, _rd, _rn, _rm);                                                 \
-
 
 /* We use USAT + ROR to map addresses to the handler table. For ARMv5 we use
    the table -1 entry to map any out of range/unaligned access, and some fun
@@ -518,35 +497,32 @@ public:
   static unsigned block_prologue_size() { return 0; }
   inline void emit_block_prologue() {}
 
-  inline void load_imm32(u32 reg, u32 value) {
+  inline void load_imm32(armcg_regnum reg, u32 value) {
     #if __ARM_ARCH >= 7
-      ARM_MOVW(0, reg, value);
-      if (value >> 16) {
-        ARM_MOVT(0, reg, ((value) >> 16));
-      }
+      emit_movw(reg, value);
+      if (value >> 16)
+        emit_movt(reg, value >> 16);
     #else
       u32 stores[4], rotations[4];
       u32 store_count = arm_disect_imm_32bit(value, stores, rotations);
 
-      ARM_MOV_REG_IMM(0, reg, stores[0], rotations[0]);
-      for(unsigned i = 1; i < store_count; i++) {
-        ARM_ORR_REG_IMM(0, reg, reg, stores[i], rotations[i]);
-      }
+      emit_mov_imm<OpMov, NoFlags>(reg, rotations[0] >> 1, stores[0]);
+      for(unsigned i = 1; i < store_count; i++)
+        emit_alu_imm<OpOrr, NoFlags>(reg, reg, rotations[i] >> 1, stores[i]);
     #endif
   }
 
-  inline void load_memreg(u32 dreg, u32 regnum) {
+  inline void load_memreg(armcg_regnum dreg, u32 regnum) {
     emit_ldr_imm(dreg, reg_base, regnum * 4);
   }
-  inline void store_memreg(u32 sreg, u32 regnum) {
+  inline void store_memreg(armcg_regnum sreg, u32 regnum) {
     emit_str_imm(sreg, reg_base, regnum * 4);
   }
 
   // Returns the register number and loads it to a scratch reg if needed.
   template <CPUInstMode cpum>
-  inline u32 prepare_load_loreg(u32 scratch_reg, u32 reg_index) {
-    u32 regn = (cpum == ModeARM) ? arm_register_allocation[reg_index]
-                                 : thumb_register_allocation[reg_index];
+  inline armcg_regnum prepare_load_loreg(armcg_regnum scratch_reg, u32 reg_index) {
+    armcg_regnum regn = reg_alloc[cpum][reg_index];
     if (regn != mem_reg)
       return regn;
 
@@ -555,7 +531,7 @@ public:
   }
 
   template <CPUInstMode cpum>
-  inline u32 prepare_load_reg(u32 scratch_reg, u32 reg_index, u32 pc, u32 instoff) {
+  inline armcg_regnum prepare_load_reg(armcg_regnum scratch_reg, u32 reg_index, u32 pc, u32 instoff) {
     if (reg_index == REG_PC) {
       const u32 isz = (cpum == ModeARM) ? 4 : 2;
       load_imm32(scratch_reg, pc + instoff * isz);
@@ -567,12 +543,11 @@ public:
 
   // Forces a register load into the destination register (including PC value)
   template <CPUInstMode cpum>
-  inline void force_load_reg(u32 dest_reg, u32 reg_index, u32 pc_value) {
+  inline void force_load_reg(armcg_regnum dest_reg, u32 reg_index, u32 pc_value) {
     if (reg_index == REG_PC)
       load_imm32(dest_reg, pc_value);
     else {
-      u32 regn = (cpum == ModeARM) ? arm_register_allocation[reg_index]
-                                   : thumb_register_allocation[reg_index];
+      armcg_regnum regn = reg_alloc[cpum][reg_index];
       if (regn != mem_reg)
         emit_mov_reg_immshift<OpMov, NoFlags>(dest_reg, regn);
       else
@@ -581,9 +556,8 @@ public:
   }
 
   template <CPUInstMode cpum>
-  inline u32 prepare_store_reg(u32 scratch_reg, u32 reg_index) {
-    u32 regn = (cpum == ModeARM) ? arm_register_allocation[reg_index]
-                                 : thumb_register_allocation[reg_index];
+  inline armcg_regnum prepare_store_reg(armcg_regnum scratch_reg, u32 reg_index) {
+    armcg_regnum regn = reg_alloc[cpum][reg_index];
     if (regn == mem_reg)
       return scratch_reg;
 
@@ -591,25 +565,23 @@ public:
   }
 
   template <CPUInstMode cpum>
-  inline void complete_store_reg(u32 scratch_reg, u32 reg_index) {
-    u32 regn = (cpum == ModeARM) ? arm_register_allocation[reg_index]
-                                 : thumb_register_allocation[reg_index];
+  inline void complete_store_reg(armcg_regnum scratch_reg, u32 reg_index) {
+    armcg_regnum regn = reg_alloc[cpum][reg_index];
     if (regn == mem_reg)
       emit_str_imm(scratch_reg, reg_base, reg_index * 4);
   }
 
   // Stores a register value back to its register or memory.
   template <CPUInstMode cpum>
-  inline void force_store_reg(u32 reg, u32 reg_index) {
-    u32 regn = (cpum == ModeARM) ? arm_register_allocation[reg_index]
-                                 : thumb_register_allocation[reg_index];
+  inline void force_store_reg(armcg_regnum reg, u32 reg_index) {
+    armcg_regnum regn = reg_alloc[cpum][reg_index];
     if (regn != mem_reg)
       emit_mov_reg_immshift<OpMov, NoFlags>(regn, reg);
     else
       emit_str_imm(reg, reg_base, reg_index * 4);
   }
 
-  inline void emit_addsub8(u32 dreg, u32 sreg, int imm, u32 shifta = 0) {
+  inline void emit_addsub8(armcg_regnum dreg, armcg_regnum sreg, int imm, u32 shifta = 0) {
     if (imm >= 0)
       emit_alu_imm<OpAdd, NoFlags>(dreg, sreg, shifta, imm);
     else
@@ -644,7 +616,7 @@ public:
   }
 
   inline void emit_load_const_pool(u32 regn, u32 value) {
-    u32 rgdst = prepare_store_reg<ModeThumb>(reg_a0, regn);
+    armcg_regnum rgdst = prepare_store_reg<ModeThumb>(reg_a0, regn);
     load_imm32(rgdst, value);
     complete_store_reg<ModeThumb>(rgdst, regn);
   }
@@ -660,31 +632,30 @@ public:
   // Thumb instruction set
   template <ARMOp aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
-    u32 rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
-    u32 rn = prepare_load_loreg<ModeThumb>(reg_rn, it.rn());
-    u32 rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd());
+    armcg_regnum rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
+    armcg_regnum rn = prepare_load_loreg<ModeThumb>(reg_rn, it.rn());
+    armcg_regnum rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd());
     emit_alus_reg<aluop>(rd, rs, rn);
     complete_store_reg<ModeThumb>(reg_rd, it.rd());
   }
 
   template <ARMOp aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
-    u32 rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
-    u32 rd = prepare_load_loreg<ModeThumb>(reg_rd, it.rd());
+    armcg_regnum rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
+    armcg_regnum rd = prepare_load_loreg<ModeThumb>(reg_rd, it.rd());
 
-    if (aluop == OpMul) {
-      generate_op_muls_reg_immshift(rd, rd, rs, ARMSHIFT_LSL, 0);
-    } else {
+    if (aluop == OpMul)
+      emit_mul<SetFlags>(rd, rd, rs);
+    else
       emit_alus_reg<aluop>(rd, rd, rs);
-    }
 
     complete_store_reg<ModeThumb>(reg_rd, it.rd());
   }
 
   template <ARMOp aluop>
   inline void thumb_aluop1(const ThumbInst & it) {
-    u32 rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
-    u32 rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd());
+    armcg_regnum rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
+    armcg_regnum rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd());
 
     switch (aluop) {
     case OpNeg: emit_alu_imm<OpRsb, SetFlags>(rd, rs, 0, 0);    break;
@@ -696,13 +667,13 @@ public:
 
   template <OpType stype, ShiftType st>
   inline void thumb_shft(const ThumbInst & it) {
-    u32 rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd());
-    u32 rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
+    armcg_regnum rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd());
+    armcg_regnum rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
 
     if (stype == OpImm)
       emit_mov_reg_immshift<OpMov, SetFlags>(rd, rs, st, it.imm5());
     else {
-      u32 rm = prepare_load_loreg<ModeThumb>(reg_rd, it.rd());
+      armcg_regnum rm = prepare_load_loreg<ModeThumb>(reg_rd, it.rd());
       emit_mov_reg_regshift<OpMov, SetFlags>(rd, rm, st, rs);
     }
 
@@ -714,7 +685,7 @@ public:
     switch (aluop) {
     case OpMov:
       {
-        u32 rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd8());
+        armcg_regnum rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd8());
         emit_mov_imm<OpMov, SetFlags>(rd, 0, it.imm8());
         complete_store_reg<ModeThumb>(reg_rd, it.rd8());
       }
@@ -722,14 +693,14 @@ public:
     case OpAdd:
     case OpSub:
       {
-        u32 rd = prepare_load_loreg<ModeThumb>(reg_rd, it.rd8());
+        armcg_regnum rd = prepare_load_loreg<ModeThumb>(reg_rd, it.rd8());
         emit_alus_imm<aluop>(rd, rd, it.imm8());
         complete_store_reg<ModeThumb>(reg_rd, it.rd8());
       }
       break;
     case OpCmp:
       {
-        u32 rd = prepare_load_loreg<ModeThumb>(reg_rd, it.rd8());
+        armcg_regnum rd = prepare_load_loreg<ModeThumb>(reg_rd, it.rd8());
         emit_test_imm<OpCmp>(rd, 0, it.imm8());
       }
       break;
@@ -738,25 +709,25 @@ public:
 
   template <ARMOp aluop>
   inline void thumb_aluimm3(const ThumbInst & it) {
-    u32 rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
-    u32 rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd());
+    armcg_regnum rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
+    armcg_regnum rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd());
     emit_alus_imm<aluop>(rd, rs, it.imm3());
     complete_store_reg<ModeThumb>(reg_rd, it.rd());
   }
 
   template <ARMOp testop>
   inline void thumb_testop(const ThumbInst & it) {
-    u32 rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
-    u32 rd = prepare_load_loreg<ModeThumb>(reg_rd, it.rd());
+    armcg_regnum rs = prepare_load_loreg<ModeThumb>(reg_rs, it.rs());
+    armcg_regnum rd = prepare_load_loreg<ModeThumb>(reg_rd, it.rd());
     emit_test_reg_immshift<testop>(rd, rs);
   }
 
   template <ARMOp aluop>
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
-    u32 rs = prepare_load_reg<ModeThumb>(reg_rn, it.rs_hi(), it.pc, 2);
+    armcg_regnum rs = prepare_load_reg<ModeThumb>(reg_rn, it.rs_hi(), it.pc, 2);
 
-    u32 rd = (aluop == OpAdd || aluop == OpCmp) ? prepare_load_reg<ModeThumb>(reg_rd, it.rd_hi(), it.pc, 2)
-                                                : prepare_store_reg<ModeThumb>(reg_rd, it.rd_hi());
+    armcg_regnum rd = (aluop == OpAdd || aluop == OpCmp) ? prepare_load_reg<ModeThumb>(reg_rd, it.rd_hi(), it.pc, 2)
+                                                         : prepare_store_reg<ModeThumb>(reg_rd, it.rd_hi());
 
     if (aluop == OpAdd)
       emit_alu_reg_immshift<OpAdd, NoFlags>(rd, rd, rs);
@@ -777,19 +748,19 @@ public:
   template <u32 ref_reg>
   inline void thumb_regoff(const ThumbInst & it) {
     if (ref_reg == REG_PC) {
-      u32 rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd8());
+      armcg_regnum rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd8());
       generate_load_pc(rd, (it.pc & ~2) + 4 + 4 * it.imm8());
     } else {
-      u32 sreg = prepare_load_loreg<ModeThumb>(reg_a0, ref_reg);
-      u32 rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd8());
-      ARM_ADD_REG_IMM(0, rd, sreg, it.imm8(), arm_imm_lsl_to_rot(2));  /* Scaled by 4 */
+      armcg_regnum sreg = prepare_load_loreg<ModeThumb>(reg_a0, ref_reg);
+      armcg_regnum rd = prepare_store_reg<ModeThumb>(reg_rd, it.rd8());
+      emit_alu_imm<OpAdd, NoFlags>(rd, sreg, lshift_to_immshf(2), it.imm8());
     }
 
     complete_store_reg<ModeThumb>(reg_rd, it.rd8());
   }
 
   inline void thumb_spadj(s8 offset) {
-    u32 sp = prepare_load_loreg<ModeThumb>(reg_a0, REG_SP);
+    armcg_regnum sp = prepare_load_loreg<ModeThumb>(reg_a0, REG_SP);
     emit_addsub8(sp, sp, offset, lshift_to_immshf(2));
     complete_store_reg<ModeThumb>(reg_a0, REG_SP);
   }
@@ -918,20 +889,20 @@ public:
   template <typename memtype, ThumbMemOffset offt>
   inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
     // Generate the memory address to a0
-    if (offt == OffPC) {
+    if (offt == OffPC)
       // PC-relative offset. It is word aligned.
-      generate_load_pc(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
-    } else {
-      u32 rb = prepare_load_loreg<ModeThumb>(reg_a0, regn);
+      load_imm32(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
+    else {
+      const u32 sam = sizeof(memtype) / 2;  // log2(size) for 1/2/4
+      armcg_regnum rb = prepare_load_loreg<ModeThumb>(reg_a0, regn);
       if (offt == OffReg) {
-        u32 ro = prepare_load_loreg<ModeThumb>(reg_a1, it.ro());
-        ARM_ADD_REG_REG(0, reg_a0, rb, ro);
-      } else if (offt == OffImm5) {
-        ARM_ADD_REG_IMM(0, reg_a0, rb, (it.imm5() * sizeof(memtype)), 0);
-      } else {
-        u32 rotam = sizeof(memtype) / 2;  // log2(size)
-        ARM_ADD_REG_IMM(0, reg_a0, rb, it.imm8(), arm_imm_lsl_to_rot(rotam));
+        armcg_regnum ro = prepare_load_loreg<ModeThumb>(reg_a1, it.ro());
+        emit_alu_reg_immshift<OpAdd, NoFlags>(reg_a0, rb, ro);
       }
+      else if (offt == OffImm5)
+        emit_alu_imm<OpAdd, NoFlags>(reg_a0, rb, 0, it.imm5() << sam);
+      else
+        emit_alu_imm<OpAdd, NoFlags>(reg_a0, rb, lshift_to_immshf(2), it.imm8());
     }
   }
 
@@ -968,9 +939,9 @@ public:
 
 
   template <ARMMemOffset offt, MemOffDir dir>
-  inline void arm_memaddr(u32 oreg, const ARMInst & it) {
+  inline void arm_memaddr(armcg_regnum oreg, const ARMInst & it) {
     // Load base register if needed
-    u32 breg = prepare_load_reg<ModeARM>(oreg, it.rn(), it.pc, 2);
+    armcg_regnum breg = prepare_load_reg<ModeARM>(oreg, it.rn(), it.pc, 2);
     constexpr ARMOp aop = dir == OffPositive ? OpAdd : OpSub;
 
     switch (offt) {
@@ -992,13 +963,13 @@ public:
       break;
     case OffHReg:      // [rn +/- rm]
       {
-        u32 secreg = prepare_load_reg<ModeARM>(reg_a2, it.rm(), it.pc, 2);
+        armcg_regnum secreg = prepare_load_reg<ModeARM>(reg_a2, it.rm(), it.pc, 2);
         emit_alu_reg_immshift<aop, NoFlags>(oreg, breg, secreg);
       }
       break;
     case OffOp2Reg:    // [rn +/- rm shift/rot amount]
       {
-        u32 secreg = prepare_load_reg<ModeARM>(reg_a2, it.rm(), it.pc, 2);
+        armcg_regnum secreg = prepare_load_reg<ModeARM>(reg_a2, it.rm(), it.pc, 2);
         emit_alu_reg_immshift<aop, NoFlags>(oreg, breg, secreg, it.op2smode(), it.op2sa());
       }
       break;
@@ -1014,7 +985,7 @@ public:
       // Load the base reg to a0
       force_load_reg<ModeARM>(reg_a0, it.rn(), it.pc + 4);
       // Calculate the final value to the final reg.
-      u32 wbreg = prepare_store_reg<ModeARM>(reg_a1, it.rn());
+      armcg_regnum wbreg = prepare_store_reg<ModeARM>(reg_a1, it.rn());
       arm_memaddr<offt, dir>(wbreg, it);
       complete_store_reg<ModeARM>(wbreg, it.rn());
     }
@@ -1040,7 +1011,7 @@ public:
       // Load the base reg to a0
       force_load_reg<ModeARM>(reg_a0, it.rn(), it.pc + 4);
       // Calculate the final value to the final reg.
-      u32 wbreg = prepare_store_reg<ModeARM>(reg_a1, it.rn());
+      armcg_regnum wbreg = prepare_store_reg<ModeARM>(reg_a1, it.rn());
       arm_memaddr<offt, dir>(wbreg, it);
       complete_store_reg<ModeARM>(wbreg, it.rn());
     }
@@ -1053,7 +1024,12 @@ public:
     // Generate call to handler, load the value to write to a1
     generate_store_call(ldr_handler_offset<memtype>());
     write32(it.pc);
-    arm_generate_store_reg_pc_no_flags(reg_rv, it.rd());
+
+    if (it.rd() == REG_PC) {
+      generate_indirect_branch_arm();
+    } else {
+      force_store_reg<ModeARM>(reg_rv, it.rd());
+    }
   }
 
   template <typename memtype>
@@ -1088,8 +1064,8 @@ public:
                                                    endoff + 4;
 
     // Load base register, clear its lower bits.
-    u32 nreg = prepare_load_reg<cpum>(reg_a1, basereg, pc, 2);
-    ARM_BIC_REG_IMM(0, reg_a0, nreg, 0x03, 0);
+    armcg_regnum nreg = prepare_load_reg<cpum>(reg_a1, basereg, pc, 2);
+    emit_alu_imm<OpBic, NoFlags>(reg_a0, nreg, 0, 0x03);
     store_memreg(reg_a0, REG_SAVE);
 
     // If base is in the reglist and writeback is enabled, the value of the
@@ -1104,7 +1080,7 @@ public:
     // This is the most common case by far.
     if (writeback && writeback_first) {
       // TODO: Improve this!
-      u32 scratch = prepare_store_reg<cpum>(reg_a2, basereg);
+      armcg_regnum scratch = prepare_store_reg<cpum>(reg_a2, basereg);
       emit_addsub8(scratch, nreg, endoff);
       complete_store_reg<cpum>(scratch, basereg);
     }
@@ -1127,7 +1103,7 @@ public:
 
           // Update the base register right after the first read if necessary
           if (writeback && !writeback_first) {
-            u32 scratch = prepare_load_reg<cpum>(reg_a1, basereg, pc, 2);
+            armcg_regnum scratch = prepare_load_reg<cpum>(reg_a1, basereg, pc, 2);
             emit_addsub8(scratch, scratch, endoff);
             complete_store_reg<cpum>(scratch, basereg);
             writeback_first = true;
@@ -1158,8 +1134,8 @@ public:
   // ======== ARM instructions ======================================
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
-    u32 rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
-    u32 rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
+    armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
+    armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
     emit_alu_imm<aluop, flg>(rd, rn, it.rot4(), it.imm8());
 
@@ -1173,13 +1149,13 @@ public:
 
   template <ARMOp aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
-    u32 rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
+    armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
     emit_test_imm<aluop>(rn, it.rot4(), it.imm8());
   }
 
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
-    u32 rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
+    armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
     emit_mov_imm<aluop, flg>(rd, it.rot4(), it.imm8());
 
@@ -1194,17 +1170,17 @@ public:
   // 3 regs (with op2) instructions
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
-    u32 rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
+    armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
     if (it.op2imm()) {
-      u32 rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
-      u32 rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
+      armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
+      armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
 
       emit_alu_reg_immshift<aluop, flg>(rd, rn, rm, it.op2smode(), it.op2sa());
     } else {
-      u32 rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 3);
-      u32 rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 3);
-      u32 rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 3);
+      armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 3);
+      armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 3);
+      armcg_regnum rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 3);
 
       emit_alu_reg_regshift<aluop, flg>(rd, rn, rm, it.op2smode(), rs);
     }
@@ -1219,13 +1195,13 @@ public:
 
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
-    u32 rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
+    armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
     if (it.op2imm()) {
-      u32 rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
+      armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
       emit_mov_reg_immshift<aluop, flg>(rd, rm, it.op2smode(), it.op2sa());
     } else {
-      u32 rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 3);
-      u32 rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 3);
+      armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 3);
+      armcg_regnum rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 3);
       emit_mov_reg_regshift<aluop, flg>(rd, rm, it.op2smode(), rs);
     }
 
@@ -1241,14 +1217,14 @@ public:
   template <ARMOp aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
     if (it.op2imm()) {
-      u32 rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
-      u32 rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
+      armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
+      armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
 
       emit_test_reg_immshift<aluop>(rn, rm, it.op2smode(), it.op2sa());
     } else {
-      u32 rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 3);
-      u32 rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 3);
-      u32 rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 3);
+      armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 3);
+      armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 3);
+      armcg_regnum rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 3);
 
       emit_test_reg_regshift<aluop>(rn, rm, it.op2smode(), rs);
     }
@@ -1257,24 +1233,14 @@ public:
   // Performs 32 bit multiplications (rd and rn are swapped)
   template<FlagOperation flg, MulMode mm>
   inline void arm_mul32(const ARMInst &it) {
-    u32 rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
-    u32 rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 2);
-    u32 rd = prepare_store_reg<ModeARM>(reg_a2, it.rn());
+    armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
+    armcg_regnum rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 2);
+    armcg_regnum rd = prepare_store_reg<ModeARM>(reg_a2, it.rn());
 
-    if (mm == MulAdd) {
-      u32 rn = prepare_load_reg<ModeARM>(reg_rn, it.rd(), it.pc, 2);
-      if (flg == SetFlags) {
-        ARM_MLAS(0, rd, rm, rs, rn);
-      } else {
-        ARM_MLA(0, rd, rm, rs, rn);
-      }
-    } else {
-      if (flg == SetFlags) {
-        ARM_MULS(0, rd, rm, rs);
-      } else {
-        ARM_MUL(0, rd, rm, rs);
-      }
-    }
+    if (mm == MulAdd)
+      emit_mla<flg>(rd, rm, rs, prepare_load_reg<ModeARM>(reg_rn, it.rd(), it.pc, 2));
+    else
+      emit_mul<flg>(rd, rm, rs);
 
     complete_store_reg<ModeARM>(rd, it.rn());
   }
@@ -1282,12 +1248,12 @@ public:
   // Performs 64 bit multiplications
   template<FlagOperation flg, MulMode mm, bool signmul>
   inline void arm_mul64(const ARMInst &it) {
-    u32 rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
-    u32 rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 2);
-    u32 rdlo = (mm == MulAdd) ? prepare_load_reg<ModeARM>(reg_a1, it.rdlo(), it.pc, 2)
-                              : prepare_store_reg<ModeARM>(reg_a1, it.rdlo());
-    u32 rdhi = (mm == MulAdd) ? prepare_load_reg<ModeARM>(reg_a2, it.rdhi(), it.pc, 2)
-                              : prepare_store_reg<ModeARM>(reg_a2, it.rdhi());
+    armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
+    armcg_regnum rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 2);
+    armcg_regnum rdlo = (mm == MulAdd) ? prepare_load_reg<ModeARM>(reg_a1, it.rdlo(), it.pc, 2)
+                                       : prepare_store_reg<ModeARM>(reg_a1, it.rdlo());
+    armcg_regnum rdhi = (mm == MulAdd) ? prepare_load_reg<ModeARM>(reg_a2, it.rdhi(), it.pc, 2)
+                                       : prepare_store_reg<ModeARM>(reg_a2, it.rdhi());
 
     if (signmul) {
       if (mm == MulAdd)
@@ -1308,18 +1274,18 @@ public:
   // PSR register read
   template<PSReg reg>
   inline void arm_read_psr(const ARMInst &it) {
-    u32 rd = prepare_store_reg<ModeARM>(reg_a0, it.rd());
+    armcg_regnum rd = prepare_store_reg<ModeARM>(reg_a0, it.rd());
 
     if (reg == RegCPSR) {
       load_memreg(rd, REG_CPSR);
       generate_save_flags();
-      ARM_BIC_REG_IMM(0, rd, rd, 0xF0, arm_imm_lsl_to_rot(24));
-      ARM_AND_REG_IMM(0, reg_flags, reg_flags, 0xF0, arm_imm_lsl_to_rot(24));
-      ARM_ORR_REG_REG(0, rd, rd, reg_flags);
+      emit_alu_imm<OpBic, NoFlags>(rd, rd, lshift_to_immshf(24), 0xF0);
+      emit_alu_imm<OpAnd, NoFlags>(reg_flags, reg_flags, lshift_to_immshf(24), 0xF0);
+      emit_alu_reg_immshift<OpOrr, NoFlags>(rd, rd, reg_flags);
     } else {
-      ARM_ADD_REG_IMM(0, reg_a2, reg_base, SPSR_RAM_OFF >> 2, 30);
+      emit_alu_imm<OpAdd, NoFlags>(reg_a2, reg_base, lshift_to_immshf(2), SPSR_RAM_OFF >> 2);
       emit_ldr_imm(reg_a1, reg_base, CPU_MODE * 4);
-      ARM_AND_REG_IMM(0, reg_a1, reg_a1, 0xF, 0);
+      emit_alu_imm<OpAnd, NoFlags>(reg_a1, reg_a1, 0, 0x0F);
       emit_ldr_reg(rd, reg_a2, reg_a1, ShiftLSL, 2);
     }
 
@@ -1342,7 +1308,7 @@ public:
     } else {
       load_imm32(reg_a1, spsr_masks[it.field_fc()]);
       emit_ldr_imm(reg_a2, reg_base, (CPU_MODE * 4));
-      ARM_AND_REG_IMM(0, reg_a2, reg_a2, 0xF, 0);
+      emit_alu_imm<OpAnd, NoFlags>(reg_a2, reg_a2, 0, 0x0F);
       emit_alu_reg_immshift<OpAdd, NoFlags>(armcg_reglr, reg_base, reg_a2, ShiftLSL, 2);
       emit_alu_reg_immshift<OpAnd, NoFlags>(reg_a0, reg_a0, reg_a1);
       emit_ldr_imm(reg_a2, armcg_reglr, SPSR_RAM_OFF);
@@ -1355,12 +1321,9 @@ public:
   template <CPUInstMode cm>
   void trace_instruction(u32 pc, u32 opcode) {
     #ifdef TRACE_INSTRUCTIONS
-    const u32 *rt = (cm == ModeThumb) ? thumb_register_allocation
-                                      : arm_register_allocation;
-
     for (unsigned i = 0; i < 15; i++)
-      if (rt[i] != mem_reg)
-        emit_str_imm(rt[i], reg_base, i*4);
+      if (reg_alloc[cm][i] != mem_reg)
+        emit_str_imm(reg_alloc[cm][i], reg_base, i*4);
     generate_save_flags();
     ARM_STMDB_WB(0, ARMREG_SP, 0x500C);
     load_imm32(reg_a0, pc);

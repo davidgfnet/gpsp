@@ -780,12 +780,10 @@ public:
     switch (num) {
     case 6:
       cycle_count += 64;
-      cycle_count += 11 + 32;    // TODO just 64 cycles like other archs.
       generate_function_far_call(armfn_swi6_emu);
       return true;
     case 7:
       cycle_count += 64;
-      cycle_count += 14 + 32;    // TODO just 64 cycles like other archs.
       generate_function_far_call(armfn_swi7_emu);
       return true;
     default:

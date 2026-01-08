@@ -1,6 +1,7 @@
 /* gameplaySP
  *
  * Copyright (C) 2006 Exophase <exophase@gmail.com>
+ * Copyright (C) 2026 David Guillen Fandos <david@davidgf.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -98,8 +99,7 @@ extern "C" {
 
 // Writing to r15 goes straight to a0, to be chained with other ops
 
-u32 arm_to_mips_reg[] =
-{
+const mips_regnum arm_to_mips_reg[] = {
   reg_r0,
   reg_r1,
   reg_r2,
@@ -142,41 +142,41 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 #if defined(USE_XBGR1555_FORMAT)
   /* PS2's native format */
   #define palette_convert()                       \
-    mips_emit_andi(reg_temp, reg_a1, 0x7FFF);
+    emit_andi(reg_temp, reg_a1, 0x7FFF);
 #else
   /* 0BGR to RGB565 (clobbers a0) */
   #ifdef MIPS_HAS_R2_INSTS
     #define palette_convert()                       \
-      mips_emit_ext(reg_temp, reg_a1, 10, 5);       \
-      mips_emit_ins(reg_temp, reg_a1, 11, 5);       \
-      mips_emit_ext(reg_a0, reg_a1, 5, 5);          \
-      mips_emit_ins(reg_temp, reg_a0, 6, 5);
+      emit_ext(reg_temp, reg_a1, 10, 5);       \
+      emit_ins(reg_temp, reg_a1, 11, 5);       \
+      emit_ext(reg_a0, reg_a1, 5, 5);          \
+      emit_ins(reg_temp, reg_a0, 6, 5);
   #else
     #define palette_convert()                       \
-      mips_emit_srl(reg_a0, reg_a1, 10);            \
-      mips_emit_andi(reg_temp, reg_a0, 0x1F);       \
-      mips_emit_sll(reg_a0, reg_a1, 1);             \
-      mips_emit_andi(reg_a0, reg_a0, 0x7C0);        \
-      mips_emit_or(reg_temp, reg_temp, reg_a0);     \
-      mips_emit_andi(reg_a0, reg_a1, 0x1F);         \
-      mips_emit_sll(reg_a0, reg_a0, 11);            \
-      mips_emit_or(reg_temp, reg_temp, reg_a0);
+      emit_srl(reg_a0, reg_a1, 10);            \
+      emit_andi(reg_temp, reg_a0, 0x1F);       \
+      emit_sll(reg_a0, reg_a1, 1);             \
+      emit_andi(reg_a0, reg_a0, 0x7C0);        \
+      emit_or(reg_temp, reg_temp, reg_a0);     \
+      emit_andi(reg_a0, reg_a1, 0x1F);         \
+      emit_sll(reg_a0, reg_a0, 11);            \
+      emit_or(reg_temp, reg_temp, reg_a0);
   #endif
 #endif
 
 
 #define generate_load_reg(ireg, reg_index)                                    \
-  mips_emit_addu(ireg, arm_to_mips_reg[reg_index], reg_zero)                  \
+  emit_addu(ireg, arm_to_mips_reg[reg_index], reg_zero)                  \
 
 #define generate_load_imm(ireg, imm)                                          \
   if(((s32)imm >= -32768) && ((s32)imm <= 32767)) {                           \
-    mips_emit_addiu(ireg, reg_zero, imm);                                     \
+    emit_addiu(ireg, reg_zero, (u16)imm);                                     \
   } else if(((u32)imm >> 16) == 0x0000) {                                     \
-    mips_emit_ori(ireg, reg_zero, imm);                                       \
+    emit_ori(ireg, reg_zero, (u16)imm);                                       \
   } else {                                                                    \
-    mips_emit_lui(ireg, imm >> 16);                                           \
+    emit_lui(ireg, imm >> 16);                                                \
     if (((u32)(imm) & 0x0000FFFF)) {                                          \
-      mips_emit_ori(ireg, ireg, (imm) & 0xFFFF);                              \
+      emit_ori(ireg, ireg, (imm) & 0xFFFF);                                   \
     }                                                                         \
   }                                                                           \
 
@@ -184,21 +184,21 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 {                                                                             \
   s32 pc_delta = (new_pc) - (this->block_pc);                                 \
   if((pc_delta >= -32768) && (pc_delta <= 32767)) {                           \
-    mips_emit_addiu(ireg, reg_pc, pc_delta);                                  \
+    emit_addiu(ireg, reg_pc, pc_delta);                                       \
   } else {                                                                    \
     generate_load_imm(ireg, (new_pc));                                        \
   }                                                                           \
 }                                                                             \
 
 #define generate_store_reg(ireg, reg_index)                                   \
-  mips_emit_addu(arm_to_mips_reg[reg_index], ireg, reg_zero)                  \
+  emit_addu(arm_to_mips_reg[reg_index], ireg, reg_zero)                  \
 
 #define generate_mov(ireg_dest, ireg_src)                                     \
-  mips_emit_addu(ireg_dest, ireg_src, reg_zero)                               \
+  emit_addu(ireg_dest, ireg_src, reg_zero)                               \
 
 #define generate_function_call(function_location)                             \
   mips_emit_jal(mips_absolute_offset(function_location));                     \
-  mips_emit_nop()                                                             \
+  emit_nop()                                                             \
 
 #define generate_raw_u32(value)                                               \
   *((u32 *)this->emit_ptr) = (value);                                         \
@@ -235,12 +235,12 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 #define generate_cycle_update()                                               \
   if(cycle_count != 0)                                                        \
   {                                                                           \
-    mips_emit_addiu(reg_cycles, reg_cycles, -cycle_count);                    \
+    emit_addiu(reg_cycles, reg_cycles, -cycle_count);                         \
     cycle_count = 0;                                                          \
   }                                                                           \
 
 #define generate_cycle_update_force()                                         \
-  mips_emit_addiu(reg_cycles, reg_cycles, -cycle_count);                      \
+  emit_addiu(reg_cycles, reg_cycles, -cycle_count);                           \
   cycle_count = 0                                                             \
 
 #define generate_branch_patch_conditional(dest, offset)                       \
@@ -254,10 +254,10 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
   if(pc == idle_loop_target_pc)                                               \
   {                                                                           \
     generate_load_pc(reg_a0, new_pc);                                         \
-    mips_emit_lui(reg_cycles, 0);                                             \
+    emit_lui(reg_cycles, 0);                                                  \
     generate_function_call_swap_delay(mips_update_gba);                       \
     mips_emit_j_filler(writeback_location);                                   \
-    mips_emit_nop();                                                          \
+    emit_nop();                                                          \
   }                                                                           \
   else                                                                        \
   {                                                                           \
@@ -266,7 +266,7 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
       mips_relative_offset(this->emit_ptr, update_trampoline));               \
     generate_swap_delay();                                                    \
     mips_emit_j_filler(writeback_location);                                   \
-    mips_emit_nop();                                                          \
+    emit_nop();                                                          \
   }                                                                           \
 
 #define generate_branch_cycle_update(writeback_location, new_pc)              \
@@ -281,7 +281,7 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 
 #define generate_indirect_branch_no_cycle_update(type)                        \
   mips_emit_j(mips_absolute_offset(mips_indirect_branch_##type));             \
-  mips_emit_nop()                                                             \
+  emit_nop()                                                             \
 
 
 #define check_generate_n_flag (flag_status & 0x08)
@@ -405,14 +405,14 @@ u32 execute_spsr_restore_body(u32 address)
   generate_cycle_update_force()                                               \
 
 #define generate_condition_hi()                                               \
-  mips_emit_xori(reg_temp, reg_c_cache, 1);                                   \
-  mips_emit_or(reg_temp, reg_temp, reg_z_cache);                              \
+  emit_xori(reg_temp, reg_c_cache, 1);                                   \
+  emit_or(reg_temp, reg_temp, reg_z_cache);                              \
   mips_emit_b_filler(bne, reg_temp, reg_zero, backpatch_address);             \
   generate_cycle_update_force()                                               \
 
 #define generate_condition_ls()                                               \
-  mips_emit_xori(reg_temp, reg_c_cache, 1);                                   \
-  mips_emit_or(reg_temp, reg_temp, reg_z_cache);                              \
+  emit_xori(reg_temp, reg_c_cache, 1);                                   \
+  emit_or(reg_temp, reg_temp, reg_z_cache);                              \
   mips_emit_b_filler(beq, reg_temp, reg_zero, backpatch_address);             \
   generate_cycle_update_force()                                               \
 
@@ -425,14 +425,14 @@ u32 execute_spsr_restore_body(u32 address)
   generate_cycle_update_force()                                               \
 
 #define generate_condition_gt()                                               \
-  mips_emit_xor(reg_temp, reg_n_cache, reg_v_cache);                          \
-  mips_emit_or(reg_temp, reg_temp, reg_z_cache);                              \
+  emit_xor(reg_temp, reg_n_cache, reg_v_cache);                          \
+  emit_or(reg_temp, reg_temp, reg_z_cache);                              \
   mips_emit_b_filler(bne, reg_temp, reg_zero, backpatch_address);             \
   generate_cycle_update_force()                                               \
 
 #define generate_condition_le()                                               \
-  mips_emit_xor(reg_temp, reg_n_cache, reg_v_cache);                          \
-  mips_emit_or(reg_temp, reg_temp, reg_z_cache);                              \
+  emit_xor(reg_temp, reg_n_cache, reg_v_cache);                          \
+  emit_or(reg_temp, reg_temp, reg_z_cache);                              \
   mips_emit_b_filler(beq, reg_temp, reg_zero, backpatch_address);             \
   generate_cycle_update_force()                                               \
 
@@ -475,83 +475,83 @@ u32 execute_spsr_restore_body(u32 address)
 }                                                                             \
 
 #define generate_op_sub_reg(_rd, _rn, _rm)                                    \
-  mips_emit_subu(_rd, _rn, _rm)                                               \
+  emit_subu(_rd, _rn, _rm)                                               \
 
 #define generate_op_rsb_reg(_rd, _rn, _rm)                                    \
-  mips_emit_subu(_rd, _rm, _rn)                                               \
+  emit_subu(_rd, _rm, _rn)                                               \
 
 #define generate_op_sbc_reg(_rd, _rn, _rm)                                    \
-  mips_emit_subu(_rd, _rn, _rm);                                              \
-  mips_emit_xori(reg_temp, reg_c_cache, 1);                                   \
-  mips_emit_subu(_rd, _rd, reg_temp)                                          \
+  emit_subu(_rd, _rn, _rm);                                              \
+  emit_xori(reg_temp, reg_c_cache, 1);                                   \
+  emit_subu(_rd, _rd, reg_temp)                                          \
 
 #define generate_op_rsc_reg(_rd, _rn, _rm)                                    \
-  mips_emit_addu(reg_temp, _rm, reg_c_cache);                                 \
-  mips_emit_addiu(reg_temp, reg_temp, -1);                                    \
-  mips_emit_subu(_rd, reg_temp, _rn)                                          \
+  emit_addu(reg_temp, _rm, reg_c_cache);                                 \
+  emit_addiu(reg_temp, reg_temp, -1);                                         \
+  emit_subu(_rd, reg_temp, _rn)                                          \
 
 #define generate_op_add_reg(_rd, _rn, _rm)                                    \
-  mips_emit_addu(_rd, _rn, _rm)                                               \
+  emit_addu(_rd, _rn, _rm)                                               \
 
 #define generate_op_adc_reg(_rd, _rn, _rm)                                    \
-  mips_emit_addu(reg_temp, _rm, reg_c_cache);                                 \
-  mips_emit_addu(_rd, _rn, reg_temp)                                          \
+  emit_addu(reg_temp, _rm, reg_c_cache);                                 \
+  emit_addu(_rd, _rn, reg_temp)                                          \
 
 #define generate_op_logic_flags(_rd)                                          \
   if(check_generate_n_flag)                                                   \
   {                                                                           \
-    mips_emit_srl(reg_n_cache, _rd, 31);                                      \
+    emit_srl(reg_n_cache, _rd, 31);                                      \
   }                                                                           \
   if(check_generate_z_flag)                                                   \
   {                                                                           \
-    mips_emit_sltiu(reg_z_cache, _rd, 1);                                     \
+    emit_sltiu(reg_z_cache, _rd, 1);                                     \
   }                                                                           \
 
 #define generate_op_subs_reg(_rd, _rn, _rm)                                   \
   if(check_generate_c_flag)                                                   \
   {                                                                           \
-    mips_emit_sltu(reg_c_cache, _rn, _rm);                                    \
-    mips_emit_xori(reg_c_cache, reg_c_cache, 1);                              \
+    emit_sltu(reg_c_cache, _rn, _rm);                                    \
+    emit_xori(reg_c_cache, reg_c_cache, 1);                              \
   }                                                                           \
   if(check_generate_v_flag)                                                   \
   {                                                                           \
-    mips_emit_slt(reg_v_cache, _rn, _rm);                                     \
+    emit_slt(reg_v_cache, _rn, _rm);                                     \
   }                                                                           \
-  mips_emit_subu(_rd, _rn, _rm);                                              \
+  emit_subu(_rd, _rn, _rm);                                              \
   generate_op_logic_flags(_rd);                                               \
   if(check_generate_v_flag)                                                   \
   {                                                                           \
     if(!check_generate_n_flag)                                                \
     {                                                                         \
-      mips_emit_srl(reg_n_cache, _rd, 31);                                    \
+      emit_srl(reg_n_cache, _rd, 31);                                    \
     }                                                                         \
-    mips_emit_xor(reg_v_cache, reg_v_cache, reg_n_cache);                     \
+    emit_xor(reg_v_cache, reg_v_cache, reg_n_cache);                     \
   }                                                                           \
 
 #define generate_op_rsbs_reg(_rd, _rn, _rm)                                   \
   generate_op_subs_reg(_rd, _rm, _rn)
 
 #define generate_op_sbcs_reg(_rd, _rn, _rm)                                   \
-  mips_emit_xori(reg_temp, reg_c_cache, 1);                                   \
+  emit_xori(reg_temp, reg_c_cache, 1);                                   \
   if(check_generate_c_flag)                                                   \
   {                                                                           \
-    mips_emit_sltu(reg_c_cache, _rm, _rn);                                    \
-    mips_emit_sltu(reg_rv, _rn, _rm);                                         \
-    mips_emit_xori(reg_rv, reg_rv, 1);                                        \
-    mips_emit_movz(reg_c_cache, reg_rv, reg_temp);                            \
+    emit_sltu(reg_c_cache, _rm, _rn);                                    \
+    emit_sltu(reg_rv, _rn, _rm);                                         \
+    emit_xori(reg_rv, reg_rv, 1);                                        \
+    emit_movz(reg_c_cache, reg_rv, reg_temp);                            \
   }                                                                           \
   if(check_generate_v_flag)                                                   \
   {                                                                           \
-    mips_emit_xor(reg_v_cache, _rn, _rm);                                     \
-    mips_emit_nor(reg_rv, _rm, reg_zero);                                     \
+    emit_xor(reg_v_cache, _rn, _rm);                                     \
+    emit_nor(reg_rv, _rm, reg_zero);                                     \
   }                                                                           \
-  mips_emit_subu(_rd, _rn, _rm);                                              \
-  mips_emit_subu(_rd, _rd, reg_temp);                                         \
+  emit_subu(_rd, _rn, _rm);                                              \
+  emit_subu(_rd, _rd, reg_temp);                                         \
   if(check_generate_v_flag)                                                   \
   {                                                                           \
-    mips_emit_xor(reg_rv, reg_rv, _rd);                                       \
-    mips_emit_and(reg_v_cache, reg_v_cache, reg_rv);                          \
-    mips_emit_srl(reg_v_cache, reg_v_cache, 31);                              \
+    emit_xor(reg_rv, reg_rv, _rd);                                       \
+    emit_and(reg_v_cache, reg_v_cache, reg_rv);                          \
+    emit_srl(reg_v_cache, reg_v_cache, 31);                              \
   }                                                                           \
   generate_op_logic_flags(_rd);                                               \
 
@@ -561,47 +561,47 @@ u32 execute_spsr_restore_body(u32 address)
 #define generate_op_adds_reg(_rd, _rn, _rm)                                   \
   if(check_generate_c_flag | check_generate_v_flag)                           \
   {                                                                           \
-    mips_emit_addu(reg_c_cache, _rn, reg_zero);                               \
+    emit_addu(reg_c_cache, _rn, reg_zero);                               \
   }                                                                           \
   if(check_generate_v_flag)                                                   \
   {                                                                           \
-    mips_emit_slt(reg_v_cache, _rm, reg_zero);                                \
+    emit_slt(reg_v_cache, _rm, reg_zero);                                \
   }                                                                           \
-  mips_emit_addu(_rd, _rn, _rm);                                              \
+  emit_addu(_rd, _rn, _rm);                                              \
   if(check_generate_v_flag)                                                   \
   {                                                                           \
-    mips_emit_slt(reg_a0, _rd, reg_c_cache);                                  \
-    mips_emit_xor(reg_v_cache, reg_v_cache, reg_a0);                          \
+    emit_slt(reg_a0, _rd, reg_c_cache);                                  \
+    emit_xor(reg_v_cache, reg_v_cache, reg_a0);                          \
   }                                                                           \
   if(check_generate_c_flag)                                                   \
   {                                                                           \
-    mips_emit_sltu(reg_c_cache, _rd, reg_c_cache);                            \
+    emit_sltu(reg_c_cache, _rd, reg_c_cache);                            \
   }                                                                           \
   generate_op_logic_flags(_rd)                                                \
 
 #define generate_op_adcs_reg(_rd, _rn, _rm)                                   \
   if(check_generate_v_flag)                                                   \
   {                                                                           \
-    mips_emit_xor(reg_v_cache, _rn, _rm);                                     \
-    mips_emit_nor(reg_v_cache, reg_v_cache, reg_zero);                        \
-    mips_emit_addu(reg_rv, _rn, reg_zero);                                    \
+    emit_xor(reg_v_cache, _rn, _rm);                                     \
+    emit_nor(reg_v_cache, reg_v_cache, reg_zero);                        \
+    emit_addu(reg_rv, _rn, reg_zero);                                    \
   }                                                                           \
-  mips_emit_addu(reg_a2, _rn, _rm);                                           \
+  emit_addu(reg_a2, _rn, _rm);                                           \
   if(check_generate_c_flag)                                                   \
   {                                                                           \
-    mips_emit_sltu(reg_temp, reg_a2, _rm);                                    \
+    emit_sltu(reg_temp, reg_a2, _rm);                                    \
   }                                                                           \
-  mips_emit_addu(_rd, reg_a2, reg_c_cache);                                   \
+  emit_addu(_rd, reg_a2, reg_c_cache);                                   \
   if(check_generate_v_flag)                                                   \
   {                                                                           \
-    mips_emit_xor(reg_rv, reg_rv, _rd);                                       \
-    mips_emit_and(reg_v_cache, reg_rv, reg_v_cache);                          \
-    mips_emit_srl(reg_v_cache, reg_v_cache, 31);                              \
+    emit_xor(reg_rv, reg_rv, _rd);                                       \
+    emit_and(reg_v_cache, reg_rv, reg_v_cache);                          \
+    emit_srl(reg_v_cache, reg_v_cache, 31);                              \
   }                                                                           \
   if(check_generate_c_flag)                                                   \
   {                                                                           \
-    mips_emit_sltu(reg_c_cache, _rd, reg_c_cache);                            \
-    mips_emit_or(reg_c_cache, reg_temp, reg_c_cache);                         \
+    emit_sltu(reg_c_cache, _rd, reg_c_cache);                            \
+    emit_or(reg_c_cache, reg_temp, reg_c_cache);                         \
   }                                                                           \
   generate_op_logic_flags(_rd)                                                \
 
@@ -617,42 +617,42 @@ u32 execute_spsr_restore_body(u32 address)
 
 #define update_nz_flags_macro(_rd)                                            \
   if (it.gen_flag_n()) {                                                      \
-    mips_emit_srl(reg_n_cache, _rd, 31);                                      \
+    emit_srl(reg_n_cache, _rd, 31);                                      \
   }                                                                           \
   if (it.gen_flag_z()) {                                                      \
-    mips_emit_sltiu(reg_z_cache, _rd, 1);                                     \
+    emit_sltiu(reg_z_cache, _rd, 1);                                     \
   }                                                                           \
 
 #define update_addi_flags(_rd, _rs, imm)                                      \
   if (it.gen_flag_v()) {                                                      \
-    mips_emit_nor(reg_v_cache, _rs, _rs);                                     \
+    emit_nor(reg_v_cache, _rs, _rs);                                     \
   }                                                                           \
-  mips_emit_addiu(_rd, _rs, imm);                                             \
+  emit_addiu(_rd, _rs, imm);                                                  \
   if (it.gen_flag_c()) {                                                      \
     /* If result is smaller than imm, there was unsigned overflow! */         \
-    mips_emit_sltiu(reg_c_cache, _rd, imm);                                   \
+    emit_sltiu(reg_c_cache, _rd, imm);                                   \
   }                                                                           \
   update_nz_flags_macro(_rd);                                                 \
   if (it.gen_flag_v()) {                                                      \
-    mips_emit_and(reg_v_cache, reg_v_cache, _rd);                             \
-    mips_emit_srl(reg_v_cache, reg_v_cache, 31);                              \
+    emit_and(reg_v_cache, reg_v_cache, _rd);                             \
+    emit_srl(reg_v_cache, reg_v_cache, 31);                              \
   }                                                                           \
 
 // V_flag = SignRs & !SignRd = !(!SignRs | SignRd)
 #define update_subi_flags(_rd, _rs, imm)                                      \
   if (it.gen_flag_c()) {                                                      \
     /* If rs is smaller than imm, will cause carry! (!borrow) */              \
-    mips_emit_sltiu(reg_c_cache, _rs, imm);                                   \
-    mips_emit_xori(reg_c_cache, reg_c_cache, 1);                              \
+    emit_sltiu(reg_c_cache, _rs, imm);                                   \
+    emit_xori(reg_c_cache, reg_c_cache, 1);                              \
   }                                                                           \
   if (it.gen_flag_v()) {                                                      \
-    mips_emit_nor(reg_v_cache, _rs, _rs);                                     \
+    emit_nor(reg_v_cache, _rs, _rs);                                     \
   }                                                                           \
-  mips_emit_addiu(_rd, _rs, -imm);                                            \
+  emit_addiu(_rd, _rs, -imm);                                                 \
   update_nz_flags_macro(_rd);                                                 \
   if (it.gen_flag_v()) {                                                      \
-    mips_emit_nor(reg_v_cache, reg_v_cache, _rd);                             \
-    mips_emit_srl(reg_v_cache, reg_v_cache, 31);                              \
+    emit_nor(reg_v_cache, reg_v_cache, _rd);                             \
+    emit_srl(reg_v_cache, reg_v_cache, 31);                              \
   }
 
 // Some macros to wrap device-specific instructions
@@ -661,69 +661,69 @@ u32 execute_spsr_restore_body(u32 address)
 #ifdef MIPS_HAS_R2_INSTS
   // Inserts LSB bits into another register
   #define insert_bits(rdest, rsrc, rtemp, pos, size) \
-    mips_emit_ins(rdest, rsrc, pos, size);
+    emit_ins(rdest, rsrc, pos, size);
   // Doubles a byte into a halfword
   #define double_byte(reg, rtmp) \
-    mips_emit_ins(reg, reg, 8, 8);
+    emit_ins(reg, reg, 8, 8);
   // Clears numbits at LSB position (to align an address)
   #define emit_align_reg(reg, numbits) \
-    mips_emit_ins(reg, reg_zero, 0, numbits)
+    emit_ins(reg, reg_zero, 0, numbits)
   // Extract a bitfield (pos, size) to a register
   #define extract_bits(rt, rs, pos, size) \
-    mips_emit_ext(rt, rs, pos, size)
+    emit_ext(rt, rs, pos, size)
   // Extends signed byte to u32
   #define extend_byte_signed(rd, rs) \
-    mips_emit_seb(rd, rs)
+    emit_seb(rd, rs)
   // Rotates a word using a temp reg if necessary
   #define rotate_right(rdest, rsrc, rtemp, amount) \
-    mips_emit_rotr(rdest, rsrc, amount);
+    emit_rotr(rdest, rsrc, amount);
   // Same but variable amount rotation (register)
   #define rotate_right_var(rdest, rsrc, rtemp, ramount) \
-    mips_emit_rotrv(rdest, rsrc, ramount);
+    emit_rotrv(rdest, rsrc, ramount);
 #else
   // Inserts LSB bits into another register
   // *assumes dest bits are cleared*!
   #define insert_bits(rdest, rsrc, rtemp, pos, size) \
-    mips_emit_sll(rtemp, rsrc, 32 - size);           \
-    mips_emit_srl(rtemp, rtemp, 32 - size - pos);    \
-    mips_emit_or(rdest, rdest, rtemp);
+    emit_sll(rtemp, rsrc, 32 - size);           \
+    emit_srl(rtemp, rtemp, 32 - size - pos);    \
+    emit_or(rdest, rdest, rtemp);
   // Doubles a byte into a halfword
   #define double_byte(reg, rtmp)    \
-    mips_emit_sll(rtmp, reg, 8);    \
-    mips_emit_andi(reg, reg, 0xff); \
-    mips_emit_or(reg, reg, rtmp);
+    emit_sll(rtmp, reg, 8);    \
+    emit_andi(reg, reg, 0xff); \
+    emit_or(reg, reg, rtmp);
   // Clears numbits at LSB position (to align an address)
   #define emit_align_reg(reg, numbits) \
-    mips_emit_srl(reg, reg, numbits); \
-    mips_emit_sll(reg, reg, numbits)
+    emit_srl(reg, reg, numbits); \
+    emit_sll(reg, reg, numbits)
   // Extract a bitfield (pos, size) to a register
   // TODO: Optimize for the case bits are the MSB
   #define extract_bits(rt, rs, pos, size) \
-    mips_emit_sll(rt, rs, 32 - ((pos) + (size))); \
-    mips_emit_srl(rt, rt, 32 - (size))
+    emit_sll(rt, rs, 32 - ((pos) + (size))); \
+    emit_srl(rt, rt, 32 - (size))
   // Extends signed byte to u32
   #define extend_byte_signed(rd, rs) \
-    mips_emit_sll(rd, rs, 24); \
-    mips_emit_sra(rd, rd, 24)
+    emit_sll(rd, rs, 24); \
+    emit_sra(rd, rd, 24)
   // Rotates a word (uses temp reg)
   #define rotate_right(rdest, rsrc, rtemp, amount) \
-    mips_emit_sll(rtemp, rsrc, 32 - (amount));     \
-    mips_emit_srl(rdest, rsrc, (amount));          \
-    mips_emit_or(rdest, rdest, rtemp)
+    emit_sll(rtemp, rsrc, 32 - (amount));     \
+    emit_srl(rdest, rsrc, (amount));          \
+    emit_or(rdest, rdest, rtemp)
   // Variable rotation using temp reg (dst != src)
   #define rotate_right_var(rdest, rsrc, rtemp, ramount) \
-    mips_emit_andi(rtemp, ramount, 0x1F);               \
-    mips_emit_srlv(rdest, rsrc, rtemp);                 \
-    mips_emit_subu(rtemp, reg_zero, rtemp);             \
-    mips_emit_addiu(rtemp, rtemp, 32);                  \
-    mips_emit_sllv(rtemp, rsrc, rtemp);                 \
-    mips_emit_or(rdest, rdest, rtemp)
+    emit_andi(rtemp, ramount, 0x1F);               \
+    emit_srlv(rdest, rsrc, rtemp);                 \
+    emit_subu(rtemp, reg_zero, rtemp);             \
+    emit_addiu(rtemp, rtemp, 32);                       \
+    emit_sllv(rtemp, rsrc, rtemp);                 \
+    emit_or(rdest, rdest, rtemp)
 
 #endif
 
 #define generate_update_pc_reg()                                              \
   generate_load_pc(reg_a0, pc);                                               \
-  mips_emit_sw(reg_a0, reg_base, (REG_PC * 4))                                \
+  emit_sw(reg_a0, reg_base, (REG_PC * 4))                                \
 
 
 // Register save layout as follows:
@@ -739,39 +739,39 @@ u32 execute_spsr_restore_body(u32 address)
 #define emit_save_regs(save_a2) {                                             \
   int i;                                                                      \
   for (i = 0; i < 15; i++) {                                                  \
-    mips_emit_sw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
+    emit_sw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
   }                                                                           \
   if (save_a2) {                                                              \
-    mips_emit_sw(reg_a2, reg_base, ReOff_SaveR2);                             \
+    emit_sw(reg_a2, reg_base, ReOff_SaveR2);                             \
   }                                                                           \
   /* Load the gp pointer, used by C code */                                   \
-  mips_emit_lw(mips_reg_gp, reg_base, ReOff_GP_Save);                         \
+  emit_lw(mips_reg_gp, reg_base, ReOff_GP_Save);                         \
 }
 
 // Restores the registers from their slot
 #define emit_restore_regs(restore_a2) {                                       \
   int i;                                                                      \
   if (restore_a2) {                                                           \
-    mips_emit_lw(reg_a2, reg_base, ReOff_SaveR2);                             \
+    emit_lw(reg_a2, reg_base, ReOff_SaveR2);                             \
   }                                                                           \
   for (i = 0; i < 15; i++) {                                                  \
-    mips_emit_lw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
+    emit_lw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
   }                                                                           \
 }
 
 // Emits a function call for a read or a write (for special stuff like flash)
 #define emit_mem_call_ds(fnptr, mask)                                         \
-  mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR1);                          \
+  emit_sw(mips_reg_ra, reg_base, ReOff_SaveR1);                          \
   emit_save_regs(true);                                                       \
   genccall(fnptr);                                                            \
-  mips_emit_andi(reg_a0, reg_a0, (mask));                                     \
-  mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR1);                          \
+  emit_andi(reg_a0, reg_a0, (mask));                                     \
+  emit_lw(mips_reg_ra, reg_base, ReOff_SaveR1);                          \
   emit_restore_regs(true);
 
 #define emit_mem_call(fnptr, mask)      \
   emit_mem_call_ds(fnptr, mask)         \
   mips_emit_jr(mips_reg_ra);            \
-  mips_emit_nop();
+  emit_nop();
 
 // This is a pointer table to the open load stubs, used by the BIOS (optimization)
 u32* openld_core_ptrs[11];
@@ -793,8 +793,8 @@ const u8 ldhldrtbl[11] = {0, 1, 2, 2, 3, 3, 4, 4, 4, 4, 5};
 
 #ifdef PIC
   #define genccall(fn)                                         \
-    mips_emit_lui(mips_reg_t9, ((u32)fn) >> 16);               \
-    mips_emit_ori(mips_reg_t9, mips_reg_t9, ((u32)fn));        \
+    emit_lui(mips_reg_t9, ((u32)fn) >> 16);               \
+    emit_ori(mips_reg_t9, mips_reg_t9, ((u32)fn));        \
     mips_emit_jalr(mips_reg_t9);
 #else
   #define genccall(fn) mips_emit_jal(((u32)fn) >> 2);
@@ -837,10 +837,10 @@ inline bool isimm16s(u32 imm) {
 #define IOEPILOGUE_OFF   (SMC_WRITE_OFF + 4*2)   /* Trampolines are two insts */
 #define EWRAM_SPM_OFF    (IOEPILOGUE_OFF + 4*2)
 
-class CodeEmitter : public CodeEmitterBase {
+class CodeEmitter : public MIPSEmitter {
 public:
   CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
-   : CodeEmitterBase(emit_ptr, emit_end), block_pc(pc) {}
+   : MIPSEmitter(emit_ptr, emit_end), block_pc(pc) {}
 
   u32 block_pc;              // PC address for the block base
   u8 *update_trampoline;
@@ -851,14 +851,14 @@ public:
   inline void emit_block_prologue() {
     update_trampoline = this->emit_ptr;
     mips_emit_j(mips_absolute_offset(mips_update_gba));
-    mips_emit_nop();
+    emit_nop();
     spaccess_trampoline = this->emit_ptr;
     mips_emit_j(mips_absolute_offset(&rom_translation_cache[EWRAM_SPM_OFF]));
-    mips_emit_nop();
+    emit_nop();
     generate_load_imm(reg_pc, block_pc)
   }
 
-  inline u32 load_alloc_reg(u32 regn, u32 tmp_reg, u32 pcvalue) {
+  inline mips_regnum load_alloc_reg(u32 regn, mips_regnum tmp_reg, u32 pcvalue) {
     if (regn == REG_PC) {
       generate_load_pc(tmp_reg, pcvalue);
       return tmp_reg;
@@ -866,18 +866,17 @@ public:
     return arm_to_mips_reg[regn];
   }
 
-  inline u32 store_alloc_reg(u32 regn, u32 tmp_reg) {
+  inline mips_regnum store_alloc_reg(u32 regn, mips_regnum tmp_reg) {
     if (regn == REG_PC)
       return tmp_reg;
     return arm_to_mips_reg[regn];
   }
 
   inline void load_alloc_reg_lsb(u32 regn, u32 native_reg, u32 pcvalue) {
-    if (regn == REG_PC) {
-      mips_emit_addiu(native_reg, reg_zero, (pcvalue & 0xFF));
-    } else {
-      mips_emit_andi(native_reg, arm_to_mips_reg[regn], 0xFF);
-    }
+    if (regn == REG_PC)
+      emit_addiu(native_reg, reg_zero, (pcvalue & 0xFF));
+    else
+      emit_andi(native_reg, arm_to_mips_reg[regn], 0xFF);
   }
 
   // Forces a register load!
@@ -891,37 +890,33 @@ public:
 
   // Aux functions used to emit certain common sequences
   inline void emit_load_imm_reg(u32 regn, u32 imm) {
-    if (isimm16(imm)) {
-      mips_emit_ori(regn, reg_zero, imm);    // Loads 0x0000XXXX
-    } else if (isimm16s(imm)) {
-      mips_emit_addiu(regn, reg_zero, imm);  // Loads 0xFFFF8000 ... 00007FFFF
-    } else if (isimmhi16(imm)) {
-      mips_emit_lui(regn, imm >> 16);        // Loads 0xXXXX0000
-    } else {
-      mips_emit_lui(regn, imm >> 16);
-      mips_emit_ori(regn, regn, imm);
+    if (isimm16(imm))
+      emit_ori(regn, reg_zero, imm);    // Loads 0x0000XXXX
+    else if (isimm16s(imm))
+      emit_addiu(regn, reg_zero, imm);  // Loads 0xFFFF8000 ... 00007FFF
+    else if (isimmhi16(imm))
+      emit_lui(regn, imm >> 16);        // Loads 0xXXXX0000
+    else {
+      emit_lui(regn, imm >> 16);
+      emit_ori(regn, regn, imm);
     }
   }
 
   template <FlagOperation flgmode>
   inline void update_nz_flags(const ARMInst & it, u32 reg) {
     if (flgmode == SetFlags) {
-      if (it.gen_flag_n()) {
-        mips_emit_srl(reg_n_cache, reg, 31);
-      }
-      if (it.gen_flag_z()) {
-        mips_emit_sltiu(reg_z_cache, reg, 1);
-      }
+      if (it.gen_flag_n())
+        emit_srl(reg_n_cache, reg, 31);
+      if (it.gen_flag_z())
+        emit_sltiu(reg_z_cache, reg, 1);
     }
   }
 
   inline void update_nz_flags(const ThumbInst & it, u32 reg) {
-    if (it.gen_flag_n()) {
-      mips_emit_srl(reg_n_cache, reg, 31);
-    }
-    if (it.gen_flag_z()) {
-      mips_emit_sltiu(reg_z_cache, reg, 1);
-    }
+    if (it.gen_flag_n())
+      emit_srl(reg_n_cache, reg, 31);
+    if (it.gen_flag_z())
+      emit_sltiu(reg_z_cache, reg, 1);
   }
 
 
@@ -933,7 +928,7 @@ public:
     } else {
       mips_emit_j(mips_absolute_offset(mips_indirect_branch_thumb));
     }
-    mips_emit_nop();
+    emit_nop();
   }
 
   inline void emit_cycle_update(u32 & cycle_count) {
@@ -998,14 +993,14 @@ public:
       generate_cycle_update_force();
       break;
     case CondHI:
-      mips_emit_xori(reg_temp, reg_c_cache, 1);
-      mips_emit_or(reg_temp, reg_temp, reg_z_cache);
+      emit_xori(reg_temp, reg_c_cache, 1);
+      emit_or(reg_temp, reg_temp, reg_z_cache);
       mips_emit_b_filler(bne, reg_temp, reg_zero, ret);
       generate_cycle_update_force();
       break;
     case CondLS:
-      mips_emit_xori(reg_temp, reg_c_cache, 1);
-      mips_emit_or(reg_temp, reg_temp, reg_z_cache);
+      emit_xori(reg_temp, reg_c_cache, 1);
+      emit_or(reg_temp, reg_temp, reg_z_cache);
       mips_emit_b_filler(beq, reg_temp, reg_zero, ret);
       generate_cycle_update_force();
       break;
@@ -1018,14 +1013,14 @@ public:
       generate_cycle_update_force();
       break;
     case CondGT:
-      mips_emit_xor(reg_temp, reg_n_cache, reg_v_cache);
-      mips_emit_or(reg_temp, reg_temp, reg_z_cache);
+      emit_xor(reg_temp, reg_n_cache, reg_v_cache);
+      emit_or(reg_temp, reg_temp, reg_z_cache);
       mips_emit_b_filler(bne, reg_temp, reg_zero, ret);
       generate_cycle_update_force();
       break;
     case CondLE:
-      mips_emit_xor(reg_temp, reg_n_cache, reg_v_cache);
-      mips_emit_or(reg_temp, reg_temp, reg_z_cache);
+      emit_xor(reg_temp, reg_n_cache, reg_v_cache);
+      emit_or(reg_temp, reg_temp, reg_z_cache);
       mips_emit_b_filler(beq, reg_temp, reg_zero, ret);
       generate_cycle_update_force();
       break;
@@ -1054,31 +1049,31 @@ public:
 
   template <ARMOp aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
-    u32 rs = arm_to_mips_reg[it.rs()];
-    u32 rd = arm_to_mips_reg[it.rd()];
+    mips_regnum rs = arm_to_mips_reg[it.rs()];
+    mips_regnum rd = arm_to_mips_reg[it.rd()];
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
     switch (aluop) {
     case OpOrr:
-      mips_emit_or(rd, rd, rs);
+      emit_or(rd, rd, rs);
       update_nz_flags(it, rd);
       break;
     case OpAnd:
-      mips_emit_and(rd, rd, rs);
+      emit_and(rd, rd, rs);
       update_nz_flags(it, rd);
       break;
     case OpXor:
-      mips_emit_xor(rd, rd, rs);
+      emit_xor(rd, rd, rs);
       update_nz_flags(it, rd);
       break;
     case OpBic:
-      mips_emit_nor(reg_temp, rs, reg_zero);
-      mips_emit_and(rd, rd, reg_temp);
+      emit_nor(reg_temp, rs, reg_zero);
+      emit_and(rd, rd, reg_temp);
       update_nz_flags(it, rd);
       break;
     case OpMul:
-      mips_emit_multu(rd, rs);
-      mips_emit_mflo(rd);
+      emit_multu(rd, rs);
+      emit_mflo(rd);
       update_nz_flags(it, rd);
       break;
     case OpAdd:
@@ -1098,7 +1093,7 @@ public:
 
   template <OpType stype, ShiftType st>
   inline void thumb_shft(const ThumbInst & it) {
-    u32 rd = arm_to_mips_reg[it.rd()];
+    mips_regnum rd = arm_to_mips_reg[it.rd()];
 
     if (stype == OpImm) {
       if (it.gen_flag_c())
@@ -1126,7 +1121,7 @@ public:
       generate_op_subs_reg(rd, reg_zero, rs);
       break;
     case OpMvn:
-      mips_emit_nor(rd, rs, reg_zero);
+      emit_nor(rd, rs, reg_zero);
       update_nz_flags(it, rd);
       break;
     };
@@ -1140,7 +1135,7 @@ public:
 
     switch (testop) {
     case OpTst:
-      mips_emit_and(reg_temp, rs, rd);
+      emit_and(reg_temp, rs, rd);
       update_nz_flags(it, reg_temp);
       break;
     case OpCmp:
@@ -1159,9 +1154,9 @@ public:
 
     switch (aluop) {
     case OpMov:
-      mips_emit_addiu(rd, reg_zero, it.imm8());
-      mips_emit_addiu(reg_n_cache, reg_zero, 0);
-      mips_emit_addiu(reg_z_cache, reg_zero, it.imm8() ? 0 : 1);
+      emit_addiu(rd, reg_zero, it.imm8());
+      emit_addiu(reg_n_cache, reg_zero, 0);
+      emit_addiu(reg_z_cache, reg_zero, it.imm8() ? 0 : 1);
       break;
     case OpAdd:
       update_addi_flags(rd, rd, it.imm8());
@@ -1192,20 +1187,20 @@ public:
 
   template <ARMOp aluop>
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
-    u32 rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
+    mips_regnum rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
     // TODO Improve and make PC writes clearer!
     if (aluop == OpAdd) {
-      u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
-      mips_emit_addu(rd, rd, rs);
+      mips_regnum rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
+      emit_addu(rd, rd, rs);
       check_store_reg_pc_thumb(it.rd_hi());
     } else if (aluop == OpCmp) {
-      u32 rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
+      mips_regnum rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
       generate_op_subs_reg(reg_temp, rd, rs);
     } else if (aluop == OpMov) {
       u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
-      mips_emit_addu(rd, rs, reg_zero);
+      emit_addu(rd, rs, reg_zero);
       check_store_reg_pc_thumb(it.rd_hi());
     }
   }
@@ -1215,12 +1210,12 @@ public:
     if (ref_reg == REG_PC) {
       generate_load_pc(arm_to_mips_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
     } else {
-      mips_emit_addiu(arm_to_mips_reg[it.rd8()], arm_to_mips_reg[ref_reg], 4 * it.imm8());
+      emit_addiu(arm_to_mips_reg[it.rd8()], arm_to_mips_reg[ref_reg], 4 * it.imm8());
     }
   }
 
   inline void thumb_spadj(s8 offset) {
-    mips_emit_addiu(reg_r13, reg_r13, (offset * 4));
+    emit_addiu(reg_r13, reg_r13, (offset * 4));
   }
 
   inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
@@ -1239,15 +1234,15 @@ public:
     case 6:
     case 7:
       {
-        u32 regA = (num == 6) ? reg_r0 : reg_r1;
-        u32 regB = (num == 6) ? reg_r1 : reg_r0;
+        mips_regnum regA = (num == 6) ? reg_r0 : reg_r1;
+        mips_regnum regB = (num == 6) ? reg_r1 : reg_r0;
 
-        mips_emit_div(regA, regB);
-        mips_emit_mflo(reg_r0);
-        mips_emit_mfhi(reg_r1);
-        mips_emit_sra(reg_a0, reg_r0, 31);
-        mips_emit_xor(reg_r3, reg_r0, reg_a0);
-        mips_emit_subu(reg_r3, reg_r3, reg_a0);
+        emit_div(regA, regB);
+        emit_mflo(reg_r0);
+        emit_mfhi(reg_r1);
+        emit_sra(reg_a0, reg_r0, 31);
+        emit_xor(reg_r3, reg_r0, reg_a0);
+        emit_subu(reg_r3, reg_r3, reg_a0);
       }
       cycle_count += 64;    // Big under-estimation here
       return true;
@@ -1329,7 +1324,7 @@ public:
   }
 
   inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
-    mips_emit_addiu(reg_a0, reg_r14, offset);
+    emit_addiu(reg_a0, reg_r14, offset);
     generate_load_pc(reg_r14, ((pc + 2) | 0x01));
     generate_indirect_branch_cycle_update(thumb);
   }
@@ -1346,13 +1341,13 @@ public:
 
     // rb/ro/regn are never PC in thumb mode (this is handled by OffPC mode)
     case OffReg:
-      mips_emit_addu(reg_a0, arm_to_mips_reg[regn], arm_to_mips_reg[it.ro()]);
+      emit_addu(reg_a0, arm_to_mips_reg[regn], arm_to_mips_reg[it.ro()]);
       break;
     case OffImm5:
-      mips_emit_addiu(reg_a0, arm_to_mips_reg[regn], it.imm5() * sizeof(memtype));
+      emit_addiu(reg_a0, arm_to_mips_reg[regn], it.imm5() * sizeof(memtype));
       break;
     case OffImm8:
-      mips_emit_addiu(reg_a0, arm_to_mips_reg[regn], it.imm8() * sizeof(memtype));
+      emit_addiu(reg_a0, arm_to_mips_reg[regn], it.imm8() * sizeof(memtype));
       break;
     }
   }
@@ -1380,42 +1375,38 @@ public:
   }
 
   template <ARMMemOffset offt, MemOffDir dir>
-  inline void arm_memaddr(u32 oreg, const ARMInst & it) {
+  inline void arm_memaddr(mips_regnum oreg, const ARMInst & it) {
     // Load base register if needed
-    u32 breg = load_alloc_reg(it.rn(), oreg, it.pc + 8);
+    mips_regnum breg = load_alloc_reg(it.rn(), oreg, it.pc + 8);
 
     switch (offt) {
     case OffImm12:     // [rn +/- imm12]
-      if (dir == OffPositive) {
-        mips_emit_addiu(oreg, breg, it.off12());
-      } else {
-        mips_emit_addiu(oreg, breg, -it.off12());
-      }
+      if (dir == OffPositive)
+        emit_addiu(oreg, breg, it.off12());
+      else
+        emit_addiu(oreg, breg, -it.off12());
       break;
     case OffHImm8:     // [rn +/- imm8]
-      if (dir == OffPositive) {
-        mips_emit_addiu(oreg, breg, it.off8());
-      } else {
-        mips_emit_addiu(oreg, breg, -it.off8());
-      }
+      if (dir == OffPositive)
+        emit_addiu(oreg, breg, it.off8());
+      else
+        emit_addiu(oreg, breg, -it.off8());
       break;
     case OffHReg:      // [rn +/- rm]
       {
-        u32 secreg = load_alloc_reg(it.rm(), reg_temp, it.pc + 8);
-        if (dir == OffPositive) {
-          mips_emit_addu(oreg, breg, secreg);
-        } else {
-          mips_emit_subu(oreg, breg, secreg);
-        }
+        mips_regnum secreg = load_alloc_reg(it.rm(), reg_temp, it.pc + 8);
+        if (dir == OffPositive)
+          emit_addu(oreg, breg, secreg);
+        else
+          emit_subu(oreg, breg, secreg);
       }
       break;
     case OffOp2Reg:    // [rn +/- rm shift/rot amount]
       emit_op2_shimm<NoFlags>(reg_rv, it.rm(), (ShiftType)it.op2smode(), it.op2sa(), it.pc + 8);
-      if (dir == OffPositive) {
-        mips_emit_addu(oreg, breg, reg_rv);
-      } else {
-        mips_emit_subu(oreg, breg, reg_rv);
-      }
+      if (dir == OffPositive)
+        emit_addu(oreg, breg, reg_rv);
+      else
+        emit_subu(oreg, breg, reg_rv);
       break;
     };
   }
@@ -1429,7 +1420,7 @@ public:
       // Load the base reg to a0
       force_load_reg(it.rn(), reg_a0, it.pc + 4);
       // Calculate the final value to the final reg.
-      u32 wbreg = store_alloc_reg(it.rn(), reg_a2);
+      mips_regnum wbreg = store_alloc_reg(it.rn(), reg_a2);
       arm_memaddr<offt, dir>(wbreg, it);
     }
     else {
@@ -1455,7 +1446,7 @@ public:
       // Load the base reg to a0
       force_load_reg(it.rn(), reg_a0, it.pc + 4);
       // Calculate the final value to the final reg.
-      u32 wbreg = store_alloc_reg(it.rn(), reg_a2);
+      mips_regnum wbreg = store_alloc_reg(it.rn(), reg_a2);
       arm_memaddr<offt, dir>(wbreg, it);
     }
     else {
@@ -1505,7 +1496,7 @@ public:
                                                    endoff + 4;
 
     // Load base register, clearing the lowest 2 bits (align)
-    mips_emit_addiu(reg_a2, arm_to_mips_reg[basereg], 0);     // TODO: Improve using one less move?
+    emit_addiu(reg_a2, arm_to_mips_reg[basereg], 0);     // TODO: Improve using one less move?
     emit_align_reg(reg_a2, 2);
     // TODO: Implement SP-relative accessing? TODO
 
@@ -1519,14 +1510,13 @@ public:
     bool writeback_first = (amode == AccLoad) || !(wrbck_base && base_first);
 
     // This is the most common case by far.
-    if (writeback && writeback_first) {
-      mips_emit_addiu(arm_to_mips_reg[basereg], arm_to_mips_reg[basereg], endoff);
-    }
+    if (writeback && writeback_first)
+      emit_addiu(arm_to_mips_reg[basereg], arm_to_mips_reg[basereg], endoff);
 
     u32 aoff = 0;
     for (u32 i = 0; i < 16; i++) {
       if (rlist & (1 << i)) {
-        mips_emit_addiu(reg_a0, reg_a2, (aoff + inioff));
+        emit_addiu(reg_a0, reg_a2, (aoff + inioff));
         if (amode == AccLoad) {
           generate_function_call_swap_delay(execute_aligned_load32);
           generate_store_reg(reg_rv, i);
@@ -1535,7 +1525,7 @@ public:
 
           // Update the base register right after the first read if necessary
           if (writeback && !writeback_first) {
-            mips_emit_addiu(arm_to_mips_reg[basereg], arm_to_mips_reg[basereg], endoff);
+            emit_addiu(arm_to_mips_reg[basereg], arm_to_mips_reg[basereg], endoff);
             writeback_first = true;
           }
 
@@ -1570,8 +1560,8 @@ public:
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
-    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+    mips_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
+    mips_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     // Immediate is a 8 bit rotated immediate
     u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
@@ -1579,9 +1569,8 @@ public:
 
     // Set/Clear carry flag if appropriate (rotation result)
     if (aluop == OpAnd || aluop == OpOrr || aluop == OpXor || aluop == OpBic) {
-      if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
-        mips_emit_addiu(reg_c_cache, reg_zero, ((imm) >> 31));
-      }
+      if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c())
+        emit_addiu(reg_c_cache, reg_zero, ((imm) >> 31));
     }
 
     // TODO: Implement add/sub with flags in a more efficient way
@@ -1591,39 +1580,39 @@ public:
       imm = ~imm;
       /* fallthrough */
     case OpAnd:
-      if (isimm16(imm)) {
-        mips_emit_andi(rd, rn, imm);
-      } else {
+      if (isimm16(imm))
+        emit_andi(rd, rn, imm);
+      else {
         emit_load_imm_reg(reg_temp, imm);
-        mips_emit_and(rd, rn, reg_temp);
+        emit_and(rd, rn, reg_temp);
       }
       update_nz_flags<flg>(it, rd);
       break;
     case OpOrr:
-      if (isimm16(imm)) {
-        mips_emit_ori(rd, rn, imm);
-      } else {
+      if (isimm16(imm))
+        emit_ori(rd, rn, imm);
+      else {
         emit_load_imm_reg(reg_temp, imm);
-        mips_emit_or(rd, rn, reg_temp);
+        emit_or(rd, rn, reg_temp);
       }
       update_nz_flags<flg>(it, rd);
       break;
     case OpXor:
-      if (isimm16(imm)) {
-        mips_emit_xori(rd, rn, imm);
-      } else {
+      if (isimm16(imm))
+        emit_xori(rd, rn, imm);
+      else {
         emit_load_imm_reg(reg_temp, imm);
-        mips_emit_xor(rd, rn, reg_temp);
+        emit_xor(rd, rn, reg_temp);
       }
       update_nz_flags<flg>(it, rd);
       break;
     case OpAdd:
       if (flg == NoFlags) {
-        if (isimm16s(imm)) {
-          mips_emit_addiu(rd, rn, imm);
-        } else {
+        if (isimm16s(imm))
+          emit_addiu(rd, rn, imm);
+        else {
           emit_load_imm_reg(reg_temp, imm);
-          mips_emit_addu(rd, rn, reg_temp);
+          emit_addu(rd, rn, reg_temp);
         }
       } else {
         emit_load_imm_reg(reg_temp, imm);
@@ -1633,12 +1622,12 @@ public:
     case OpAdc:
       if (flg == NoFlags) {
         if (isimm16s(imm)) {
-          mips_emit_addiu(rd, rn, imm);
-          mips_emit_addu(rd, rd, reg_c_cache);
+          emit_addiu(rd, rn, imm);
+          emit_addu(rd, rd, reg_c_cache);
         } else {
           emit_load_imm_reg(reg_temp, imm);
-          mips_emit_addu(rd, rn, reg_temp);
-          mips_emit_addu(rd, rd, reg_c_cache);
+          emit_addu(rd, rn, reg_temp);
+          emit_addu(rd, rd, reg_c_cache);
         }
       } else {
         emit_load_imm_reg(reg_temp, imm);
@@ -1647,11 +1636,11 @@ public:
       break;
     case OpSub:
       if (flg == NoFlags) {
-        if (isimm16s(-imm)) {
-          mips_emit_addiu(rd, rn, -imm);
-        } else {
+        if (isimm16s(-imm))
+          emit_addiu(rd, rn, -imm);
+        else {
           emit_load_imm_reg(reg_temp, imm);
-          mips_emit_subu(rd, rn, reg_temp);
+          emit_subu(rd, rn, reg_temp);
         }
       } else {
         emit_load_imm_reg(reg_temp, imm);
@@ -1661,7 +1650,7 @@ public:
     case OpRsb:
       emit_load_imm_reg(reg_temp, imm);
       if (flg == NoFlags) {
-        mips_emit_subu(rd, reg_temp, rn);
+        emit_subu(rd, reg_temp, rn);
       } else {
         generate_op_subs_reg(rd, reg_temp, rn);
       }
@@ -1669,9 +1658,9 @@ public:
     case OpSbc:
       emit_load_imm_reg(reg_a2, imm);
       if (flg == NoFlags) {
-        mips_emit_xori(reg_temp, reg_c_cache, 1);
-        mips_emit_subu(rd, rn, reg_a2);
-        mips_emit_subu(rd, rd, reg_temp);
+        emit_xori(reg_temp, reg_c_cache, 1);
+        emit_subu(rd, rn, reg_a2);
+        emit_subu(rd, rd, reg_temp);
       } else {
         generate_op_sbcs_reg(rd, rn, reg_a2);
       }
@@ -1679,9 +1668,9 @@ public:
     case OpRsc:
       emit_load_imm_reg(reg_a2, imm);
       if (flg == NoFlags) {
-        mips_emit_xori(reg_temp, reg_c_cache, 1);
-        mips_emit_subu(rd, reg_a2, rn);
-        mips_emit_subu(rd, rd, reg_temp);
+        emit_xori(reg_temp, reg_c_cache, 1);
+        emit_subu(rd, reg_a2, rn);
+        emit_subu(rd, rd, reg_temp);
       } else {
         generate_op_sbcs_reg(rd, reg_a2, rn);
       }
@@ -1699,33 +1688,32 @@ public:
   template <ARMOp aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
+    mips_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
 
     // Immediate is a 8 bit rotated immediate
     const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
     const u32 imm = rotr32(it.imm8(), sa);
 
     // Set/Clear carry flag if appropriate (rotation result)
-    if (it.rot4() != 0 && it.gen_flag_c()) {
-      mips_emit_addiu(reg_c_cache, reg_zero, ((imm) >> 31));
-    }
+    if (it.rot4() != 0 && it.gen_flag_c())
+      emit_addiu(reg_c_cache, reg_zero, ((imm) >> 31));
 
     switch (aluop) {
     case OpTst:
-      if (isimm16(imm)) {
-        mips_emit_andi(reg_temp, rn, imm);
-      } else {
+      if (isimm16(imm))
+        emit_andi(reg_temp, rn, imm);
+      else {
         emit_load_imm_reg(reg_temp, imm);
-        mips_emit_and(reg_temp, rn, reg_temp);
+        emit_and(reg_temp, rn, reg_temp);
       }
       update_nz_flags<SetFlags>(it, reg_temp);
       break;
     case OpTeq:
-      if (isimm16(imm)) {
-        mips_emit_xori(reg_temp, rn, imm);
-      } else {
+      if (isimm16(imm))
+        emit_xori(reg_temp, rn, imm);
+      else {
         emit_load_imm_reg(reg_temp, imm);
-        mips_emit_xor(reg_temp, rn, reg_temp);
+        emit_xor(reg_temp, rn, reg_temp);
       }
       update_nz_flags<SetFlags>(it, reg_temp);
       break;
@@ -1742,7 +1730,7 @@ public:
 
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
-    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+    mips_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     // Immediate is a 8 bit rotated immediate
     const u32 sa = it.rot4() * 2;   // TODO remove this absurd scaling here
@@ -1750,9 +1738,8 @@ public:
     const u32 movimm = (aluop == OpMvn) ? ~imm : imm;
 
     // Set/Clear carry flag if appropriate (rotation result)
-    if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c()) {
-      mips_emit_addiu(reg_c_cache, reg_zero, ((imm) >> 31));
-    }
+    if (flg == SetFlags && it.rot4() != 0 && it.gen_flag_c())
+      emit_addiu(reg_c_cache, reg_zero, ((imm) >> 31));
 
     emit_load_imm_reg(rd, movimm);
     update_nz_flags<flg>(it, rd);
@@ -1768,8 +1755,8 @@ public:
 
   // Calculates operand 2 when register is shifted/rotated by an immediate.
   template<FlagOperation flg>
-  inline void emit_op2_shimm(u32 dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
-    u32 rm;
+  inline void emit_op2_shimm(mips_regnum dreg, u32 sreg, ShiftType st, u32 sa, u32 pc) {
+    mips_regnum rm;
 
     switch (st) {
     case ShiftLSL:
@@ -1777,7 +1764,7 @@ public:
       if (flg == SetFlags && sa) {
         extract_bits(reg_c_cache, rm, (32 - sa), 1);
       }
-      mips_emit_sll(dreg, rm, sa);
+      emit_sll(dreg, rm, sa);
       break;
 
     case ShiftLSR:      /* (sa 0 means shift by 32) */
@@ -1786,14 +1773,14 @@ public:
         if (flg == SetFlags) {
           extract_bits(reg_c_cache, rm, (sa - 1), 1);
         }
-        mips_emit_srl(dreg, rm, sa);
+        emit_srl(dreg, rm, sa);
       } else {
         if (flg == SetFlags) {
           rm = load_alloc_reg(sreg, dreg, pc);
-          mips_emit_srl(reg_c_cache, rm, 31);
+          emit_srl(reg_c_cache, rm, 31);
         }
         // TODO: Can we just return reg_zero and save an inst?
-        mips_emit_addu(dreg, reg_zero, reg_zero);
+        emit_addu(dreg, reg_zero, reg_zero);
       }
       break;
 
@@ -1802,23 +1789,21 @@ public:
       if (flg == SetFlags) {
         extract_bits(reg_c_cache, rm, ((sa ? sa : 32) - 1), 1);
       }
-      mips_emit_sra(dreg, rm, (sa ? sa : 31));
+      emit_sra(dreg, rm, (sa ? sa : 31));
       break;
 
     case ShiftROR:
       rm = load_alloc_reg(sreg, reg_a1, pc);
       if (sa) {
         rotate_right(dreg, rm, reg_temp, sa);
-        if (flg == SetFlags) {
-          mips_emit_srl(reg_c_cache, dreg, 31);  // CF is just the MSB bit
-        }
+        if (flg == SetFlags)
+          emit_srl(reg_c_cache, dreg, 31);  // CF is just the MSB bit
       } else {   /* RRX */
-        mips_emit_sll(reg_temp, reg_c_cache, 31);
-        if (flg == SetFlags) {
-          mips_emit_andi(reg_c_cache, rm, 1);
-        }
-        mips_emit_srl(dreg, rm, 1);
-        mips_emit_or(dreg, dreg, reg_temp);
+        emit_sll(reg_temp, reg_c_cache, 31);
+        if (flg == SetFlags)
+          emit_andi(reg_c_cache, rm, 1);
+        emit_srl(dreg, rm, 1);
+        emit_or(dreg, dreg, reg_temp);
       }
       break;
     };
@@ -1826,7 +1811,7 @@ public:
 
   // Calculates operand 2 when register is shifted/rotated by another register.
   template<FlagOperation flg>
-  inline void emit_op2_shreg(u32 dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
+  inline void emit_op2_shreg(mips_regnum dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
     load_alloc_reg_lsb(areg, reg_a1, pc);  // Loads the LSB byte only!
 
     if (flg == SetFlags) {
@@ -1836,67 +1821,67 @@ public:
           /* Skip it all on imm = 0 */
           mips_emit_b(beq, reg_a1, reg_zero, 7);
           generate_swap_delay();
-          mips_emit_addiu(reg_temp, reg_a1, -1);
-          mips_emit_sllv(dreg, dreg, reg_temp);
-          mips_emit_srl(reg_c_cache, dreg, 31);
-          mips_emit_sltiu(reg_temp, reg_a1, 33);
-          mips_emit_sll(dreg, dreg, 1);
+          emit_addiu(reg_temp, reg_a1, -1);
+          emit_sllv(dreg, dreg, reg_temp);
+          emit_srl(reg_c_cache, dreg, 31);
+          emit_sltiu(reg_temp, reg_a1, 33);
+          emit_sll(dreg, dreg, 1);
           /* Result and flag to be zero if shift is >32 */
-          mips_emit_movz(reg_c_cache, reg_zero, reg_temp);
-          mips_emit_movz(dreg, reg_zero, reg_temp);
+          emit_movz(reg_c_cache, reg_zero, reg_temp);
+          emit_movz(dreg, reg_zero, reg_temp);
           break;
         case ShiftLSR:
           force_load_reg(sreg, dreg, pc);
           mips_emit_b(beq, reg_a1, reg_zero, 7);  // Skip it all on shift = 0
           generate_swap_delay();
-          mips_emit_addiu(reg_temp, reg_a1, -1);
-          mips_emit_srlv(dreg, dreg, reg_temp);
-          mips_emit_andi(reg_c_cache, dreg, 1);
-          mips_emit_sltiu(reg_temp, reg_a1, 33);
-          mips_emit_srl(dreg, dreg, 1);
+          emit_addiu(reg_temp, reg_a1, -1);
+          emit_srlv(dreg, dreg, reg_temp);
+          emit_andi(reg_c_cache, dreg, 1);
+          emit_sltiu(reg_temp, reg_a1, 33);
+          emit_srl(dreg, dreg, 1);
           /* Result and flag to be zero if shift is >32 */
-          mips_emit_movz(reg_c_cache, reg_zero, reg_temp);
-          mips_emit_movz(dreg, reg_zero, reg_temp);
+          emit_movz(reg_c_cache, reg_zero, reg_temp);
+          emit_movz(dreg, reg_zero, reg_temp);
           break;
         case ShiftASR:
           force_load_reg(sreg, dreg, pc);
           mips_emit_b(beq, reg_a1, reg_zero, 7);
           generate_swap_delay();
-          mips_emit_addiu(reg_temp, reg_zero, 32);
-          mips_emit_srl(reg_rv, reg_a1, 5);             // Check if shift >= 32
-          mips_emit_movn(reg_a1, reg_temp, reg_rv);     // Cap it at 32
-          mips_emit_addiu(reg_temp, reg_a1, -1);        // Shift in two steps
-          mips_emit_srav(dreg, dreg, reg_temp);
-          mips_emit_andi(reg_c_cache, dreg, 1);
-          mips_emit_sra(dreg, dreg, 1);
+          emit_addiu(reg_temp, reg_zero, 32);
+          emit_srl(reg_rv, reg_a1, 5);             // Check if shift >= 32
+          emit_movn(reg_a1, reg_temp, reg_rv);     // Cap it at 32
+          emit_addiu(reg_temp, reg_a1, -1);        // Shift in two steps
+          emit_srav(dreg, dreg, reg_temp);
+          emit_andi(reg_c_cache, dreg, 1);
+          emit_sra(dreg, dreg, 1);
           break;
         case ShiftROR:
           {
-            u32 rm = load_alloc_reg(sreg, reg_a2, pc);
+            mips_regnum rm = load_alloc_reg(sreg, reg_a2, pc);
             rotate_right_var(dreg, rm, reg_temp, reg_a1);
-            mips_emit_srl(reg_temp, dreg, 31);  // CF is just the MSB bit
-            mips_emit_movn(reg_c_cache, reg_temp, reg_a1);
+            emit_srl(reg_temp, dreg, 31);  // CF is just the MSB bit
+            emit_movn(reg_c_cache, reg_temp, reg_a1);
           }
           break;
       };
     } else {
-      u32 rm = load_alloc_reg(sreg, dreg, pc);
+      mips_regnum rm = load_alloc_reg(sreg, dreg, pc);
       switch (st) {
         case ShiftLSL:
-          mips_emit_sltiu(reg_temp, reg_a1, 32);
-          mips_emit_sllv(dreg, rm, reg_a1);
-          mips_emit_movz(dreg, reg_zero, reg_temp);
+          emit_sltiu(reg_temp, reg_a1, 32);
+          emit_sllv(dreg, rm, reg_a1);
+          emit_movz(dreg, reg_zero, reg_temp);
           break;
         case ShiftLSR:
-          mips_emit_sltiu(reg_temp, reg_a1, 32);
-          mips_emit_srlv(dreg, rm, reg_a1);
-          mips_emit_movz(dreg, reg_zero, reg_temp);
+          emit_sltiu(reg_temp, reg_a1, 32);
+          emit_srlv(dreg, rm, reg_a1);
+          emit_movz(dreg, reg_zero, reg_temp);
           break;
         case ShiftASR:
-          mips_emit_sltiu(reg_temp, reg_a1, 32);
+          emit_sltiu(reg_temp, reg_a1, 32);
           mips_emit_b(bne, reg_temp, reg_zero, 2);
-          mips_emit_srav(dreg, rm, reg_a1);
-          mips_emit_sra(dreg, dreg, 31);
+          emit_srav(dreg, rm, reg_a1);
+          emit_sra(dreg, dreg, 31);
           break;
         case ShiftROR:
           // TODO: src and dst must be different!
@@ -1909,7 +1894,7 @@ public:
   // Calculates the flex operand, honoring flag (CF) generation and returns the
   // native register where the value is placed (either reg_a0 or some ARM reg).
   template <FlagOperation flg>
-  inline u32 emit_arm_aluop2(const ARMInst & it) {
+  inline mips_regnum emit_arm_aluop2(const ARMInst & it) {
     // Calculates the Op2 part and writes it to a0
     if (it.op2imm()) {
       // Special case: LSL with imm = 0 means unmodified register (and Cflag).
@@ -1938,30 +1923,30 @@ public:
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
     // Generate op2 to a0, op1 to a1
-    u32 regop2 = (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
-                  aluop == OpAdc || aluop == OpSbc || aluop == OpRsc) ?
-                  emit_arm_aluop2<NoFlags>(it) :  // Do not generate C flag
-                  emit_arm_aluop2<flg>(it);
+    mips_regnum regop2 = (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
+                          aluop == OpAdc || aluop == OpSbc || aluop == OpRsc) ?
+                          emit_arm_aluop2<NoFlags>(it) :  // Do not generate C flag
+                          emit_arm_aluop2<flg>(it);
 
-    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
-    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+    mips_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
+    mips_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     switch (aluop) {
     case OpAnd:
-      mips_emit_and(rd, rn, regop2);
+      emit_and(rd, rn, regop2);
       update_nz_flags<flg>(it, rd);
       break;
     case OpOrr:
-      mips_emit_or(rd, rn, regop2);
+      emit_or(rd, rn, regop2);
       update_nz_flags<flg>(it, rd);
       break;
     case OpXor:
-      mips_emit_xor(rd, rn, regop2);
+      emit_xor(rd, rn, regop2);
       update_nz_flags<flg>(it, rd);
       break;
     case OpBic:
-      mips_emit_nor(reg_rv, regop2, reg_zero);
-      mips_emit_and(rd, rn, reg_rv);
+      emit_nor(reg_rv, regop2, reg_zero);
+      emit_and(rd, rn, reg_rv);
       update_nz_flags<flg>(it, rd);
       break;
 
@@ -2020,12 +2005,12 @@ public:
 
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
-    u32 regop2 = emit_arm_aluop2<flg>(it);   // Generate op2 to a0
-    u32 rd = store_alloc_reg(it.rd(), reg_a0);
+    mips_regnum regop2 = emit_arm_aluop2<flg>(it);   // Generate op2 to a0
+    mips_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
     switch (aluop) {
     case OpMvn:
-      mips_emit_nor(rd, reg_zero, regop2);
+      emit_nor(rd, reg_zero, regop2);
       break;
     case OpMov:
       generate_mov(rd, regop2);
@@ -2047,16 +2032,16 @@ public:
   inline void arm_alureg2(const ARMInst & it) {
     const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
 
-    u32 regop2 = emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
-    u32 rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
+    mips_regnum regop2 = emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
+    mips_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
 
     switch (aluop) {
     case OpTst:
-       mips_emit_and(reg_temp, rn, regop2);
+       emit_and(reg_temp, rn, regop2);
        update_nz_flags<SetFlags>(it, reg_temp);
        break;
     case OpTeq:
-       mips_emit_xor(reg_temp, rn, regop2);
+       emit_xor(reg_temp, rn, regop2);
        update_nz_flags<SetFlags>(it, reg_temp);
        break;
     case OpCmp:
@@ -2071,18 +2056,18 @@ public:
   // Performs 32 bit multiplications (rd and rn are swapped)
   template<FlagOperation flg, MulMode mm>
   inline void arm_mul32(const ARMInst &it) {
-    u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
-    u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
-    u32 rd = store_alloc_reg(it.rn(), reg_a2);
+    mips_regnum rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    mips_regnum rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
+    mips_regnum rd = store_alloc_reg(it.rn(), reg_a2);
 
-    mips_emit_multu(rm, rs);
+    emit_multu(rm, rs);
 
     if (mm == MulAdd) {
-      u32 rn = load_alloc_reg(it.rd(), reg_temp, it.pc + 8);
-      mips_emit_mflo(reg_rv);
-      mips_emit_addu(rd, reg_rv, rn);
+      mips_regnum rn = load_alloc_reg(it.rd(), reg_temp, it.pc + 8);
+      emit_mflo(reg_rv);
+      emit_addu(rd, reg_rv, rn);
     } else {
-      mips_emit_mflo(rd);
+      emit_mflo(rd);
     }
 
     update_nz_flags<flg>(it, rd);
@@ -2092,37 +2077,36 @@ public:
   // Performs 64 bit multiplications
   template<FlagOperation flg, MulMode mm, bool signmul>
   inline void arm_mul64(const ARMInst &it) {
-    u32 rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
-    u32 rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
-    u32 rdlo = (mm == MulAdd) ? load_alloc_reg(it.rdlo(), reg_a2, it.pc + 8)
-                              : store_alloc_reg(it.rdlo(), reg_a2);
-    u32 rdhi = (mm == MulAdd) ? load_alloc_reg(it.rdhi(), reg_temp, it.pc + 8)
-                              : store_alloc_reg(it.rdhi(), reg_temp);
+    mips_regnum rm = load_alloc_reg(it.rm(), reg_a0, it.pc + 8);
+    mips_regnum rs = load_alloc_reg(it.rs(), reg_a1, it.pc + 8);
+    mips_regnum rdlo = (mm == MulAdd) ? load_alloc_reg(it.rdlo(), reg_a2, it.pc + 8)
+                                      : store_alloc_reg(it.rdlo(), reg_a2);
+    mips_regnum rdhi = (mm == MulAdd) ? load_alloc_reg(it.rdhi(), reg_temp, it.pc + 8)
+                                      : store_alloc_reg(it.rdhi(), reg_temp);
 
     if (mm == MulAdd) {
-      mips_emit_mtlo(rdlo);
-      mips_emit_mthi(rdhi);
+      emit_mtlo(rdlo);
+      emit_mthi(rdhi);
       if (signmul) {
         mips_emit_madd(rm, rs);
       } else {
         mips_emit_maddu(rm, rs);
       }
     } else {
-      if (signmul) {
-        mips_emit_mult(rm, rs);
-      } else {
-        mips_emit_multu(rm, rs);
-      }
+      if (signmul)
+        emit_mult(rm, rs);
+      else
+        emit_multu(rm, rs);
     }
 
-    mips_emit_mflo(rdlo);
-    mips_emit_mfhi(rdhi);
+    emit_mflo(rdlo);
+    emit_mfhi(rdhi);
 
     if (flg == SetFlags) {
-      mips_emit_sltiu(reg_z_cache, rdlo, 1);   // TODO use orr then stliu?
-      mips_emit_sltiu(reg_a0, rdhi, 1);
-      mips_emit_and(reg_z_cache, reg_z_cache, reg_a0);
-      mips_emit_srl(reg_n_cache, rdhi, 31);
+      emit_sltiu(reg_z_cache, rdlo, 1);   // TODO use orr then stliu?
+      emit_sltiu(reg_a0, rdhi, 1);
+      emit_and(reg_z_cache, reg_z_cache, reg_a0);
+      emit_srl(reg_n_cache, rdhi, 31);
     }
   }
 
@@ -2170,7 +2154,7 @@ public:
     } else {
       genccall(&trace_instruction_hook_arm);
     }
-    mips_emit_nop();
+    emit_nop();
     emit_restore_regs(false);
     #endif
   }
@@ -2181,26 +2165,23 @@ public:
   void emit_mem_access_loadop(u32 base_addr, unsigned size, unsigned alignment, bool signext) {
     switch (size) {
     case 2:
-      mips_emit_lw(reg_rv, reg_rv, (base_addr & 0xffff));
+      emit_lw(reg_rv, reg_rv, (base_addr & 0xffff));
       break;
     case 1:
-      if (signext) {
-        if (alignment) {
-          // Unaligned signed 16b load, is just a load byte (due to sign extension)
-          mips_emit_lb(reg_rv, reg_rv, ((base_addr | 1) & 0xffff));
-        } else {
-          mips_emit_lh(reg_rv, reg_rv, (base_addr & 0xffff));
-        }
-      } else {
-        mips_emit_lhu(reg_rv, reg_rv, (base_addr & 0xffff));
+      if (!signext)
+        emit_lhu(reg_rv, reg_rv, (base_addr & 0xffff));
+      else {
+        if (alignment)    // Unaligned signed 16b load, is just a load byte (due to sign extension)
+          emit_lb(reg_rv, reg_rv, ((base_addr | 1) & 0xffff));
+        else
+          emit_lh(reg_rv, reg_rv, (base_addr & 0xffff));
       }
       break;
     default:
-      if (signext) {
-        mips_emit_lb(reg_rv, reg_rv, (base_addr & 0xffff));
-      } else {
-        mips_emit_lbu(reg_rv, reg_rv, (base_addr & 0xffff));
-      }
+      if (signext)
+        emit_lb(reg_rv, reg_rv, (base_addr & 0xffff));
+      else
+        emit_lbu(reg_rv, reg_rv, (base_addr & 0xffff));
       break;
     };
   }
@@ -2242,13 +2223,12 @@ public:
     }
 
     // Address checking: jumps to handler if bad region/alignment
-    mips_emit_srl(reg_temp, reg_a0, (32 - regionbits));
+    emit_srl(reg_temp, reg_a0, (32 - regionbits));
     if (!aligned && size != 0) {  // u8 or aligned u32 dont need to check alignment bits
       insert_bits(reg_temp, reg_a0, reg_rv, regionbits, size);  // Add 1 or 2 bits of alignment
     }
-    if (regioncheck || alignment) {  // If region and alignment are zero, can skip
-      mips_emit_xori(reg_temp, reg_temp, regioncheck | (alignment << regionbits));
-    }
+    if (regioncheck || alignment)   // If region and alignment are zero, can skip
+      emit_xori(reg_temp, reg_temp, regioncheck | (alignment << regionbits));
 
     // The patcher to use depends on ld/st, access size, and sign extension
     // (so there's 10 of them). They live in the top stub addresses.
@@ -2257,23 +2237,23 @@ public:
     // BIOS region requires extra checks for protected reads
     if (region == 0) {
       // BIOS is *not* mirrored, check that
-      mips_emit_srl(reg_rv, reg_a0, 14);
+      emit_srl(reg_rv, reg_a0, 14);
       mips_emit_b(bne, reg_zero, reg_rv, branch_offset(openld_core_ptrs[memop_number]));
 
       // Check whether the read is allowed. Only within BIOS! (Ignore aligned, bad a1)
       if (!aligned) {
-        mips_emit_srl(reg_temp, reg_a1, 14);
+        emit_srl(reg_temp, reg_a1, 14);
         mips_emit_b(bne, reg_zero, reg_temp, branch_offset(openld_core_ptrs[memop_number]));
       }
     }
 
     if (region >= 8 && region <= 12) {
       // ROM area: might need to load the ROM on-demand
-      mips_emit_srl(reg_rv, reg_a0, 15);  // 32KB page number
-      mips_emit_sll(reg_rv, reg_rv,  2);  // (word indexed)
-      mips_emit_addu(reg_rv, reg_rv, reg_base);    // base + offset
-      mips_emit_lw(reg_rv, reg_rv, 0x8000);        // base[offset-0x8000] is readmap ptr
-      mips_emit_andi(reg_temp, reg_a0, memmask);   // Get the lowest 15 bits [can go in delay slot]
+      emit_srl(reg_rv, reg_a0, 15);  // 32KB page number
+      emit_sll(reg_rv, reg_rv,  2);  // (word indexed)
+      emit_addu(reg_rv, reg_rv, reg_base);    // base + offset
+      emit_lw(reg_rv, reg_rv, 0x8000);        // base[offset-0x8000] is readmap ptr
+      emit_andi(reg_temp, reg_a0, memmask);   // Get the lowest 15 bits [can go in delay slot]
 
       if (must_swap) {   // Do not emit if the ROM is fully loaded, save some cycles
         u8 *jmppatch;
@@ -2282,19 +2262,19 @@ public:
 
         // This code call the C routine to map the relevant ROM page
         emit_save_regs(aligned);
-        mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3);
+        emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3);
         extract_bits(reg_a0, reg_a0, 15, 10);    // a0 = (addr >> 15) & 0x3ff
         genccall(&load_gamepak_page);            // Returns valid pointer in rv
-        mips_emit_sw(reg_temp, reg_base, ReOff_SaveR1);
+        emit_sw(reg_temp, reg_base, ReOff_SaveR1);
 
-        mips_emit_lw(reg_temp, reg_base, ReOff_SaveR1);
+        emit_lw(reg_temp, reg_base, ReOff_SaveR1);
         emit_restore_regs(aligned);
-        mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);
+        emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);
 
         generate_branch_patch_conditional(jmppatch - 4, emit_ptr);
       }
       // Now we can proceed to load, place addr in the right register
-      mips_emit_addu(reg_rv, reg_rv, reg_temp);
+      emit_addu(reg_rv, reg_rv, reg_temp);
     } else if (region == 14) {
       // Read from flash, is a bit special, fn call
       emit_mem_call_ds(&read_backup, 0xFFFF);
@@ -2310,11 +2290,10 @@ public:
     } else {
       // Generate upper bits of the addr and do addr mirroring
       // (The address hi16 is rounded up since load uses signed offset)
-      if (!meminfo->baseoff) {
-        mips_emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
-      } else {
+      if (!meminfo->baseoff)
+        emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
+      else
         base_addr = meminfo->baseoff;
-      }
 
       if (region == 2) {
         // Can't do EWRAM with an `andi` instruction (18 bits mask)
@@ -2323,24 +2302,24 @@ public:
           emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
         }
         // Need to insert a zero in the addr (due to how it's mapped)
-        mips_emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to the base addr
+        emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to the base addr
       } else if (region == 6) {
         // VRAM is mirrored every 128KB but the last 32KB is mapped to the previous
         extract_bits(reg_temp, reg_a0, 15, 2);     // Extract bits 15 and 16
-        mips_emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
+        emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
         if (!aligned && alignment != 0) {
           emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
         }
         extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
         mips_emit_b(bne, reg_zero, reg_temp, 1);   // Skip unless last block
         generate_swap_delay();
-        mips_emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
-        mips_emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
+        emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
+        emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
       } else {
         // Generate regular (<=32KB) mirroring
-        mips_reg_number breg = (meminfo->baseoff ? reg_base : reg_rv);
-        mips_emit_andi(reg_temp, reg_a0, memmask); // Clear upper bits (mirroring)
-        mips_emit_addu(reg_rv, breg, reg_temp);    // Adds to base addr
+        mips_regnum breg = (meminfo->baseoff ? reg_base : reg_rv);
+        emit_andi(reg_temp, reg_a0, memmask); // Clear upper bits (mirroring)
+        emit_addu(reg_rv, breg, reg_temp);    // Adds to base addr
       }
     }
 
@@ -2377,11 +2356,11 @@ public:
     tmemst[memop_number][region] = (u32)emit_ptr;
 
     // First check we are in the right memory region (same as loads)
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_xori(reg_temp, reg_temp, region);
+    emit_srl(reg_temp, reg_a0, 24);
+    emit_xori(reg_temp, reg_temp, region);
     mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(memop_number));
 
-    mips_emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
+    emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
 
     if (doubleaccess) {
       double_byte(reg_a1, reg_temp);        // value = value | (value << 8)
@@ -2394,65 +2373,63 @@ public:
         emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
       }
       // Need to insert a zero in the addr (due to how it's mapped)
-      mips_emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to the base addr
+      emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to the base addr
     } else if (region == 6) {
       // VRAM is mirrored every 128KB but the last 32KB is mapped to the previous
       extract_bits(reg_temp, reg_a0, 15, 2);     // Extract bits 15 and 16
-      mips_emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
+      emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
       if (!aligned && realsize != 0) {
         emit_align_reg(reg_a0, realsize);        // addr & ~1/2 (align to size)
       }
       extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
       mips_emit_b(bne, reg_zero, reg_temp, 1);   // Skip next inst unless last block
       generate_swap_delay();
-      mips_emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
-      mips_emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
+      emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
+      emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
     } else {
       // Generate regular (<=32KB) mirroring
-      mips_emit_andi(reg_a0, reg_a0, memmask);   // Clear upper bits (mirroring)
-      mips_emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to base addr
+      emit_andi(reg_a0, reg_a0, memmask);   // Clear upper bits (mirroring)
+      emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to base addr
     }
 
     // Generate SMC write and tracking
     // TODO: Should we have SMC checks here also for aligned?
     if (meminfo->check_smc && !aligned) {
       if (region == 2) {
-        mips_emit_lui(reg_temp, 0x40000 >> 16);
-        mips_emit_addu(reg_temp, reg_rv, reg_temp); // SMC lives after the ewram
+        emit_lui(reg_temp, 0x40000 >> 16);
+        emit_addu(reg_temp, reg_rv, reg_temp); // SMC lives after the ewram
       } else {
-        mips_emit_addiu(reg_temp, reg_rv, 0x8000); // -32KB is the addr of the SMC buffer
+        emit_addiu(reg_temp, reg_rv, 0x8000); // -32KB is the addr of the SMC buffer
       }
-      if (realsize == 2) {
-        mips_emit_lw(reg_temp, reg_temp, base_addr);
-      } else if (realsize == 1) {
-        mips_emit_lh(reg_temp, reg_temp, base_addr);
-      } else {
-        mips_emit_lb(reg_temp, reg_temp, base_addr);
-      }
+      if (realsize == 2)
+        emit_lw(reg_temp, reg_temp, base_addr);
+      else if (realsize == 1)
+        emit_lh(reg_temp, reg_temp, base_addr);
+      else
+        emit_lb(reg_temp, reg_temp, base_addr);
       // If the data is non zero, we just wrote over code
       // Local-jump to the smc_write (which lives at offset:0)
       mips_emit_b(bne, reg_zero, reg_temp, branch_offset(&rom_translation_cache[SMC_WRITE_OFF]));
     }
 
     // Store the data (delay slot from the SMC branch)
-    if (realsize == 2) {
-      mips_emit_sw(reg_a1, reg_rv, base_addr);
-    } else if (realsize == 1) {
-      mips_emit_sh(reg_a1, reg_rv, base_addr);
-    } else {
-      mips_emit_sb(reg_a1, reg_rv, base_addr);
-    }
+    if (realsize == 2)
+      emit_sw(reg_a1, reg_rv, base_addr);
+    else if (realsize == 1)
+      emit_sh(reg_a1, reg_rv, base_addr);
+    else
+      emit_sb(reg_a1, reg_rv, base_addr);
 
     // Post processing store:
     // Signal that OAM was updated
     if (region == 7) {
       // Write any nonzero data
-      mips_emit_sw(reg_base, reg_base, ReOff_OamUpd);
+      emit_sw(reg_base, reg_base, ReOff_OamUpd);
       generate_function_return_swap_delay();
     }
     else {
       mips_emit_jr(mips_reg_ra);
-      mips_emit_nop();
+      emit_nop();
     }
   }
 
@@ -2470,31 +2447,31 @@ public:
     tmemst[memop_number][5] = (u32)emit_ptr;
 
     // First check we are in the right memory region (same as loads)
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_xori(reg_temp, reg_temp, 5);
+    emit_srl(reg_temp, reg_a0, 24);
+    emit_xori(reg_temp, reg_temp, 5);
     mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(memop_number));
-    mips_emit_andi(reg_rv, reg_a0, memmask);   // Clear upper bits (mirroring)
+    emit_andi(reg_rv, reg_a0, memmask);   // Clear upper bits (mirroring)
     if (size == 0) {
       double_byte(reg_a1, reg_temp);    // value = value | (value << 8)
     }
-    mips_emit_addu(reg_rv, reg_rv, reg_base);
+    emit_addu(reg_rv, reg_rv, reg_base);
 
     // Store the data in real palette memory
     if (realsize == 2) {
-      mips_emit_sw(reg_a1, reg_rv, 0x100);
+      emit_sw(reg_a1, reg_rv, 0x100);
     } else if (realsize == 1) {
-      mips_emit_sh(reg_a1, reg_rv, 0x100);
+      emit_sh(reg_a1, reg_rv, 0x100);
     }
 
     // Convert and store in mirror memory
     palette_convert();
-    mips_emit_sh(reg_temp, reg_rv, 0x500);
+    emit_sh(reg_temp, reg_rv, 0x500);
 
     if (size == 2) {
       // Convert the second half-word also
-      mips_emit_srl(reg_a1, reg_a1, 16);
+      emit_srl(reg_a1, reg_a1, 16);
       palette_convert();
-      mips_emit_sh(reg_temp, reg_rv, 0x502);
+      emit_sh(reg_temp, reg_rv, 0x502);
     }
     generate_function_return_swap_delay();
   }
@@ -2503,32 +2480,32 @@ public:
   void emit_ignorestore_stub(unsigned size) {
     // Region 0-1 (BIOS and ignore)
     tmemst[size][0] = tmemst[size][1] = (u32)emit_ptr;
-    mips_emit_srl(reg_temp, reg_a0, 25);               // Check 7 MSB to be zero
+    emit_srl(reg_temp, reg_a0, 25);               // Check 7 MSB to be zero
     mips_emit_b(bne, reg_temp, reg_zero, st_phndlr_branch(size));
-    mips_emit_nop();
+    emit_nop();
     mips_emit_jr(mips_reg_ra);
-    mips_emit_nop();
+    emit_nop();
 
     // Region 9-C
     tmemst[size][ 9] = tmemst[size][10] =
     tmemst[size][11] = tmemst[size][12] = (u32)emit_ptr;
 
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_addiu(reg_temp, reg_temp, -9);
-    mips_emit_srl(reg_temp, reg_temp, 2);
+    emit_srl(reg_temp, reg_a0, 24);
+    emit_addiu(reg_temp, reg_temp, -9);
+    emit_srl(reg_temp, reg_temp, 2);
     mips_emit_b(bne, reg_temp, reg_zero, st_phndlr_branch(size));
-    mips_emit_nop();
+    emit_nop();
     mips_emit_jr(mips_reg_ra);
-    mips_emit_nop();
+    emit_nop();
 
     // Region F or higher
     tmemst[size][15] = (u32)emit_ptr;
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_sltiu(reg_rv, reg_temp, 0x0F);  // Is < 15?
+    emit_srl(reg_temp, reg_a0, 24);
+    emit_sltiu(reg_rv, reg_temp, 0x0F);  // Is < 15?
     mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(size));
-    mips_emit_nop();
+    emit_nop();
     mips_emit_jr(mips_reg_ra);
-    mips_emit_nop();
+    emit_nop();
   }
 
   // Stubs for regions with EEPROM or flash/SRAM (also RTC)
@@ -2552,49 +2529,49 @@ public:
       for (i = ldopmap[opt][0]; i < ldopmap[opt][1]; i++)
         tmemld[i][13] = (u32)emit_ptr;
       // Emit just a check + patch jump
-      mips_emit_srl(reg_temp, reg_a0, 24);
-      mips_emit_xori(reg_rv, reg_temp, 0x0D);
+      emit_srl(reg_temp, reg_a0, 24);
+      emit_xori(reg_rv, reg_temp, 0x0D);
       mips_emit_b(bne, reg_rv, reg_zero, branch_handlerid(opt));
-      mips_emit_nop();
+      emit_nop();
       mips_emit_b(beq, reg_zero, reg_zero, branch_offset(read_hndlr));
     }
     // This is for stores
     for (strop = 0; strop <= 3; strop++) {
       tmemst[strop][13] = (u32)emit_ptr;
-      mips_emit_srl(reg_temp, reg_a0, 24);
-      mips_emit_xori(reg_rv, reg_temp, 0x0D);
+      emit_srl(reg_temp, reg_a0, 24);
+      emit_xori(reg_rv, reg_temp, 0x0D);
       mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
-      mips_emit_nop();
+      emit_nop();
       mips_emit_b(beq, reg_zero, reg_zero, branch_offset(write_hndlr));
     }
 
     // Flash/SRAM/Backup writes are only 8 byte supported
     for (strop = 0; strop <= 3; strop++) {
       tmemst[strop][14] = (u32)emit_ptr;
-      mips_emit_srl(reg_temp, reg_a0, 24);
-      mips_emit_xori(reg_rv, reg_temp, 0x0E);
+      emit_srl(reg_temp, reg_a0, 24);
+      emit_xori(reg_rv, reg_temp, 0x0E);
       mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
       if (strop == 0) {
         emit_mem_call(&write_backup, 0xFFFF);
       } else {
-        mips_emit_nop();
+        emit_nop();
         mips_emit_jr(mips_reg_ra);   // Does nothing in this case
-        mips_emit_nop();
+        emit_nop();
       }
     }
 
     // RTC writes, only for 16 bit accesses
     for (strop = 0; strop <= 3; strop++) {
       tmemst[strop][8] = (u32)emit_ptr;
-      mips_emit_srl(reg_temp, reg_a0, 24);
-      mips_emit_xori(reg_rv, reg_temp, 0x08);
+      emit_srl(reg_temp, reg_a0, 24);
+      emit_xori(reg_rv, reg_temp, 0x08);
       mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
       if (strop == 1) {
         emit_mem_call(&write_gpio, 0xFF);  // Addr
       } else {
-        mips_emit_nop();
+        emit_nop();
         mips_emit_jr(mips_reg_ra);   // Do nothing
-        mips_emit_nop();
+        emit_nop();
       }
     }
 
@@ -2607,24 +2584,24 @@ public:
     const u32 amsk[] = {0x3FF, 0x3FE, 0x3FC, 0x3FC};
     for (strop = 0; strop <= 3; strop++) {
       tmemst[strop][4] = (u32)emit_ptr;
-      mips_emit_srl(reg_temp, reg_a0, 24);
-      mips_emit_xori(reg_temp, reg_temp, 0x04);
+      emit_srl(reg_temp, reg_a0, 24);
+      emit_xori(reg_temp, reg_temp, 0x04);
       mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(strop));
 
-      mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3); // Store the return addr
+      emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3); // Store the return addr
       emit_save_regs(strop == 3);
-      mips_emit_andi(reg_a0, reg_a0, amsk[strop]);
+      emit_andi(reg_a0, reg_a0, amsk[strop]);
       genccall(iowrtbl[strop]);
 
       if (strop < 3) {
-        mips_emit_sw(reg_a2, reg_base, ReOff_RegPC);   // Save PC (delay)
+        emit_sw(reg_a2, reg_base, ReOff_RegPC);   // Save PC (delay)
         // If I/O writes returns non-zero, means we need to process side-effects.
         mips_emit_b(bne, reg_zero, reg_rv, branch_offset(&rom_translation_cache[IOEPILOGUE_OFF]));
-        mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);   // (in delay slot but not used)
+        emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);   // (in delay slot but not used)
         emit_restore_regs(false);
       } else {
-        mips_emit_nop();
-        mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);
+        emit_nop();
+        emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);
         emit_restore_regs(true);
       }
       generate_function_return_swap_delay();
@@ -2646,11 +2623,11 @@ public:
 
     // Alignment is ignored since the handlers do the magic for us
     // Only check region match: if we are accessing a non-ignore region
-    mips_emit_srl(reg_temp, reg_a0, 24);
-    mips_emit_sltiu(reg_rv, reg_temp, 0x0F);
-    mips_emit_addiu(reg_temp, reg_temp, -1);
-    mips_emit_sltu(reg_temp, reg_zero, reg_temp);
-    mips_emit_and(reg_temp, reg_temp, reg_rv);
+    emit_srl(reg_temp, reg_a0, 24);
+    emit_sltiu(reg_rv, reg_temp, 0x0F);
+    emit_addiu(reg_temp, reg_temp, -1);
+    emit_sltu(reg_temp, reg_zero, reg_temp);
+    emit_and(reg_temp, reg_temp, reg_rv);
 
     // Jump to patch handler
     mips_emit_b(bne, reg_zero, reg_temp, branch_handlerid(opt));
@@ -2660,16 +2637,14 @@ public:
       openld_core_ptrs[i] = (u32*)emit_ptr;
 
     emit_save_regs(true);
-    mips_emit_sw(mips_reg_ra, reg_base, ReOff_SaveR1);   // Delay slot
+    emit_sw(mips_reg_ra, reg_base, ReOff_SaveR1);   // Delay slot
     genccall(hndreadtbl[size + (signext ? 3 : 0)]);
-    if (opt < 5) {
-      mips_emit_sw(reg_a1, reg_base, ReOff_RegPC);       // Save current PC
-    } else {
-      // Aligned loads do not hold PC in a1 (imprecision)
-      mips_emit_nop();
-    }
+    if (opt < 5)
+      emit_sw(reg_a1, reg_base, ReOff_RegPC);       // Save current PC
+    else
+      emit_nop();   // Aligned loads do not hold PC in a1 (imprecision)
 
-    mips_emit_lw(mips_reg_ra, reg_base, ReOff_SaveR1);
+    emit_lw(mips_reg_ra, reg_base, ReOff_SaveR1);
     emit_restore_regs(true);
     generate_function_return_swap_delay();
   }
@@ -2681,17 +2656,17 @@ public:
   void emit_phand(unsigned size, unsigned toff, bool check_alignment) {
     u8 *iptr = emit_ptr;
 
-    mips_emit_srl(reg_temp, reg_a0, 24);
+    emit_srl(reg_temp, reg_a0, 24);
     #ifdef PSP
-      mips_emit_addiu(reg_rv, reg_zero, 15*4);  // Table limit (max)
-      mips_emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
+      emit_addiu(reg_rv, reg_zero, 15*4);  // Table limit (max)
+      emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
       mips_emit_min(reg_temp, reg_temp, reg_rv);// Do not overflow table
     #else
-      mips_emit_sltiu(reg_rv, reg_temp, 0x0F);  // Check for addr 0x1XXX.. 0xFXXX
-      mips_emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
+      emit_sltiu(reg_rv, reg_temp, 0x0F);  // Check for addr 0x1XXX.. 0xFXXX
+      emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
       mips_emit_b(bne, reg_zero, reg_rv, 1);    // Skip next inst if region is good
       generate_swap_delay();
-      mips_emit_addiu(reg_temp, reg_zero, 15*4);// Simulate ld/st to 0x0FXXX (open/ignore)
+      emit_addiu(reg_temp, reg_zero, 15*4);// Simulate ld/st to 0x0FXXX (open/ignore)
     #endif
 
     // Stores or byte-accesses do not care about alignment
@@ -2702,10 +2677,10 @@ public:
 
     unsigned tbloff = 256 + 3*1024 + 220 + 4 * toff;  // Skip regs and RAMs
     unsigned tbloff2 = tbloff + 960;              // JAL opcode table
-    mips_emit_addu(reg_temp, reg_temp, reg_base); // Add to the base_reg the table offset
-    mips_emit_lw(reg_rv,   reg_temp, tbloff);     // Get func addr from 1st table
-    mips_emit_lw(reg_temp, reg_temp, tbloff2);    // Get opcode from 2nd table
-    mips_emit_sw(reg_temp, mips_reg_ra, -8);      // Patch instruction!
+    emit_addu(reg_temp, reg_temp, reg_base); // Add to the base_reg the table offset
+    emit_lw(reg_rv,   reg_temp, tbloff);     // Get func addr from 1st table
+    emit_lw(reg_temp, reg_temp, tbloff2);    // Get opcode from 2nd table
+    emit_sw(reg_temp, mips_reg_ra, -8);      // Patch instruction!
 
     #if defined(PSP)
       mips_emit_cache(0x1A, mips_reg_ra, -8);
@@ -2720,9 +2695,8 @@ public:
 
     // Round up handlers to 16 instructions for easy addressing
     // PSP/MIPS32r2 uses up to 12 insts
-    while (emit_ptr - iptr < 64) {
-      mips_emit_nop();
-    }
+    while (emit_ptr - iptr < 64)
+      emit_nop();
   }
 
   // This function emits the following stubs:
@@ -2752,15 +2726,15 @@ public:
 
     // Trampoline area
     mips_emit_j(((u32)&smc_write) >> 2);
-    mips_emit_nop();
+    emit_nop();
 
     mips_emit_j(((u32)&write_io_epilogue) >> 2);
-    mips_emit_nop();
+    emit_nop();
 
     // Special trampoline for SP-relative ldm/stm (to EWRAM)
     generate_load_imm(reg_a1, 0x3FFFC);
-    mips_emit_and(reg_a1, reg_a1, reg_a2);
-    mips_emit_lui(reg_a0, ((u32)(ewram + 0x8000) >> 16));
+    emit_and(reg_a1, reg_a1, reg_a2);
+    emit_lui(reg_a0, ((u32)(ewram + 0x8000) >> 16));
     generate_function_return_swap_delay();
 
     // Generate the openload handlers (for accesses to unmapped mem)

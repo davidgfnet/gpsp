@@ -30,14 +30,15 @@ all:
 	$(X86PFX)objcopy -j .text -O binary bytecoderef.o bytecoderef.bin
 	@ cmp bytecoderef.bin bytecode.bin || echo "Bytecode mismatch"
 	@ cmp bytecoderef.bin bytecode.bin && echo "Test passed!"
-
-	#gcc -o mipsgen mipsgen.c -ggdb -I../mips/
-	#./mipsgen > bytecode.bin
-	#$(MIPS32PFX)-as -EL -o bytecoderef.o mipsgen.S
-	#$(MIPS32PFX)-objcopy -j .text -O binary bytecoderef.o bytecoderef.bin
-	#@ cmp bytecoderef.bin bytecode.bin || echo "Bytecode mismatch"
-	#@ cmp bytecoderef.bin bytecode.bin && echo "Test passed!"
-	lcov -a arm64gen.info -a x86gen.info -o total.info
+	
+	g++ -o mipsgen mipsgen.c -ggdb -I../mips/ -I.. $(COVERAGE_FLAGS)
+	./mipsgen > bytecode.bin
+	lcov -c -d . -o mipsgen.info
+	$(MIPS32PFX)-as -EL -o bytecoderef.o mipsgen.S
+	$(MIPS32PFX)-objcopy -j .text -O binary bytecoderef.o bytecoderef.bin
+	@ cmp bytecoderef.bin bytecode.bin || echo "Bytecode mismatch"
+	@ cmp bytecoderef.bin bytecode.bin && echo "Test passed!"
+	lcov -a arm64gen.info -a x86gen.info -a arm32gen.info -a mipsgen.info -o total.info
 	rm -rf coverage/
 	genhtml -o coverage/ total.info
 

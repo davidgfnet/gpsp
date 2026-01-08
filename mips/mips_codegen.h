@@ -1,6 +1,7 @@
 /* gameplaySP
  *
  * Copyright (C) 2006 Exophase <exophase@gmail.com>
+ * Copyright (C) 2026 David Guillen Fandos <david@davidgf.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -17,8 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-typedef enum
-{
+typedef enum {
   mips_reg_zero =  0,
   mips_reg_at   =  1,
   mips_reg_v0   =  2,
@@ -51,10 +51,9 @@ typedef enum
   mips_reg_sp   = 29,
   mips_reg_fp   = 30,
   mips_reg_ra   = 31
-} mips_reg_number;
+} mips_regnum;
 
-typedef enum
-{
+typedef enum {
   mips_special_sll       = 0x00,
   mips_special_srl       = 0x02,
   mips_special_sra       = 0x03,
@@ -152,14 +151,200 @@ typedef enum
   mips_opcode_cache      = 0x2F,
 } mips_opcode;
 
+class MIPSEmitter : public CodeEmitterBase {
+private:
+
+  inline void emit_inst(uint32_t opcode, uint32_t args) {
+    *(uint32_t*)this->emit_ptr = (opcode << 26) | args;
+    this->emit_ptr += 4;
+  }
+
+  inline void emit_imm(uint32_t opcode, uint32_t rs, uint32_t rt, uint16_t imm) {
+    emit_inst(opcode, (rs << 21) | (rt << 16) | imm);
+  }
+
+  inline void emit_special(mips_function_special fn, uint32_t rs, uint32_t rt, uint32_t rd, uint8_t shift) {
+    emit_inst(mips_opcode_special, (rs << 21) | (rt << 16) | (rd << 11) | (shift << 6) | fn);
+  }
+
+  inline void emit_special3(mips_function_special3 fn, uint32_t rs, uint32_t rt, uint32_t imma, uint32_t immb) {
+    emit_inst(mips_opcode_special3, (rs << 21) | (rt << 16) | (imma << 11) | (immb << 6) | fn);
+  }
+
+
+public:
+
+  MIPSEmitter(uint8_t *emit_ptr, uint8_t *emit_end)
+   : CodeEmitterBase(emit_ptr, emit_end) {}
+
+  inline void emit_nop() {
+    emit_sll(mips_reg_zero, mips_reg_zero, 0);
+  }
+  inline void emit_sync() {
+    emit_special(mips_special_sync, 0, 0, 0, 0);
+  }
+
+  inline void emit_lui(uint32_t rt, uint16_t imm) {
+    emit_imm(mips_opcode_lui, 0, rt, imm);
+  }
+
+  // Immediate instructions (16 bit imm)
+  inline void emit_addiu(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_addiu, rs, rt, imm);
+  }
+  inline void emit_xori(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_xori, rs, rt, imm);
+  }
+  inline void emit_andi(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_andi, rs, rt, imm);
+  }
+  inline void emit_ori(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_ori, rs, rt, imm);
+  }
+  inline void emit_slti(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_slti, rs, rt, imm);
+  }
+  inline void emit_sltiu(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_sltiu, rs, rt, imm);
+  }
+
+  // Memory (load/store) opcodes
+  inline void emit_lw(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_lw, rs, rt, imm);
+  }
+  inline void emit_sw(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_sw, rs, rt, imm);
+  }
+  inline void emit_lb(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_lb, rs, rt, imm);
+  }
+  inline void emit_lbu(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_lbu, rs, rt, imm);
+  }
+  inline void emit_sb(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_sb, rs, rt, imm);
+  }
+  inline void emit_lh(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_lh, rs, rt, imm);
+  }
+  inline void emit_lhu(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_lhu, rs, rt, imm);
+  }
+  inline void emit_sh(uint32_t rt, uint32_t rs, uint16_t imm) {
+    emit_imm(mips_opcode_sh, rs, rt, imm);
+  }
+
+  // Shift special opcodes
+  inline void emit_sll(uint32_t rd, uint32_t rt, uint8_t shift) {
+    emit_special(mips_special_sll, 0, rt, rd, shift);
+  }
+  inline void emit_srl(uint32_t rd, uint32_t rt, uint8_t shift) {
+    emit_special(mips_special_srl, 0, rt, rd, shift);
+  }
+  inline void emit_sra(uint32_t rd, uint32_t rt, uint8_t shift) {
+    emit_special(mips_special_sra, 0, rt, rd, shift);
+  }
+  inline void emit_rotr(uint32_t rd, uint32_t rt, uint8_t shift) {
+    emit_special(mips_special_srl, 1, rt, rd, shift);
+  }
+  inline void emit_sllv(uint32_t rd, uint32_t rt, uint32_t rs) {
+    emit_special(mips_special_sllv, rs, rt, rd, 0);
+  }
+  inline void emit_srlv(uint32_t rd, uint32_t rt, uint32_t rs) {
+    emit_special(mips_special_srlv, rs, rt, rd, 0);
+  }
+  inline void emit_srav(uint32_t rd, uint32_t rt, uint32_t rs) {
+    emit_special(mips_special_srav, rs, rt, rd, 0);
+  }
+  inline void emit_rotrv(uint32_t rd, uint32_t rt, uint32_t rs) {
+    emit_special(mips_special_srlv, rs, rt, rd, 1);
+  }
+
+  // Arithmetic instructions (reg)
+  inline void emit_addu(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_addu, rs, rt, rd, 0);
+  }
+  inline void emit_subu(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_subu, rs, rt, rd, 0);
+  }
+  inline void emit_slt(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_slt, rs, rt, rd, 0);
+  }
+  inline void emit_sltu(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_sltu, rs, rt, rd, 0);
+  }
+  inline void emit_max(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_max, rs, rt, rd, 0);
+  }
+  inline void emit_min(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_min, rs, rt, rd, 0);
+  }
+
+  // Logic instructions (reg)
+  inline void emit_xor(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_xor, rs, rt, rd, 0);
+  }
+  inline void emit_and(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_and, rs, rt, rd, 0);
+  }
+  inline void emit_or(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_or, rs, rt, rd, 0);
+  }
+  inline void emit_nor(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_nor, rs, rt, rd, 0);
+  }
+  inline void emit_movn(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_movn, rs, rt, rd, 0);
+  }
+  inline void emit_movz(uint32_t rd, uint32_t rs, uint32_t rt) {
+    emit_special(mips_special_movz, rs, rt, rd, 0);
+  }
+
+  inline void emit_ext(uint32_t rt, uint32_t rs, uint32_t pos, uint32_t size) {
+    emit_special3(mips_special3_ext, rs, rt, (size - 1), pos);
+  }
+  inline void emit_ins(uint32_t rt, uint32_t rs, uint32_t pos, uint32_t size) {
+    emit_special3(mips_special3_ins, rs, rt, (pos + size -1 ), pos);
+  }
+  inline void emit_seb(uint32_t rd, uint32_t rt) {
+    emit_special3(mips_special3_bshfl, 0, rt, rd, mips_bshfl_seb);
+  }
+  inline void emit_seh(uint32_t rd, uint32_t rt) {
+    emit_special3(mips_special3_bshfl, 0, rt, rd, mips_bshfl_seh);
+  }
+
+  // mul/div
+  inline void emit_mfhi(mips_regnum rd) {
+    emit_special(mips_special_mfhi, 0, 0, rd, 0);
+  }
+  inline void emit_mflo(mips_regnum rd) {
+    emit_special(mips_special_mflo, 0, 0, rd, 0);
+  }
+  inline void emit_mthi(mips_regnum rs) {
+    emit_special(mips_special_mthi, rs, 0, 0, 0);
+  }
+  inline void emit_mtlo(mips_regnum rs) {
+    emit_special(mips_special_mtlo, rs, 0, 0, 0);
+  }
+  inline void emit_mult(mips_regnum rs, mips_regnum rt) {
+    emit_special(mips_special_mult, rs, rt, 0, 0);
+  }
+  inline void emit_multu(mips_regnum rs, mips_regnum rt) {
+    emit_special(mips_special_multu, rs, rt, 0, 0);
+  }
+  inline void emit_div(mips_regnum rs, mips_regnum rt) {
+    emit_special(mips_special_div, rs, rt, 0, 0);
+  }
+  inline void emit_divu(mips_regnum rs, mips_regnum rt) {
+    emit_special(mips_special_divu, rs, rt, 0, 0);
+  }
+
+};
+
+
 #define mips_emit_cache(operation, rs, immediate)                             \
   *((u32 *)this->emit_ptr) = (mips_opcode_cache << 26) |                      \
    (rs << 21) | (operation << 16) | (immediate & 0xFFFF);                     \
-  this->emit_ptr += 4                                                         \
-
-#define mips_emit_reg(opcode, rs, rt, rd, shift, function)                    \
-  *((u32 *)this->emit_ptr) = (mips_opcode_##opcode << 26) |                   \
-  (rs << 21) | (rt << 16) | (rd << 11) | ((shift) << 6) | function;           \
   this->emit_ptr += 4                                                         \
 
 #define mips_emit_special(function, rs, rt, rd, shift)                        \
@@ -174,13 +359,7 @@ typedef enum
    mips_special2_##function;                                                  \
   this->emit_ptr += 4                                                         \
 
-#define mips_emit_special3(function, rs, rt, imm_a, imm_b)                    \
-  *((u32 *)this->emit_ptr) = (mips_opcode_special3 << 26) |                   \
-   (rs << 21) | (rt << 16) | (imm_a << 11) | (imm_b << 6) |                   \
-   mips_special3_##function;                                                  \
-  this->emit_ptr += 4                                                         \
-
-#define mips_emit_imm(opcode, rs, rt, immediate)                              \
+#define lmips_emit_imm(opcode, rs, rt, immediate)                              \
   *((u32 *)this->emit_ptr) = (mips_opcode_##opcode << 26) |                   \
    (rs << 21) | (rt << 16) | ((immediate) & 0xFFFF);                          \
   this->emit_ptr += 4                                                         \
@@ -201,84 +380,6 @@ typedef enum
 #define mips_absolute_offset(offset)                                          \
   ((u32)offset / 4)                                                           \
 
-#define mips_emit_max(rd, rs, rt)                                             \
-  mips_emit_special(max, rs, rt, rd, 0)                                       \
-
-#define mips_emit_min(rd, rs, rt)                                             \
-  mips_emit_special(min, rs, rt, rd, 0)                                       \
-
-#define mips_emit_addu(rd, rs, rt)                                            \
-  mips_emit_special(addu, rs, rt, rd, 0)                                      \
-
-#define mips_emit_subu(rd, rs, rt)                                            \
-  mips_emit_special(subu, rs, rt, rd, 0)                                      \
-
-#define mips_emit_xor(rd, rs, rt)                                             \
-  mips_emit_special(xor, rs, rt, rd, 0)                                       \
-
-#define mips_emit_and(rd, rs, rt)                                             \
-  mips_emit_special(and, rs, rt, rd, 0)                                       \
-
-#define mips_emit_or(rd, rs, rt)                                              \
-  mips_emit_special(or, rs, rt, rd, 0)                                        \
-
-#define mips_emit_nor(rd, rs, rt)                                             \
-  mips_emit_special(nor, rs, rt, rd, 0)                                       \
-
-#define mips_emit_slt(rd, rs, rt)                                             \
-  mips_emit_special(slt, rs, rt, rd, 0)                                       \
-
-#define mips_emit_sltu(rd, rs, rt)                                            \
-  mips_emit_special(sltu, rs, rt, rd, 0)                                      \
-
-#define mips_emit_sllv(rd, rt, rs)                                            \
-  mips_emit_special(sllv, rs, rt, rd, 0)                                      \
-
-#define mips_emit_srlv(rd, rt, rs)                                            \
-  mips_emit_special(srlv, rs, rt, rd, 0)                                      \
-
-#define mips_emit_srav(rd, rt, rs)                                            \
-  mips_emit_special(srav, rs, rt, rd, 0)                                      \
-
-#define mips_emit_rotrv(rd, rt, rs)                                           \
-  mips_emit_special(srlv, rs, rt, rd, 1)                                      \
-
-#define mips_emit_sll(rd, rt, shift)                                          \
-  mips_emit_special(sll, 0, rt, rd, shift)                                    \
-
-#define mips_emit_srl(rd, rt, shift)                                          \
-  mips_emit_special(srl, 0, rt, rd, shift)                                    \
-
-#define mips_emit_sra(rd, rt, shift)                                          \
-  mips_emit_special(sra, 0, rt, rd, shift)                                    \
-
-#define mips_emit_rotr(rd, rt, shift)                                         \
-  mips_emit_special(srl, 1, rt, rd, shift)                                    \
-
-#define mips_emit_mfhi(rd)                                                    \
-  mips_emit_special(mfhi, 0, 0, rd, 0)                                        \
-
-#define mips_emit_mflo(rd)                                                    \
-  mips_emit_special(mflo, 0, 0, rd, 0)                                        \
-
-#define mips_emit_mthi(rs)                                                    \
-  mips_emit_special(mthi, rs, 0, 0, 0)                                        \
-
-#define mips_emit_mtlo(rs)                                                    \
-  mips_emit_special(mtlo, rs, 0, 0, 0)                                        \
-
-#define mips_emit_mult(rs, rt)                                                \
-  mips_emit_special(mult, rs, rt, 0, 0)                                       \
-
-#define mips_emit_multu(rs, rt)                                               \
-  mips_emit_special(multu, rs, rt, 0, 0)                                      \
-
-#define mips_emit_div(rs, rt)                                                 \
-  mips_emit_special(div, rs, rt, 0, 0)                                        \
-
-#define mips_emit_divu(rs, rt)                                                \
-  mips_emit_special(divu, rs, rt, 0, 0)                                       \
-
 #ifdef PSP
   #define mips_emit_madd(rs, rt)                                              \
     mips_emit_special(madd, rs, rt, 0, 0)                                     \
@@ -293,71 +394,6 @@ typedef enum
     mips_emit_special2(maddu, rs, rt, 0, 0)
 #endif
 
-#define mips_emit_movn(rd, rs, rt)                                            \
-  mips_emit_special(movn, rs, rt, rd, 0)                                      \
-
-#define mips_emit_movz(rd, rs, rt)                                            \
-  mips_emit_special(movz, rs, rt, rd, 0)                                      \
-
-#define mips_emit_sync()                                                      \
-  mips_emit_special(sync, 0, 0, 0, 0)                                         \
-
-#define mips_emit_lb(rt, rs, offset)                                          \
-  mips_emit_imm(lb, rs, rt, offset)                                           \
-
-#define mips_emit_lbu(rt, rs, offset)                                         \
-  mips_emit_imm(lbu, rs, rt, offset)                                          \
-
-#define mips_emit_lh(rt, rs, offset)                                          \
-  mips_emit_imm(lh, rs, rt, offset)                                           \
-
-#define mips_emit_lhu(rt, rs, offset)                                         \
-  mips_emit_imm(lhu, rs, rt, offset)                                          \
-
-#define mips_emit_lw(rt, rs, offset)                                          \
-  mips_emit_imm(lw, rs, rt, offset)                                           \
-
-#define mips_emit_sb(rt, rs, offset)                                          \
-  mips_emit_imm(sb, rs, rt, offset)                                           \
-
-#define mips_emit_sh(rt, rs, offset)                                          \
-  mips_emit_imm(sh, rs, rt, offset)                                           \
-
-#define mips_emit_sw(rt, rs, offset)                                          \
-  mips_emit_imm(sw, rs, rt, offset)                                           \
-
-#define mips_emit_lui(rt, imm)                                                \
-  mips_emit_imm(lui, 0, rt, imm)                                              \
-
-#define mips_emit_addiu(rt, rs, imm)                                          \
-  mips_emit_imm(addiu, rs, rt, imm)                                           \
-
-#define mips_emit_xori(rt, rs, imm)                                           \
-  mips_emit_imm(xori, rs, rt, imm)                                            \
-
-#define mips_emit_ori(rt, rs, imm)                                            \
-  mips_emit_imm(ori, rs, rt, imm)                                             \
-
-#define mips_emit_andi(rt, rs, imm)                                           \
-  mips_emit_imm(andi, rs, rt, imm)                                            \
-
-#define mips_emit_slti(rt, rs, imm)                                           \
-  mips_emit_imm(slti, rs, rt, imm)                                            \
-
-#define mips_emit_sltiu(rt, rs, imm)                                          \
-  mips_emit_imm(sltiu, rs, rt, imm)                                           \
-
-#define mips_emit_ext(rt, rs, pos, size)                                      \
-  mips_emit_special3(ext, rs, rt, (size - 1), pos)                            \
-
-#define mips_emit_ins(rt, rs, pos, size)                                      \
-  mips_emit_special3(ins, rs, rt, (pos + size - 1), pos)                      \
-
-#define mips_emit_seb(rd, rt)                                                 \
-  mips_emit_special3(bshfl, 0, rt, rd, mips_bshfl_seb)                        \
-
-#define mips_emit_seh(rd, rt)                                                 \
-  mips_emit_special3(bshfl, 0, rt, rd, mips_bshfl_seh)                        \
 
 
 // Breaks down if the backpatch offset is greater than 16bits, take care
@@ -365,7 +401,7 @@ typedef enum
 
 #define mips_emit_b_filler(type, rs, rt, writeback_location)                  \
   (writeback_location) = this->emit_ptr;                                      \
-  mips_emit_imm(type, rs, rt, 0)                                              \
+  lmips_emit_imm(type, rs, rt, 0)                                              \
 
 // The backpatch code for this has to be handled differently than the above
 
@@ -374,7 +410,7 @@ typedef enum
   mips_emit_jump(j, 0)                                                        \
 
 #define mips_emit_b(type, rs, rt, offset)                                     \
-  mips_emit_imm(type, rs, rt, offset)                                         \
+  lmips_emit_imm(type, rs, rt, offset)                                         \
 
 #define mips_emit_j(offset)                                                   \
   mips_emit_jump(j, offset)                                                   \
@@ -399,8 +435,5 @@ typedef enum
 
 #define mips_emit_bltz(rs, offset)                                            \
   mips_emit_regimm(bltz, rs, offset)                                          \
-
-#define mips_emit_nop()                                                       \
-  mips_emit_sll(mips_reg_zero, mips_reg_zero, 0)                              \
 
 

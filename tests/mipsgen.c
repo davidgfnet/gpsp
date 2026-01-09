@@ -9,11 +9,10 @@
 
 int main() {
   u8 buffer[8*1024];
-  ARMEmitter ce(&buffer[0], &buffer[1024]);
-  u8 & *translation_ptr = ce.emit_ptr;
+  MIPSEmitter ce(&buffer[0], &buffer[1024]);
 
-  emit_nop();
-  emit_nop();
+  ce.emit_nop();
+  ce.emit_nop();
 
   ce.emit_addu(mips_reg_a0, mips_reg_a1, mips_reg_a2);
   ce.emit_addu(mips_reg_sp, mips_reg_ra, mips_reg_s4);
@@ -82,17 +81,17 @@ int main() {
   ce.emit_divu(mips_reg_a2, mips_reg_a3);
   ce.emit_divu(mips_reg_s2, mips_reg_s4);
 
-  mips_emit_jr(mips_reg_a1);
-  mips_emit_jr(mips_reg_ra);
-  mips_emit_jalr(mips_reg_a1);
-  mips_emit_jalr(mips_reg_s4);
+  ce.emit_jr(mips_reg_a1);
+  ce.emit_jr(mips_reg_ra);
+  ce.emit_jalr(mips_reg_a1);
+  ce.emit_jalr(mips_reg_s4);
 
-  mips_emit_bltzal(mips_reg_a0, 5);
-  mips_emit_bltzal(mips_reg_s4, 4);
-  mips_emit_bgezal(mips_reg_a0, 3);
-  mips_emit_bgezal(mips_reg_s4, 2);
-  mips_emit_bltz(mips_reg_a0, 1);
-  mips_emit_bltz(mips_reg_s4, 0);
+  ce.emit_bltzal(mips_reg_a0, 5);
+  ce.emit_bltzal(mips_reg_s4, 4);
+  ce.emit_bgezal(mips_reg_a0, 3);
+  ce.emit_bgezal(mips_reg_s4, 2);
+  ce.emit_bltz(mips_reg_a0, 1);
+  ce.emit_bltz(mips_reg_s4, 0);
 
   const int off[] = {0, 1, -1, 0x7FFF, -0x8000};
   for (unsigned i = 0; i < 5; i++) {
@@ -117,7 +116,7 @@ int main() {
   ce.emit_seb(mips_reg_a3, mips_reg_t1);
   ce.emit_seh(mips_reg_a3, mips_reg_t1);
 
-  fwrite(buffer, 1, translation_ptr-(u8*)buffer, stdout);
+  fwrite(buffer, 1, ce.emit_ptr-buffer, stdout);
 }
 
 

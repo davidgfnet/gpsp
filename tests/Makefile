@@ -34,8 +34,8 @@ all:
 	g++ -o mipsgen mipsgen.c -ggdb -I../mips/ -I.. $(COVERAGE_FLAGS)
 	./mipsgen > bytecode.bin
 	lcov -c -d . -o mipsgen.info
-	$(MIPS32PFX)-as -EL -o bytecoderef.o mipsgen.S
-	$(MIPS32PFX)-objcopy -j .text -O binary bytecoderef.o bytecoderef.bin
+	$(MIPS32PFX)as -EL -o bytecoderef.o mipsgen.S
+	$(MIPS32PFX)objcopy -j .text -O binary bytecoderef.o bytecoderef.bin
 	@ cmp bytecoderef.bin bytecode.bin || echo "Bytecode mismatch"
 	@ cmp bytecoderef.bin bytecode.bin && echo "Test passed!"
 	lcov -a arm64gen.info -a x86gen.info -a arm32gen.info -a mipsgen.info -o total.info

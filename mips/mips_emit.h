@@ -180,16 +180,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
     }                                                                         \
   }                                                                           \
 
-#define generate_load_pc(ireg, new_pc)                                        \
-{                                                                             \
-  s32 pc_delta = (new_pc) - (this->block_pc);                                 \
-  if((pc_delta >= -32768) && (pc_delta <= 32767)) {                           \
-    emit_addiu(ireg, reg_pc, pc_delta);                                       \
-  } else {                                                                    \
-    generate_load_imm(ireg, (new_pc));                                        \
-  }                                                                           \
-}                                                                             \
-
 #define generate_store_reg(ireg, reg_index)                                   \
   emit_addu(arm_to_mips_reg[reg_index], ireg, reg_zero)                  \
 
@@ -197,7 +187,7 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
   emit_addu(ireg_dest, ireg_src, reg_zero)                               \
 
 #define generate_function_call(function_location)                             \
-  mips_emit_jal(mips_absolute_offset(function_location));                     \
+  emit_jal(mips_absolute_offset(function_location));                     \
   emit_nop()                                                             \
 
 #define generate_raw_u32(value)                                               \
@@ -208,7 +198,7 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 {                                                                             \
   u32 delay_instruction = address32(this->emit_ptr, -4);                      \
   this->emit_ptr -= 4;                                                        \
-  mips_emit_jal(mips_absolute_offset(function_location));                     \
+  emit_jal(mips_absolute_offset(function_location));                     \
   address32(this->emit_ptr, 0) = delay_instruction;                           \
   this->emit_ptr += 4;                                                        \
 }                                                                             \
@@ -217,7 +207,7 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 {                                                                             \
   u32 delay_instruction = address32(this->emit_ptr, -4);                      \
   this->emit_ptr -= 4;                                                        \
-  mips_emit_jr(mips_reg_ra);                                                  \
+  emit_jr(mips_reg_ra);                                                  \
   address32(this->emit_ptr, 0) = delay_instruction;                           \
   this->emit_ptr += 4;                                                        \
 }                                                                             \
@@ -251,21 +241,18 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
    ((mips_absolute_offset(offset)) & 0x3FFFFFF)                               \
 
 #define generate_branch_no_cycle_update(writeback_location, new_pc)           \
-  if(pc == idle_loop_target_pc)                                               \
-  {                                                                           \
-    generate_load_pc(reg_a0, new_pc);                                         \
+  if(pc == idle_loop_target_pc) {                                             \
+    emit_load_pc(reg_a0, new_pc);                                         \
     emit_lui(reg_cycles, 0);                                                  \
     generate_function_call_swap_delay(mips_update_gba);                       \
-    mips_emit_j_filler(writeback_location);                                   \
+    writeback_location = emit_j(0);                                           \
     emit_nop();                                                          \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_load_pc(reg_a0, new_pc);                                         \
-    mips_emit_bltzal(reg_cycles,                                              \
+  } else {                                                                     \
+    emit_load_pc(reg_a0, new_pc);                                         \
+    emit_bltzal(reg_cycles,                                              \
       mips_relative_offset(this->emit_ptr, update_trampoline));               \
     generate_swap_delay();                                                    \
-    mips_emit_j_filler(writeback_location);                                   \
+    writeback_location = emit_j(0);                                   \
     emit_nop();                                                          \
   }                                                                           \
 
@@ -276,69 +263,43 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 // a0 holds the destination
 
 #define generate_indirect_branch_cycle_update(type)                           \
-  mips_emit_j(mips_absolute_offset(mips_indirect_branch_##type));             \
+  emit_j(mips_absolute_offset(mips_indirect_branch_##type));             \
   generate_cycle_update_force()                                               \
 
 #define generate_indirect_branch_no_cycle_update(type)                        \
-  mips_emit_j(mips_absolute_offset(mips_indirect_branch_##type));             \
+  emit_j(mips_absolute_offset(mips_indirect_branch_##type));             \
   emit_nop()                                                             \
 
 
-#define check_generate_n_flag (flag_status & 0x08)
-#define check_generate_z_flag (flag_status & 0x04)
-#define check_generate_c_flag (flag_status & 0x02)
-#define check_generate_v_flag (flag_status & 0x01)
-
-#define generate_load_reg_pc(ireg, reg_index, pc_offset)                      \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
-    generate_load_pc(ireg, (pc + pc_offset));                                 \
-  }                                                                           \
-  else                                                                        \
-  {                                                                           \
-    generate_load_reg(ireg, reg_index);                                       \
-  }                                                                           \
-
 #define check_load_reg_pc(arm_reg, reg_index, pc_offset)                      \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
+  if(reg_index == REG_PC) {                                                   \
     reg_index = arm_reg;                                                      \
-    generate_load_pc(arm_to_mips_reg[arm_reg], (pc + pc_offset));             \
+    emit_load_pc(arm_to_mips_reg[arm_reg], (pc + pc_offset));             \
   }                                                                           \
 
 #define check_store_reg_pc_no_flags(reg_index)                                \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
+  if(reg_index == REG_PC) {                                                   \
     generate_indirect_branch_arm();                                           \
   }                                                                           \
 
 #define check_store_reg_pc_flags(reg_index)                                   \
-  if(reg_index == REG_PC)                                                     \
-  {                                                                           \
+  if(reg_index == REG_PC) {                                                   \
     generate_function_call(execute_spsr_restore);                             \
     generate_indirect_branch_dual();                                          \
   }                                                                           \
 
-#define generate_indirect_branch_arm()                                        \
-  {                                                                           \
-    if(condition == 0x0E)                                                     \
-    {                                                                         \
+#define generate_indirect_branch_arm() {                                      \
+    if(condition == 0x0E) {                                                   \
       generate_indirect_branch_cycle_update(arm);                             \
-    }                                                                         \
-    else                                                                      \
-    {                                                                         \
+    } else {                                                                  \
       generate_indirect_branch_no_cycle_update(arm);                          \
     }                                                                         \
   }                                                                           \
 
-#define generate_indirect_branch_dual()                                       \
-  {                                                                           \
-    if(condition == 0x0E)                                                     \
-    {                                                                         \
+#define generate_indirect_branch_dual() {                                     \
+    if(condition == 0x0E) {                                                   \
       generate_indirect_branch_cycle_update(dual);                            \
-    }                                                                         \
-    else                                                                      \
-    {                                                                         \
+    } else {                                                                  \
       generate_indirect_branch_no_cycle_update(dual);                         \
     }                                                                         \
   }                                                                           \
@@ -368,95 +329,6 @@ u32 execute_spsr_restore_body(u32 address)
 }
 
 
-// These generate a branch on the opposite condition on purpose.
-// For ARM mode we aim to skip instructions (therefore opposite)
-// In Thumb mode we skip the conditional branch in a similar way
-
-#define generate_condition_eq()                                               \
-  mips_emit_b_filler(beq, reg_z_cache, reg_zero, backpatch_address);          \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_ne()                                               \
-  mips_emit_b_filler(bne, reg_z_cache, reg_zero, backpatch_address);          \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_cs()                                               \
-  mips_emit_b_filler(beq, reg_c_cache, reg_zero, backpatch_address);          \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_cc()                                               \
-  mips_emit_b_filler(bne, reg_c_cache, reg_zero, backpatch_address);          \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_mi()                                               \
-  mips_emit_b_filler(beq, reg_n_cache, reg_zero, backpatch_address);          \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_pl()                                               \
-  mips_emit_b_filler(bne, reg_n_cache, reg_zero, backpatch_address);          \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_vs()                                               \
-  mips_emit_b_filler(beq, reg_v_cache, reg_zero, backpatch_address);          \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_vc()                                               \
-  mips_emit_b_filler(bne, reg_v_cache, reg_zero, backpatch_address);          \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_hi()                                               \
-  emit_xori(reg_temp, reg_c_cache, 1);                                   \
-  emit_or(reg_temp, reg_temp, reg_z_cache);                              \
-  mips_emit_b_filler(bne, reg_temp, reg_zero, backpatch_address);             \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_ls()                                               \
-  emit_xori(reg_temp, reg_c_cache, 1);                                   \
-  emit_or(reg_temp, reg_temp, reg_z_cache);                              \
-  mips_emit_b_filler(beq, reg_temp, reg_zero, backpatch_address);             \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_ge()                                               \
-  mips_emit_b_filler(bne, reg_n_cache, reg_v_cache, backpatch_address);       \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_lt()                                               \
-  mips_emit_b_filler(beq, reg_n_cache, reg_v_cache, backpatch_address);       \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_gt()                                               \
-  emit_xor(reg_temp, reg_n_cache, reg_v_cache);                          \
-  emit_or(reg_temp, reg_temp, reg_z_cache);                              \
-  mips_emit_b_filler(bne, reg_temp, reg_zero, backpatch_address);             \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition_le()                                               \
-  emit_xor(reg_temp, reg_n_cache, reg_v_cache);                          \
-  emit_or(reg_temp, reg_temp, reg_z_cache);                              \
-  mips_emit_b_filler(beq, reg_temp, reg_zero, backpatch_address);             \
-  generate_cycle_update_force()                                               \
-
-#define generate_condition()                                                  \
-  switch(condition)                                                           \
-  {                                                                           \
-    case 0x0: generate_condition_eq(); break;                                 \
-    case 0x1: generate_condition_ne(); break;                                 \
-    case 0x2: generate_condition_cs(); break;                                 \
-    case 0x3: generate_condition_cc(); break;                                 \
-    case 0x4: generate_condition_mi(); break;                                 \
-    case 0x5: generate_condition_pl(); break;                                 \
-    case 0x6: generate_condition_vs(); break;                                 \
-    case 0x7: generate_condition_vc(); break;                                 \
-    case 0x8: generate_condition_hi(); break;                                 \
-    case 0x9: generate_condition_ls(); break;                                 \
-    case 0xA: generate_condition_ge(); break;                                 \
-    case 0xB: generate_condition_lt(); break;                                 \
-    case 0xC: generate_condition_gt(); break;                                 \
-    case 0xD: generate_condition_le(); break;                                 \
-    default:                                                                  \
-      break;                                                                  \
-  }                                                                           \
-
 #define generate_branch()                                                     \
 {                                                                             \
   if(condition == 0x0E)                                                       \
@@ -474,12 +346,6 @@ u32 execute_spsr_restore_body(u32 address)
   block_exit_position++;                                                      \
 }                                                                             \
 
-#define generate_op_sub_reg(_rd, _rn, _rm)                                    \
-  emit_subu(_rd, _rn, _rm)                                               \
-
-#define generate_op_rsb_reg(_rd, _rn, _rm)                                    \
-  emit_subu(_rd, _rm, _rn)                                               \
-
 #define generate_op_sbc_reg(_rd, _rn, _rm)                                    \
   emit_subu(_rd, _rn, _rm);                                              \
   emit_xori(reg_temp, reg_c_cache, 1);                                   \
@@ -490,149 +356,99 @@ u32 execute_spsr_restore_body(u32 address)
   emit_addiu(reg_temp, reg_temp, -1);                                         \
   emit_subu(_rd, reg_temp, _rn)                                          \
 
-#define generate_op_add_reg(_rd, _rn, _rm)                                    \
-  emit_addu(_rd, _rn, _rm)                                               \
-
-#define generate_op_adc_reg(_rd, _rn, _rm)                                    \
-  emit_addu(reg_temp, _rm, reg_c_cache);                                 \
-  emit_addu(_rd, _rn, reg_temp)                                          \
-
-#define generate_op_logic_flags(_rd)                                          \
-  if(check_generate_n_flag)                                                   \
-  {                                                                           \
-    emit_srl(reg_n_cache, _rd, 31);                                      \
-  }                                                                           \
-  if(check_generate_z_flag)                                                   \
-  {                                                                           \
-    emit_sltiu(reg_z_cache, _rd, 1);                                     \
-  }                                                                           \
-
 #define generate_op_subs_reg(_rd, _rn, _rm)                                   \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_c()) {                                                       \
     emit_sltu(reg_c_cache, _rn, _rm);                                    \
     emit_xori(reg_c_cache, reg_c_cache, 1);                              \
   }                                                                           \
-  if(check_generate_v_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_v())                                                   \
     emit_slt(reg_v_cache, _rn, _rm);                                     \
-  }                                                                           \
   emit_subu(_rd, _rn, _rm);                                              \
-  generate_op_logic_flags(_rd);                                               \
-  if(check_generate_v_flag)                                                   \
-  {                                                                           \
-    if(!check_generate_n_flag)                                                \
+  update_nz_flags<SetFlags>(it, _rd);                                   \
+  if(it.gen_flag_v()) {                                                                           \
+    if(!it.gen_flag_n())                                                \
     {                                                                         \
       emit_srl(reg_n_cache, _rd, 31);                                    \
     }                                                                         \
     emit_xor(reg_v_cache, reg_v_cache, reg_n_cache);                     \
   }                                                                           \
 
-#define generate_op_rsbs_reg(_rd, _rn, _rm)                                   \
-  generate_op_subs_reg(_rd, _rm, _rn)
-
 #define generate_op_sbcs_reg(_rd, _rn, _rm)                                   \
   emit_xori(reg_temp, reg_c_cache, 1);                                   \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_c()) {                                                       \
     emit_sltu(reg_c_cache, _rm, _rn);                                    \
     emit_sltu(reg_rv, _rn, _rm);                                         \
     emit_xori(reg_rv, reg_rv, 1);                                        \
     emit_movz(reg_c_cache, reg_rv, reg_temp);                            \
   }                                                                           \
-  if(check_generate_v_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_v()) {                                                       \
     emit_xor(reg_v_cache, _rn, _rm);                                     \
     emit_nor(reg_rv, _rm, reg_zero);                                     \
   }                                                                           \
   emit_subu(_rd, _rn, _rm);                                              \
   emit_subu(_rd, _rd, reg_temp);                                         \
-  if(check_generate_v_flag)                                                   \
+  if(it.gen_flag_v())                                                   \
   {                                                                           \
     emit_xor(reg_rv, reg_rv, _rd);                                       \
     emit_and(reg_v_cache, reg_v_cache, reg_rv);                          \
     emit_srl(reg_v_cache, reg_v_cache, 31);                              \
   }                                                                           \
-  generate_op_logic_flags(_rd);                                               \
-
-#define generate_op_rscs_reg(_rd, _rn, _rm)                                   \
-  generate_op_sbcs_reg(_rd, _rm, _rn)
+  update_nz_flags<SetFlags>(it, _rd);                                         \
 
 #define generate_op_adds_reg(_rd, _rn, _rm)                                   \
-  if(check_generate_c_flag | check_generate_v_flag)                           \
-  {                                                                           \
+  if(it.gen_flag_c() | it.gen_flag_v())                           \
     emit_addu(reg_c_cache, _rn, reg_zero);                               \
-  }                                                                           \
-  if(check_generate_v_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_v())                                                   \
     emit_slt(reg_v_cache, _rm, reg_zero);                                \
-  }                                                                           \
   emit_addu(_rd, _rn, _rm);                                              \
-  if(check_generate_v_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_v()) {                                                       \
     emit_slt(reg_a0, _rd, reg_c_cache);                                  \
     emit_xor(reg_v_cache, reg_v_cache, reg_a0);                          \
   }                                                                           \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_c())                                                   \
     emit_sltu(reg_c_cache, _rd, reg_c_cache);                            \
-  }                                                                           \
-  generate_op_logic_flags(_rd)                                                \
+  update_nz_flags<SetFlags>(it, _rd);                                         \
 
 #define generate_op_adcs_reg(_rd, _rn, _rm)                                   \
-  if(check_generate_v_flag)                                                   \
+  if(it.gen_flag_v())                                                   \
   {                                                                           \
     emit_xor(reg_v_cache, _rn, _rm);                                     \
     emit_nor(reg_v_cache, reg_v_cache, reg_zero);                        \
     emit_addu(reg_rv, _rn, reg_zero);                                    \
   }                                                                           \
   emit_addu(reg_a2, _rn, _rm);                                           \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_c())                                                   \
     emit_sltu(reg_temp, reg_a2, _rm);                                    \
-  }                                                                           \
   emit_addu(_rd, reg_a2, reg_c_cache);                                   \
-  if(check_generate_v_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_v()) {                                                       \
     emit_xor(reg_rv, reg_rv, _rd);                                       \
     emit_and(reg_v_cache, reg_rv, reg_v_cache);                          \
     emit_srl(reg_v_cache, reg_v_cache, 31);                              \
   }                                                                           \
-  if(check_generate_c_flag)                                                   \
-  {                                                                           \
+  if(it.gen_flag_c()) {                                                       \
     emit_sltu(reg_c_cache, _rd, reg_c_cache);                            \
     emit_or(reg_c_cache, reg_temp, reg_c_cache);                         \
   }                                                                           \
-  generate_op_logic_flags(_rd)                                                \
+  update_nz_flags<SetFlags>(it, _rd);                                         \
 
 
 #define thumb_load_pc_pool_const(rd, value)                                   \
   generate_load_imm(arm_to_mips_reg[rd], (value));                            \
 
 #define check_store_reg_pc_thumb(_rd)                                         \
-  if(_rd == REG_PC)                                                           \
-  {                                                                           \
+  if(_rd == REG_PC) {                                                         \
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
 
-#define update_nz_flags_macro(_rd)                                            \
-  if (it.gen_flag_n()) {                                                      \
-    emit_srl(reg_n_cache, _rd, 31);                                      \
-  }                                                                           \
-  if (it.gen_flag_z()) {                                                      \
-    emit_sltiu(reg_z_cache, _rd, 1);                                     \
-  }                                                                           \
-
 #define update_addi_flags(_rd, _rs, imm)                                      \
-  if (it.gen_flag_v()) {                                                      \
+  if (it.gen_flag_v())                                                        \
     emit_nor(reg_v_cache, _rs, _rs);                                     \
-  }                                                                           \
   emit_addiu(_rd, _rs, imm);                                                  \
   if (it.gen_flag_c()) {                                                      \
     /* If result is smaller than imm, there was unsigned overflow! */         \
     emit_sltiu(reg_c_cache, _rd, imm);                                   \
   }                                                                           \
-  update_nz_flags_macro(_rd);                                                 \
+  update_nz_flags<SetFlags>(it, _rd);                                         \
   if (it.gen_flag_v()) {                                                      \
     emit_and(reg_v_cache, reg_v_cache, _rd);                             \
     emit_srl(reg_v_cache, reg_v_cache, 31);                              \
@@ -645,11 +461,10 @@ u32 execute_spsr_restore_body(u32 address)
     emit_sltiu(reg_c_cache, _rs, imm);                                   \
     emit_xori(reg_c_cache, reg_c_cache, 1);                              \
   }                                                                           \
-  if (it.gen_flag_v()) {                                                      \
+  if (it.gen_flag_v())                                                        \
     emit_nor(reg_v_cache, _rs, _rs);                                     \
-  }                                                                           \
   emit_addiu(_rd, _rs, -imm);                                                 \
-  update_nz_flags_macro(_rd);                                                 \
+  update_nz_flags<SetFlags>(it, _rd);                                         \
   if (it.gen_flag_v()) {                                                      \
     emit_nor(reg_v_cache, reg_v_cache, _rd);                             \
     emit_srl(reg_v_cache, reg_v_cache, 31);                              \
@@ -721,10 +536,6 @@ u32 execute_spsr_restore_body(u32 address)
 
 #endif
 
-#define generate_update_pc_reg()                                              \
-  generate_load_pc(reg_a0, pc);                                               \
-  emit_sw(reg_a0, reg_base, (REG_PC * 4))                                \
-
 
 // Register save layout as follows:
 #define ReOff_RegPC    (REG_PC    * 4) // REG_PC
@@ -738,12 +549,10 @@ u32 execute_spsr_restore_body(u32 address)
 // Saves all regs to their right slot and loads gp
 #define emit_save_regs(save_a2) {                                             \
   int i;                                                                      \
-  for (i = 0; i < 15; i++) {                                                  \
+  for (i = 0; i < 15; i++)                                                    \
     emit_sw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
-  }                                                                           \
-  if (save_a2) {                                                              \
+  if (save_a2)                                                                \
     emit_sw(reg_a2, reg_base, ReOff_SaveR2);                             \
-  }                                                                           \
   /* Load the gp pointer, used by C code */                                   \
   emit_lw(mips_reg_gp, reg_base, ReOff_GP_Save);                         \
 }
@@ -751,12 +560,10 @@ u32 execute_spsr_restore_body(u32 address)
 // Restores the registers from their slot
 #define emit_restore_regs(restore_a2) {                                       \
   int i;                                                                      \
-  if (restore_a2) {                                                           \
+  if (restore_a2)                                                             \
     emit_lw(reg_a2, reg_base, ReOff_SaveR2);                             \
-  }                                                                           \
-  for (i = 0; i < 15; i++) {                                                  \
+  for (i = 0; i < 15; i++)                                                    \
     emit_lw(arm_to_mips_reg[i], reg_base, 4 * i);                        \
-  }                                                                           \
 }
 
 // Emits a function call for a read or a write (for special stuff like flash)
@@ -770,7 +577,7 @@ u32 execute_spsr_restore_body(u32 address)
 
 #define emit_mem_call(fnptr, mask)      \
   emit_mem_call_ds(fnptr, mask)         \
-  mips_emit_jr(mips_reg_ra);            \
+  emit_jr(mips_reg_ra);            \
   emit_nop();
 
 // This is a pointer table to the open load stubs, used by the BIOS (optimization)
@@ -795,9 +602,9 @@ const u8 ldhldrtbl[11] = {0, 1, 2, 2, 3, 3, 4, 4, 4, 4, 5};
   #define genccall(fn)                                         \
     emit_lui(mips_reg_t9, ((u32)fn) >> 16);               \
     emit_ori(mips_reg_t9, mips_reg_t9, ((u32)fn));        \
-    mips_emit_jalr(mips_reg_t9);
+    emit_jalr(mips_reg_t9);
 #else
-  #define genccall(fn) mips_emit_jal(((u32)fn) >> 2);
+  #define genccall(fn) emit_jal(((u32)fn) >> 2);
 #endif
 
 // Describes a "plain" memory are, that is, an area that is just accessed
@@ -850,17 +657,17 @@ public:
 
   inline void emit_block_prologue() {
     update_trampoline = this->emit_ptr;
-    mips_emit_j(mips_absolute_offset(mips_update_gba));
+    emit_j(mips_absolute_offset(mips_update_gba));
     emit_nop();
     spaccess_trampoline = this->emit_ptr;
-    mips_emit_j(mips_absolute_offset(&rom_translation_cache[EWRAM_SPM_OFF]));
+    emit_j(mips_absolute_offset(&rom_translation_cache[EWRAM_SPM_OFF]));
     emit_nop();
     generate_load_imm(reg_pc, block_pc)
   }
 
   inline mips_regnum load_alloc_reg(u32 regn, mips_regnum tmp_reg, u32 pcvalue) {
     if (regn == REG_PC) {
-      generate_load_pc(tmp_reg, pcvalue);
+      emit_load_pc(tmp_reg, pcvalue);
       return tmp_reg;
     }
     return arm_to_mips_reg[regn];
@@ -872,24 +679,16 @@ public:
     return arm_to_mips_reg[regn];
   }
 
-  inline void load_alloc_reg_lsb(u32 regn, u32 native_reg, u32 pcvalue) {
-    if (regn == REG_PC)
-      emit_addiu(native_reg, reg_zero, (pcvalue & 0xFF));
-    else
-      emit_andi(native_reg, arm_to_mips_reg[regn], 0xFF);
-  }
-
   // Forces a register load!
-  inline void force_load_reg(u32 regn, u32 outreg, u32 pcvalue) {
-    if (regn == REG_PC) {
-      generate_load_pc(outreg, pcvalue);
-    } else {
-      generate_load_reg(outreg, regn);
-    }
+  inline void force_load_reg(mips_regnum outreg, u32 regn, u32 pcvalue) {
+    if (regn == REG_PC)
+      emit_load_pc(outreg, pcvalue);
+    else
+      emit_addu(outreg, arm_to_mips_reg[regn], reg_zero);
   }
 
   // Aux functions used to emit certain common sequences
-  inline void emit_load_imm_reg(u32 regn, u32 imm) {
+  inline void emit_load_imm_reg(mips_regnum regn, u32 imm) {
     if (isimm16(imm))
       emit_ori(regn, reg_zero, imm);    // Loads 0x0000XXXX
     else if (isimm16s(imm))
@@ -902,8 +701,16 @@ public:
     }
   }
 
+  inline void emit_load_pc(mips_regnum reg, u32 pc) {
+    s32 pc_delta = pc - this->block_pc;
+    if ((pc_delta >= -32768) && (pc_delta <= 32767))
+      emit_addiu(reg, reg_pc, pc_delta);
+    else
+      emit_load_imm_reg(reg, pc);
+  }
+
   template <FlagOperation flgmode>
-  inline void update_nz_flags(const ARMInst & it, u32 reg) {
+  inline void update_nz_flags(const BaseInst & it, mips_regnum reg) {
     if (flgmode == SetFlags) {
       if (it.gen_flag_n())
         emit_srl(reg_n_cache, reg, 31);
@@ -912,22 +719,13 @@ public:
     }
   }
 
-  inline void update_nz_flags(const ThumbInst & it, u32 reg) {
-    if (it.gen_flag_n())
-      emit_srl(reg_n_cache, reg, 31);
-    if (it.gen_flag_z())
-      emit_sltiu(reg_z_cache, reg, 1);
-  }
-
-
   template <CPUInstMode cm>
   inline void generate_translation_gate(u32 pc) {
-    generate_load_pc(reg_a0, pc);
-    if (cm == ModeARM) {
-      mips_emit_j(mips_absolute_offset(mips_indirect_branch_arm));
-    } else {
-      mips_emit_j(mips_absolute_offset(mips_indirect_branch_thumb));
-    }
+    emit_load_pc(reg_a0, pc);
+    if (cm == ModeARM)
+      emit_j(mips_absolute_offset(mips_indirect_branch_arm));
+    else
+      emit_j(mips_absolute_offset(mips_indirect_branch_thumb));
     emit_nop();
   }
 
@@ -946,82 +744,81 @@ public:
 
   inline void arm_conditional_block_header(u32 condition, u32 & cycle_count, u8 * & backpatch_address) {
     // TODO: Fix cycle generation
-    generate_condition();
+    backpatch_address = emit_opp_condbranch((ARMCondCode)condition, cycle_count);  // TODO: use ARMCondCode as type natively
   }
 
   // Condition code generation
-  template <ARMCondCode ccode>
-  inline u8 *emit_opp_condbranch(u32 & cycle_count) {
+  inline u8 *emit_opp_condbranch(ARMCondCode ccode, u32 & cycle_count) {
     // TODO Take reg num as input.
     // TODO We emit cycle updating in the dedlay slot, not ideal (vs other archs)
 
     // We emit a branch that branches on the opposite condition.
     // Returns the patching address (so the branch offset can be filled)
-    u8 *ret;
+    u8 *ret = NULL;
 
     switch (ccode) {
     case CondEQ:
-      mips_emit_b_filler(beq, reg_z_cache, reg_zero, ret);
+      ret = emit_beq(reg_z_cache, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondNE:
-      mips_emit_b_filler(bne, reg_z_cache, reg_zero, ret);
+      ret = emit_bne(reg_z_cache, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondCS:
-      mips_emit_b_filler(beq, reg_c_cache, reg_zero, ret);
+      ret = emit_beq(reg_c_cache, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondCC:
-      mips_emit_b_filler(bne, reg_c_cache, reg_zero, ret);
+      ret = emit_bne(reg_c_cache, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondMI:
-      mips_emit_b_filler(beq, reg_n_cache, reg_zero, ret);
+      ret = emit_beq(reg_n_cache, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondPL:
-      mips_emit_b_filler(bne, reg_n_cache, reg_zero, ret);
+      ret = emit_bne(reg_n_cache, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondVS:
-      mips_emit_b_filler(beq, reg_v_cache, reg_zero, ret);
+      ret = emit_beq(reg_v_cache, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondVC:
-      mips_emit_b_filler(bne, reg_v_cache, reg_zero, ret);
+      ret = emit_bne(reg_v_cache, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondHI:
       emit_xori(reg_temp, reg_c_cache, 1);
       emit_or(reg_temp, reg_temp, reg_z_cache);
-      mips_emit_b_filler(bne, reg_temp, reg_zero, ret);
+      ret = emit_bne(reg_temp, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondLS:
       emit_xori(reg_temp, reg_c_cache, 1);
       emit_or(reg_temp, reg_temp, reg_z_cache);
-      mips_emit_b_filler(beq, reg_temp, reg_zero, ret);
+      ret = emit_beq(reg_temp, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondGE:
-      mips_emit_b_filler(bne, reg_n_cache, reg_v_cache, ret);
+      ret = emit_bne(reg_n_cache, reg_v_cache, 0);
       generate_cycle_update_force();
       break;
     case CondLT:
-      mips_emit_b_filler(beq, reg_n_cache, reg_v_cache, ret);
+      ret = emit_beq(reg_n_cache, reg_v_cache, 0);
       generate_cycle_update_force();
       break;
     case CondGT:
       emit_xor(reg_temp, reg_n_cache, reg_v_cache);
       emit_or(reg_temp, reg_temp, reg_z_cache);
-      mips_emit_b_filler(bne, reg_temp, reg_zero, ret);
+      ret = emit_bne(reg_temp, reg_zero, 0);
       generate_cycle_update_force();
       break;
     case CondLE:
       emit_xor(reg_temp, reg_n_cache, reg_v_cache);
       emit_or(reg_temp, reg_temp, reg_z_cache);
-      mips_emit_b_filler(beq, reg_temp, reg_zero, ret);
+      ret = emit_beq(reg_temp, reg_zero, 0);
       generate_cycle_update_force();
       break;
     };
@@ -1032,10 +829,9 @@ public:
 
   template <ARMOp aluop>
   inline void thumb_aluop3(const ThumbInst & it) {
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-    u32 rs = arm_to_mips_reg[it.rs()];
-    u32 rn = arm_to_mips_reg[it.rn()];
-    u32 rd = arm_to_mips_reg[it.rd()];
+    const mips_regnum rs = arm_to_mips_reg[it.rs()];
+    const mips_regnum rn = arm_to_mips_reg[it.rn()];
+    const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
     switch (aluop) {
     case OpAdd:
@@ -1049,32 +845,31 @@ public:
 
   template <ARMOp aluop>
   inline void thumb_aluop2(const ThumbInst & it) {
-    mips_regnum rs = arm_to_mips_reg[it.rs()];
-    mips_regnum rd = arm_to_mips_reg[it.rd()];
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    const mips_regnum rs = arm_to_mips_reg[it.rs()];
+    const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
     switch (aluop) {
     case OpOrr:
       emit_or(rd, rd, rs);
-      update_nz_flags(it, rd);
+      update_nz_flags<SetFlags>(it, rd);
       break;
     case OpAnd:
       emit_and(rd, rd, rs);
-      update_nz_flags(it, rd);
+      update_nz_flags<SetFlags>(it, rd);
       break;
     case OpXor:
       emit_xor(rd, rd, rs);
-      update_nz_flags(it, rd);
+      update_nz_flags<SetFlags>(it, rd);
       break;
     case OpBic:
       emit_nor(reg_temp, rs, reg_zero);
       emit_and(rd, rd, reg_temp);
-      update_nz_flags(it, rd);
+      update_nz_flags<SetFlags>(it, rd);
       break;
     case OpMul:
       emit_multu(rd, rs);
       emit_mflo(rd);
-      update_nz_flags(it, rd);
+      update_nz_flags<SetFlags>(it, rd);
       break;
     case OpAdd:
       generate_op_adds_reg(rd, rs, rd);
@@ -1093,7 +888,7 @@ public:
 
   template <OpType stype, ShiftType st>
   inline void thumb_shft(const ThumbInst & it) {
-    mips_regnum rd = arm_to_mips_reg[it.rd()];
+    const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
     if (stype == OpImm) {
       if (it.gen_flag_c())
@@ -1107,14 +902,13 @@ public:
         emit_op2_shreg<NoFlags>(rd, it.rd(), it.rs(), st, 0);
     }
 
-    update_nz_flags(it, rd);
+    update_nz_flags<SetFlags>(it, rd);
   }
 
   template <ARMOp aluop>
   inline void thumb_aluop1(const ThumbInst & it) {
-    u32 rs = arm_to_mips_reg[it.rs()];
-    u32 rd = arm_to_mips_reg[it.rd()];
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    const mips_regnum rs = arm_to_mips_reg[it.rs()];
+    const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
     switch (aluop) {
     case OpNeg:
@@ -1122,21 +916,20 @@ public:
       break;
     case OpMvn:
       emit_nor(rd, rs, reg_zero);
-      update_nz_flags(it, rd);
+      update_nz_flags<SetFlags>(it, rd);
       break;
     };
   }
 
   template <ARMOp testop>
   inline void thumb_testop(const ThumbInst & it) {
-    u32 rs = arm_to_mips_reg[it.rs()];
-    u32 rd = arm_to_mips_reg[it.rd()];
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    const mips_regnum rs = arm_to_mips_reg[it.rs()];
+    const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
     switch (testop) {
     case OpTst:
       emit_and(reg_temp, rs, rd);
-      update_nz_flags(it, reg_temp);
+      update_nz_flags<SetFlags>(it, reg_temp);
       break;
     case OpCmp:
       generate_op_subs_reg(reg_temp, rd, rs);
@@ -1150,7 +943,7 @@ public:
 
   template <ARMOp aluop>
   inline void thumb_aluimm2(const ThumbInst & it) {
-    const u32 rd = arm_to_mips_reg[it.rd8()];
+    const mips_regnum rd = arm_to_mips_reg[it.rd8()];
 
     switch (aluop) {
     case OpMov:
@@ -1172,8 +965,8 @@ public:
 
   template <ARMOp aluop>
   inline void thumb_aluimm3(const ThumbInst & it) {
-    u32 rs = arm_to_mips_reg[it.rs()];
-    u32 rd = arm_to_mips_reg[it.rd()];
+    const mips_regnum rs = arm_to_mips_reg[it.rs()];
+    const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
     switch (aluop) {
     case OpAdd:
@@ -1187,8 +980,7 @@ public:
 
   template <ARMOp aluop>
   inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
-    mips_regnum rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
+    const mips_regnum rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
 
     // TODO Improve and make PC writes clearer!
     if (aluop == OpAdd) {
@@ -1199,7 +991,7 @@ public:
       mips_regnum rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
       generate_op_subs_reg(reg_temp, rd, rs);
     } else if (aluop == OpMov) {
-      u32 rd = store_alloc_reg(it.rd_hi(), reg_a0);
+      mips_regnum rd = store_alloc_reg(it.rd_hi(), reg_a0);
       emit_addu(rd, rs, reg_zero);
       check_store_reg_pc_thumb(it.rd_hi());
     }
@@ -1207,11 +999,10 @@ public:
 
   template <u32 ref_reg>
   inline void thumb_regoff(const ThumbInst & it) {
-    if (ref_reg == REG_PC) {
-      generate_load_pc(arm_to_mips_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
-    } else {
+    if (ref_reg == REG_PC)
+      emit_load_pc(arm_to_mips_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
+    else
       emit_addiu(arm_to_mips_reg[it.rd8()], arm_to_mips_reg[ref_reg], 4 * it.imm8());
-    }
   }
 
   inline void thumb_spadj(s8 offset) {
@@ -1219,13 +1010,13 @@ public:
   }
 
   inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
-    force_load_reg(regn, reg_a0, pc + 4);
+    force_load_reg(reg_a0, regn, pc + 4);
     generate_indirect_branch_cycle_update(dual);
   }
 
   inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
     const u8 condition = it.cond();        // TODO remove this
-    force_load_reg(it.rm(), reg_a0, it.pc + 8);
+    force_load_reg(reg_a0, it.rm(), it.pc + 8);
     generate_indirect_branch_dual();
   }
 
@@ -1259,7 +1050,7 @@ public:
   inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
     u8 *brtgt = NULL;
 
-    generate_load_pc(reg_a0, (pc + 2));
+    emit_load_pc(reg_a0, (pc + 2));
     generate_function_call_swap_delay(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
 
@@ -1269,7 +1060,7 @@ public:
   inline u8* arm_swi(u32 pc, u32 & cycle_count) {
     u8 *brtgt = NULL;
 
-    generate_load_pc(reg_a0, pc + 4);
+    emit_load_pc(reg_a0, pc + 4);
     generate_function_call_swap_delay(execute_swi);
     generate_branch_cycle_update(brtgt, 0x00000008);
 
@@ -1280,7 +1071,7 @@ public:
   inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
     u8 *brtgt = NULL;
 
-    u8 *ptch = emit_opp_condbranch<ccode>(cycle_count);
+    u8 *ptch = emit_opp_condbranch(ccode, cycle_count);
     generate_branch_no_cycle_update(brtgt, target);
     generate_branch_patch_conditional(ptch, this->emit_ptr);
     return brtgt;
@@ -1306,7 +1097,7 @@ public:
   inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
     u8 *brtgt = NULL;
 
-    generate_load_pc(reg_r14, ((pc + 2) | 0x01));
+    emit_load_pc(reg_r14, ((pc + 2) | 0x01));
     generate_branch_cycle_update(brtgt, target);
     return brtgt;
   }
@@ -1314,7 +1105,7 @@ public:
   inline u8* arm_bl(const ARMInst & it, u32 target, u32 & cycle_count) {
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
-    generate_load_pc(reg_r14, ((pc + 4)));
+    emit_load_pc(reg_r14, ((pc + 4)));
     if (it.cond() == CondAL) {
       generate_branch_cycle_update(brtgt, target);
     } else {
@@ -1325,7 +1116,7 @@ public:
 
   inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
     emit_addiu(reg_a0, reg_r14, offset);
-    generate_load_pc(reg_r14, ((pc + 2) | 0x01));
+    emit_load_pc(reg_r14, ((pc + 2) | 0x01));
     generate_indirect_branch_cycle_update(thumb);
   }
 
@@ -1336,7 +1127,7 @@ public:
     switch (offt) {
     case OffPC:
       // PC-relative offset. It is word aligned.
-      generate_load_pc(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
+      emit_load_pc(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
       break;
 
     // rb/ro/regn are never PC in thumb mode (this is handled by OffPC mode)
@@ -1358,7 +1149,7 @@ public:
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
     // Generate call to handler, store the result in the rd() register
-    generate_load_pc(reg_a1, it.pc);
+    emit_load_pc(reg_a1, it.pc);
     generate_function_call_swap_delay(call_ldr_handler<memtype>());
     generate_store_reg(reg_rv, regd);
   }
@@ -1370,7 +1161,7 @@ public:
     thumb_memaddr<memtype, offt>(it, regn);
     // Load value and generate call to handler
     generate_load_reg(reg_a1, regd);
-    generate_load_pc(reg_a2, (it.pc + 2));
+    emit_load_pc(reg_a2, (it.pc + 2));
     generate_function_call_swap_delay(call_str_handler<memtype>());
   }
 
@@ -1418,7 +1209,7 @@ public:
     // Generate the final address and base address, and write back if necessary
     if (idxm == MemIdxPostWB) {
       // Load the base reg to a0
-      force_load_reg(it.rn(), reg_a0, it.pc + 4);
+      force_load_reg(reg_a0, it.rn(), it.pc + 4);
       // Calculate the final value to the final reg.
       mips_regnum wbreg = store_alloc_reg(it.rn(), reg_a2);
       arm_memaddr<offt, dir>(wbreg, it);
@@ -1431,8 +1222,8 @@ public:
     }
 
     // Generate call to handler, load the value to write to a1
-    force_load_reg(it.rd(), reg_a1, it.pc + 12);
-    generate_load_pc(reg_a2, (it.pc + 4));
+    force_load_reg(reg_a1, it.rd(), it.pc + 12);
+    emit_load_pc(reg_a2, (it.pc + 4));
     generate_function_call_swap_delay(call_str_handler<memtype>());
   }
 
@@ -1444,7 +1235,7 @@ public:
     // Generate the final address and base address, and write back if necessary
     if (idxm == MemIdxPostWB) {
       // Load the base reg to a0
-      force_load_reg(it.rn(), reg_a0, it.pc + 4);
+      force_load_reg(reg_a0, it.rn(), it.pc + 4);
       // Calculate the final value to the final reg.
       mips_regnum wbreg = store_alloc_reg(it.rn(), reg_a2);
       arm_memaddr<offt, dir>(wbreg, it);
@@ -1457,7 +1248,7 @@ public:
     }
 
     // Generate call to handler, load the value to write to a1
-    generate_load_pc(reg_a1, it.pc);
+    emit_load_pc(reg_a1, it.pc);
     generate_function_call_swap_delay(call_ldr_handler<memtype>());
     generate_store_reg(reg_rv, it.rd());
 
@@ -1470,15 +1261,15 @@ public:
 
     // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
 
-    force_load_reg(it.rn(), reg_a0, it.pc + 4);
-    generate_load_pc(reg_a1, it.pc);
+    force_load_reg(reg_a0, it.rn(), it.pc + 4);
+    emit_load_pc(reg_a1, it.pc);
     generate_function_call_swap_delay(call_ldr_handler<memtype>());
 
     generate_mov(reg_temp, reg_rv);
-    force_load_reg(it.rn(), reg_a0, it.pc + 4);
-    force_load_reg(it.rm(), reg_a1, it.pc + 4);
+    force_load_reg(reg_a0, it.rn(), it.pc + 4);
+    force_load_reg(reg_a1, it.rm(), it.pc + 4);
     generate_store_reg(reg_temp, it.rd());
-    generate_load_pc(reg_a2, (it.pc + 4));
+    emit_load_pc(reg_a2, (it.pc + 4));
     generate_function_call_swap_delay(call_str_handler<memtype>());
   }
 
@@ -1521,7 +1312,7 @@ public:
           generate_function_call_swap_delay(execute_aligned_load32);
           generate_store_reg(reg_rv, i);
         } else {
-          generate_load_reg_pc(reg_a1, i, 2*itsize);
+          force_load_reg(reg_a1, i, pc + 2*itsize);
 
           // Update the base register right after the first read if necessary
           if (writeback && !writeback_first) {
@@ -1534,7 +1325,7 @@ public:
           } else {
             // Only the last store can produce side-effects
             // TODO: Evaluate if this is enough or we should improve it.
-            generate_load_pc(reg_a2, (pc + itsize));
+            emit_load_pc(reg_a2, (pc + itsize));
             generate_function_call_swap_delay(execute_store_u32);
           }
         }
@@ -1559,7 +1350,6 @@ public:
   // ======== ARM instructions ======================================
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
     mips_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
     mips_regnum rd = store_alloc_reg(it.rd(), reg_a0);
 
@@ -1649,9 +1439,9 @@ public:
       break;
     case OpRsb:
       emit_load_imm_reg(reg_temp, imm);
-      if (flg == NoFlags) {
+      if (flg == NoFlags)
         emit_subu(rd, reg_temp, rn);
-      } else {
+      else {
         generate_op_subs_reg(rd, reg_temp, rn);
       }
       break;
@@ -1687,7 +1477,6 @@ public:
 
   template <ARMOp aluop>
   inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
     mips_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + 8);
 
     // Immediate is a 8 bit rotated immediate
@@ -1812,14 +1601,18 @@ public:
   // Calculates operand 2 when register is shifted/rotated by another register.
   template<FlagOperation flg>
   inline void emit_op2_shreg(mips_regnum dreg, u32 sreg, u32 areg, ShiftType st, u32 pc) {
-    load_alloc_reg_lsb(areg, reg_a1, pc);  // Loads the LSB byte only!
+    // Loads the LSB byte only!
+    if (areg == REG_PC)
+      emit_addiu(reg_a1, reg_zero, (pc & 0xFF));
+    else
+      emit_andi(reg_a1, arm_to_mips_reg[areg], 0xFF);
 
     if (flg == SetFlags) {
       switch (st) {
         case ShiftLSL:
-          force_load_reg(sreg, dreg, pc);
+          force_load_reg(dreg, sreg, pc);
           /* Skip it all on imm = 0 */
-          mips_emit_b(beq, reg_a1, reg_zero, 7);
+          emit_beq(reg_a1, reg_zero, 7);
           generate_swap_delay();
           emit_addiu(reg_temp, reg_a1, -1);
           emit_sllv(dreg, dreg, reg_temp);
@@ -1831,8 +1624,8 @@ public:
           emit_movz(dreg, reg_zero, reg_temp);
           break;
         case ShiftLSR:
-          force_load_reg(sreg, dreg, pc);
-          mips_emit_b(beq, reg_a1, reg_zero, 7);  // Skip it all on shift = 0
+          force_load_reg(dreg, sreg, pc);
+          emit_beq(reg_a1, reg_zero, 7);  // Skip it all on shift = 0
           generate_swap_delay();
           emit_addiu(reg_temp, reg_a1, -1);
           emit_srlv(dreg, dreg, reg_temp);
@@ -1844,8 +1637,8 @@ public:
           emit_movz(dreg, reg_zero, reg_temp);
           break;
         case ShiftASR:
-          force_load_reg(sreg, dreg, pc);
-          mips_emit_b(beq, reg_a1, reg_zero, 7);
+          force_load_reg(dreg, sreg, pc);
+          emit_beq(reg_a1, reg_zero, 7);
           generate_swap_delay();
           emit_addiu(reg_temp, reg_zero, 32);
           emit_srl(reg_rv, reg_a1, 5);             // Check if shift >= 32
@@ -1879,7 +1672,7 @@ public:
           break;
         case ShiftASR:
           emit_sltiu(reg_temp, reg_a1, 32);
-          mips_emit_b(bne, reg_temp, reg_zero, 2);
+          emit_bne(reg_temp, reg_zero, 2);
           emit_srav(dreg, rm, reg_a1);
           emit_sra(dreg, dreg, 31);
           break;
@@ -1920,8 +1713,6 @@ public:
   // 3 regs (with op2) instructions
   template <ARMOp aluop, FlagOperation flg>
   inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-
     // Generate op2 to a0, op1 to a1
     mips_regnum regop2 = (aluop == OpAdd || aluop == OpSub || aluop == OpRsb ||
                           aluop == OpAdc || aluop == OpSbc || aluop == OpRsc) ?
@@ -1951,24 +1742,25 @@ public:
       break;
 
     case OpAdd:
-      if (flg == SetFlags) {
+      if (flg == NoeFlags)
+        emit_addu(rd, rn, regop2);
+      else {
         generate_op_adds_reg(rd, rn, regop2);
-      } else {
-        generate_op_add_reg(rd, rn, regop2);
       }
       break;
     case OpAdc:
       if (flg == SetFlags) {
         generate_op_adcs_reg(rd, rn, regop2);
       } else {
-        generate_op_adc_reg(rd, rn, regop2);
+        emit_addu(reg_temp, regop2, reg_c_cache);
+        emit_addu(rd, rn, reg_temp);
       }
       break;
     case OpSub:
-      if (flg == SetFlags) {
+      if (flg == NoFlags)
+        emit_subu(rd, rn, regop2);
+      else {
         generate_op_subs_reg(rd, rn, regop2);
-      } else {
-        generate_op_sub_reg(rd, rn, regop2);
       }
       break;
     case OpSbc:
@@ -1979,10 +1771,10 @@ public:
       }
       break;
     case OpRsb:
-      if (flg == SetFlags) {
+      if (flg == NoFlags)
+        emit_subu(rd, regop2, rn);
+      else {
         generate_op_subs_reg(rd, regop2, rn);
-      } else {
-        generate_op_sub_reg(rd, regop2, rn);
       }
       break;
     case OpRsc:
@@ -2030,8 +1822,6 @@ public:
   // compare/test instructions
   template <ARMOp aluop, FlagOperation c_flag>
   inline void arm_alureg2(const ARMInst & it) {
-    const u16 flag_status = it.flag_status;  // TODO: Remove this and wire correctly
-
     mips_regnum regop2 = emit_arm_aluop2<c_flag>(it);   // Generate op2 to a0 (with/without C flag)
     mips_regnum rn = load_alloc_reg(it.rn(), reg_a1, it.pc + (it.op2imm() ? 8 : 12));
 
@@ -2087,11 +1877,10 @@ public:
     if (mm == MulAdd) {
       emit_mtlo(rdlo);
       emit_mthi(rdhi);
-      if (signmul) {
-        mips_emit_madd(rm, rs);
-      } else {
-        mips_emit_maddu(rm, rs);
-      }
+      if (signmul)
+        emit_madd(rm, rs);
+      else
+        emit_maddu(rm, rs);
     } else {
       if (signmul)
         emit_mult(rm, rs);
@@ -2133,7 +1922,7 @@ public:
     }
 
     if (reg == RegCPSR) {
-      generate_load_pc(reg_a1, it.pc);
+      emit_load_pc(reg_a1, it.pc);
       generate_function_call_swap_delay(execute_store_cpsr);
       generate_raw_u32(cpsr_masks[it.field_fc()][0]);
       generate_raw_u32(cpsr_masks[it.field_fc()][1]);
@@ -2232,18 +2021,18 @@ public:
 
     // The patcher to use depends on ld/st, access size, and sign extension
     // (so there's 10 of them). They live in the top stub addresses.
-    mips_emit_b(bne, reg_zero, reg_temp, ld_phndlr_branch(memop_number));
+    emit_bne(reg_zero, reg_temp, ld_phndlr_branch(memop_number));
 
     // BIOS region requires extra checks for protected reads
     if (region == 0) {
       // BIOS is *not* mirrored, check that
       emit_srl(reg_rv, reg_a0, 14);
-      mips_emit_b(bne, reg_zero, reg_rv, branch_offset(openld_core_ptrs[memop_number]));
+      emit_bne(reg_zero, reg_rv, branch_offset(openld_core_ptrs[memop_number]));
 
       // Check whether the read is allowed. Only within BIOS! (Ignore aligned, bad a1)
       if (!aligned) {
         emit_srl(reg_temp, reg_a1, 14);
-        mips_emit_b(bne, reg_zero, reg_temp, branch_offset(openld_core_ptrs[memop_number]));
+        emit_bne(reg_zero, reg_temp, branch_offset(openld_core_ptrs[memop_number]));
       }
     }
 
@@ -2256,8 +2045,7 @@ public:
       emit_andi(reg_temp, reg_a0, memmask);   // Get the lowest 15 bits [can go in delay slot]
 
       if (must_swap) {   // Do not emit if the ROM is fully loaded, save some cycles
-        u8 *jmppatch;
-        mips_emit_b_filler(bne, reg_rv, reg_zero, jmppatch);  // if not null, can skip load page
+        u8 * jmppatch = emit_bne(reg_rv, reg_zero, 0);  // if not null, can skip load page
         generate_swap_delay();
 
         // This code call the C routine to map the relevant ROM page
@@ -2311,7 +2099,7 @@ public:
           emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
         }
         extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
-        mips_emit_b(bne, reg_zero, reg_temp, 1);   // Skip unless last block
+        emit_bne(reg_zero, reg_temp, 1);   // Skip unless last block
         generate_swap_delay();
         emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
         emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
@@ -2358,7 +2146,7 @@ public:
     // First check we are in the right memory region (same as loads)
     emit_srl(reg_temp, reg_a0, 24);
     emit_xori(reg_temp, reg_temp, region);
-    mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(memop_number));
+    emit_bne(reg_zero, reg_temp, st_phndlr_branch(memop_number));
 
     emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
 
@@ -2382,7 +2170,7 @@ public:
         emit_align_reg(reg_a0, realsize);        // addr & ~1/2 (align to size)
       }
       extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
-      mips_emit_b(bne, reg_zero, reg_temp, 1);   // Skip next inst unless last block
+      emit_bne(reg_zero, reg_temp, 1);   // Skip next inst unless last block
       generate_swap_delay();
       emit_addiu(reg_a0, reg_a0, 0x8000);   // addr - 0x8000 (mirror last block)
       emit_addu(reg_rv, reg_rv, reg_a0);    // addr = base + adjusted offset
@@ -2409,7 +2197,7 @@ public:
         emit_lb(reg_temp, reg_temp, base_addr);
       // If the data is non zero, we just wrote over code
       // Local-jump to the smc_write (which lives at offset:0)
-      mips_emit_b(bne, reg_zero, reg_temp, branch_offset(&rom_translation_cache[SMC_WRITE_OFF]));
+      emit_bne(reg_zero, reg_temp, branch_offset(&rom_translation_cache[SMC_WRITE_OFF]));
     }
 
     // Store the data (delay slot from the SMC branch)
@@ -2428,7 +2216,7 @@ public:
       generate_function_return_swap_delay();
     }
     else {
-      mips_emit_jr(mips_reg_ra);
+      emit_jr(mips_reg_ra);
       emit_nop();
     }
   }
@@ -2449,7 +2237,7 @@ public:
     // First check we are in the right memory region (same as loads)
     emit_srl(reg_temp, reg_a0, 24);
     emit_xori(reg_temp, reg_temp, 5);
-    mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(memop_number));
+    emit_bne(reg_zero, reg_temp, st_phndlr_branch(memop_number));
     emit_andi(reg_rv, reg_a0, memmask);   // Clear upper bits (mirroring)
     if (size == 0) {
       double_byte(reg_a1, reg_temp);    // value = value | (value << 8)
@@ -2481,9 +2269,9 @@ public:
     // Region 0-1 (BIOS and ignore)
     tmemst[size][0] = tmemst[size][1] = (u32)emit_ptr;
     emit_srl(reg_temp, reg_a0, 25);               // Check 7 MSB to be zero
-    mips_emit_b(bne, reg_temp, reg_zero, st_phndlr_branch(size));
+    emit_bne(reg_temp, reg_zero, st_phndlr_branch(size));
     emit_nop();
-    mips_emit_jr(mips_reg_ra);
+    emit_jr(mips_reg_ra);
     emit_nop();
 
     // Region 9-C
@@ -2493,18 +2281,18 @@ public:
     emit_srl(reg_temp, reg_a0, 24);
     emit_addiu(reg_temp, reg_temp, -9);
     emit_srl(reg_temp, reg_temp, 2);
-    mips_emit_b(bne, reg_temp, reg_zero, st_phndlr_branch(size));
+    emit_bne(reg_temp, reg_zero, st_phndlr_branch(size));
     emit_nop();
-    mips_emit_jr(mips_reg_ra);
+    emit_jr(mips_reg_ra);
     emit_nop();
 
     // Region F or higher
     tmemst[size][15] = (u32)emit_ptr;
     emit_srl(reg_temp, reg_a0, 24);
     emit_sltiu(reg_rv, reg_temp, 0x0F);  // Is < 15?
-    mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(size));
+    emit_bne(reg_rv, reg_zero, st_phndlr_branch(size));
     emit_nop();
-    mips_emit_jr(mips_reg_ra);
+    emit_jr(mips_reg_ra);
     emit_nop();
   }
 
@@ -2531,18 +2319,18 @@ public:
       // Emit just a check + patch jump
       emit_srl(reg_temp, reg_a0, 24);
       emit_xori(reg_rv, reg_temp, 0x0D);
-      mips_emit_b(bne, reg_rv, reg_zero, branch_handlerid(opt));
+      emit_bne(reg_rv, reg_zero, branch_handlerid(opt));
       emit_nop();
-      mips_emit_b(beq, reg_zero, reg_zero, branch_offset(read_hndlr));
+      emit_beq(reg_zero, reg_zero, branch_offset(read_hndlr));
     }
     // This is for stores
     for (strop = 0; strop <= 3; strop++) {
       tmemst[strop][13] = (u32)emit_ptr;
       emit_srl(reg_temp, reg_a0, 24);
       emit_xori(reg_rv, reg_temp, 0x0D);
-      mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
+      emit_bne(reg_rv, reg_zero, st_phndlr_branch(strop));
       emit_nop();
-      mips_emit_b(beq, reg_zero, reg_zero, branch_offset(write_hndlr));
+      emit_beq(reg_zero, reg_zero, branch_offset(write_hndlr));
     }
 
     // Flash/SRAM/Backup writes are only 8 byte supported
@@ -2550,12 +2338,12 @@ public:
       tmemst[strop][14] = (u32)emit_ptr;
       emit_srl(reg_temp, reg_a0, 24);
       emit_xori(reg_rv, reg_temp, 0x0E);
-      mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
+      emit_bne(reg_rv, reg_zero, st_phndlr_branch(strop));
       if (strop == 0) {
         emit_mem_call(&write_backup, 0xFFFF);
       } else {
         emit_nop();
-        mips_emit_jr(mips_reg_ra);   // Does nothing in this case
+        emit_jr(mips_reg_ra);   // Does nothing in this case
         emit_nop();
       }
     }
@@ -2565,12 +2353,12 @@ public:
       tmemst[strop][8] = (u32)emit_ptr;
       emit_srl(reg_temp, reg_a0, 24);
       emit_xori(reg_rv, reg_temp, 0x08);
-      mips_emit_b(bne, reg_rv, reg_zero, st_phndlr_branch(strop));
+      emit_bne(reg_rv, reg_zero, st_phndlr_branch(strop));
       if (strop == 1) {
         emit_mem_call(&write_gpio, 0xFF);  // Addr
       } else {
         emit_nop();
-        mips_emit_jr(mips_reg_ra);   // Do nothing
+        emit_jr(mips_reg_ra);   // Do nothing
         emit_nop();
       }
     }
@@ -2586,7 +2374,7 @@ public:
       tmemst[strop][4] = (u32)emit_ptr;
       emit_srl(reg_temp, reg_a0, 24);
       emit_xori(reg_temp, reg_temp, 0x04);
-      mips_emit_b(bne, reg_zero, reg_temp, st_phndlr_branch(strop));
+      emit_bne(reg_zero, reg_temp, st_phndlr_branch(strop));
 
       emit_sw(mips_reg_ra, reg_base, ReOff_SaveR3); // Store the return addr
       emit_save_regs(strop == 3);
@@ -2596,7 +2384,7 @@ public:
       if (strop < 3) {
         emit_sw(reg_a2, reg_base, ReOff_RegPC);   // Save PC (delay)
         // If I/O writes returns non-zero, means we need to process side-effects.
-        mips_emit_b(bne, reg_zero, reg_rv, branch_offset(&rom_translation_cache[IOEPILOGUE_OFF]));
+        emit_bne(reg_zero, reg_rv, branch_offset(&rom_translation_cache[IOEPILOGUE_OFF]));
         emit_lw(mips_reg_ra, reg_base, ReOff_SaveR3);   // (in delay slot but not used)
         emit_restore_regs(false);
       } else {
@@ -2630,7 +2418,7 @@ public:
     emit_and(reg_temp, reg_temp, reg_rv);
 
     // Jump to patch handler
-    mips_emit_b(bne, reg_zero, reg_temp, branch_handlerid(opt));
+    emit_bne(reg_zero, reg_temp, branch_handlerid(opt));
 
     // BIOS can jump here to do open loads
     for (i = ldopmap[opt][0]; i < ldopmap[opt][1]; i++)
@@ -2664,7 +2452,7 @@ public:
     #else
       emit_sltiu(reg_rv, reg_temp, 0x0F);  // Check for addr 0x1XXX.. 0xFXXX
       emit_sll(reg_temp, reg_temp, 2);     // Table is word indexed
-      mips_emit_b(bne, reg_zero, reg_rv, 1);    // Skip next inst if region is good
+      emit_bne(reg_zero, reg_rv, 1);    // Skip next inst if region is good
       generate_swap_delay();
       emit_addiu(reg_temp, reg_zero, 15*4);// Simulate ld/st to 0x0FXXX (open/ignore)
     #endif
@@ -2683,13 +2471,13 @@ public:
     emit_sw(reg_temp, mips_reg_ra, -8);      // Patch instruction!
 
     #if defined(PSP)
-      mips_emit_cache(0x1A, mips_reg_ra, -8);
-      mips_emit_jr(reg_rv);                       // Jump directly to target for speed
-      mips_emit_cache(0x08, mips_reg_ra, -8);
+      emit_cache(0x1A, mips_reg_ra, -8);
+      emit_jr(reg_rv);                       // Jump directly to target for speed
+      emit_cache(0x08, mips_reg_ra, -8);
     #else
-      mips_emit_jr(reg_rv);
+      emit_jr(reg_rv);
       #ifdef MIPS_HAS_R2_INSTS
-        mips_emit_synci(mips_reg_ra, -8);
+        emit_synci(mips_reg_ra, -8);
       #endif
     #endif
 
@@ -2725,10 +2513,10 @@ public:
     emit_phand(2, 14 * 16, false);  // st aligned 32
 
     // Trampoline area
-    mips_emit_j(((u32)&smc_write) >> 2);
+    emit_j(((u32)&smc_write) >> 2);
     emit_nop();
 
-    mips_emit_j(((u32)&write_io_epilogue) >> 2);
+    emit_j(((u32)&write_io_epilogue) >> 2);
     emit_nop();
 
     // Special trampoline for SP-relative ldm/stm (to EWRAM)

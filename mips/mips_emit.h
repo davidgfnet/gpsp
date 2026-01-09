@@ -346,92 +346,6 @@ u32 execute_spsr_restore_body(u32 address)
   block_exit_position++;                                                      \
 }                                                                             \
 
-#define generate_op_sbc_reg(_rd, _rn, _rm)                                    \
-  emit_subu(_rd, _rn, _rm);                                              \
-  emit_xori(reg_temp, reg_c_cache, 1);                                   \
-  emit_subu(_rd, _rd, reg_temp)                                          \
-
-#define generate_op_rsc_reg(_rd, _rn, _rm)                                    \
-  emit_addu(reg_temp, _rm, reg_c_cache);                                 \
-  emit_addiu(reg_temp, reg_temp, -1);                                         \
-  emit_subu(_rd, reg_temp, _rn)                                          \
-
-#define generate_op_subs_reg(_rd, _rn, _rm)                                   \
-  if(it.gen_flag_c()) {                                                       \
-    emit_sltu(reg_c_cache, _rn, _rm);                                    \
-    emit_xori(reg_c_cache, reg_c_cache, 1);                              \
-  }                                                                           \
-  if(it.gen_flag_v())                                                   \
-    emit_slt(reg_v_cache, _rn, _rm);                                     \
-  emit_subu(_rd, _rn, _rm);                                              \
-  update_nz_flags<SetFlags>(it, _rd);                                   \
-  if(it.gen_flag_v()) {                                                                           \
-    if(!it.gen_flag_n())                                                \
-    {                                                                         \
-      emit_srl(reg_n_cache, _rd, 31);                                    \
-    }                                                                         \
-    emit_xor(reg_v_cache, reg_v_cache, reg_n_cache);                     \
-  }                                                                           \
-
-#define generate_op_sbcs_reg(_rd, _rn, _rm)                                   \
-  emit_xori(reg_temp, reg_c_cache, 1);                                   \
-  if(it.gen_flag_c()) {                                                       \
-    emit_sltu(reg_c_cache, _rm, _rn);                                    \
-    emit_sltu(reg_rv, _rn, _rm);                                         \
-    emit_xori(reg_rv, reg_rv, 1);                                        \
-    emit_movz(reg_c_cache, reg_rv, reg_temp);                            \
-  }                                                                           \
-  if(it.gen_flag_v()) {                                                       \
-    emit_xor(reg_v_cache, _rn, _rm);                                     \
-    emit_nor(reg_rv, _rm, reg_zero);                                     \
-  }                                                                           \
-  emit_subu(_rd, _rn, _rm);                                              \
-  emit_subu(_rd, _rd, reg_temp);                                         \
-  if(it.gen_flag_v())                                                   \
-  {                                                                           \
-    emit_xor(reg_rv, reg_rv, _rd);                                       \
-    emit_and(reg_v_cache, reg_v_cache, reg_rv);                          \
-    emit_srl(reg_v_cache, reg_v_cache, 31);                              \
-  }                                                                           \
-  update_nz_flags<SetFlags>(it, _rd);                                         \
-
-#define generate_op_adds_reg(_rd, _rn, _rm)                                   \
-  if(it.gen_flag_c() | it.gen_flag_v())                           \
-    emit_addu(reg_c_cache, _rn, reg_zero);                               \
-  if(it.gen_flag_v())                                                   \
-    emit_slt(reg_v_cache, _rm, reg_zero);                                \
-  emit_addu(_rd, _rn, _rm);                                              \
-  if(it.gen_flag_v()) {                                                       \
-    emit_slt(reg_a0, _rd, reg_c_cache);                                  \
-    emit_xor(reg_v_cache, reg_v_cache, reg_a0);                          \
-  }                                                                           \
-  if(it.gen_flag_c())                                                   \
-    emit_sltu(reg_c_cache, _rd, reg_c_cache);                            \
-  update_nz_flags<SetFlags>(it, _rd);                                         \
-
-#define generate_op_adcs_reg(_rd, _rn, _rm)                                   \
-  if(it.gen_flag_v())                                                   \
-  {                                                                           \
-    emit_xor(reg_v_cache, _rn, _rm);                                     \
-    emit_nor(reg_v_cache, reg_v_cache, reg_zero);                        \
-    emit_addu(reg_rv, _rn, reg_zero);                                    \
-  }                                                                           \
-  emit_addu(reg_a2, _rn, _rm);                                           \
-  if(it.gen_flag_c())                                                   \
-    emit_sltu(reg_temp, reg_a2, _rm);                                    \
-  emit_addu(_rd, reg_a2, reg_c_cache);                                   \
-  if(it.gen_flag_v()) {                                                       \
-    emit_xor(reg_rv, reg_rv, _rd);                                       \
-    emit_and(reg_v_cache, reg_rv, reg_v_cache);                          \
-    emit_srl(reg_v_cache, reg_v_cache, 31);                              \
-  }                                                                           \
-  if(it.gen_flag_c()) {                                                       \
-    emit_sltu(reg_c_cache, _rd, reg_c_cache);                            \
-    emit_or(reg_c_cache, reg_temp, reg_c_cache);                         \
-  }                                                                           \
-  update_nz_flags<SetFlags>(it, _rd);                                         \
-
-
 #define thumb_load_pc_pool_const(rd, value)                                   \
   generate_load_imm(arm_to_mips_reg[rd], (value));                            \
 
@@ -719,6 +633,100 @@ public:
     }
   }
 
+  template <FlagOperation flg>
+  inline void generate_sbc(const BaseInst & it, mips_regnum rd, mips_regnum rn, mips_regnum rm) {
+    emit_xori(reg_temp, reg_c_cache, 1);     // Borrow flag is inverted
+    if (flg == SetFlags) {
+      if (it.gen_flag_c()) {
+        emit_sltu(reg_c_cache, rm, rn);
+        emit_sltu(reg_rv, rn, rm);
+        emit_xori(reg_rv, reg_rv, 1);
+        emit_movz(reg_c_cache, reg_rv, reg_temp);
+      }
+      if (it.gen_flag_v()) {
+        emit_xor(reg_v_cache, rn, rm);
+        emit_nor(reg_rv, rm, reg_zero);
+      }
+    }
+    emit_subu(rd, rn, rm);
+    emit_subu(rd, rd, reg_temp);
+    if (flg == SetFlags && it.gen_flag_v()) {
+      emit_xor(reg_rv, reg_rv, rd);
+      emit_and(reg_v_cache, reg_v_cache, reg_rv);
+      emit_srl(reg_v_cache, reg_v_cache, 31);
+    }
+    update_nz_flags<flg>(it, rd);
+  }
+
+  inline void generate_adcs(const BaseInst & it, mips_regnum rd, mips_regnum rn, mips_regnum rm) {
+    if (it.gen_flag_v()) {
+      emit_xor(reg_v_cache, rn, rm);
+      emit_nor(reg_v_cache, reg_v_cache, reg_zero);
+      emit_addu(reg_rv, rn, reg_zero);
+    }
+    emit_addu(reg_a2, rn, rm);
+    if (it.gen_flag_c())
+      emit_sltu(reg_temp, reg_a2, rm);
+    emit_addu(rd, reg_a2, reg_c_cache);
+    if (it.gen_flag_v()) {
+      emit_xor(reg_rv, reg_rv, rd);
+      emit_and(reg_v_cache, reg_rv, reg_v_cache);
+      emit_srl(reg_v_cache, reg_v_cache, 31);
+    }
+    if (it.gen_flag_c()) {
+      emit_sltu(reg_c_cache, rd, reg_c_cache);
+      emit_or(reg_c_cache, reg_temp, reg_c_cache);
+    }
+    update_nz_flags<SetFlags>(it, rd);
+  }
+
+  inline void generate_adds(const BaseInst & it, mips_regnum rd, mips_regnum rn, mips_regnum rm) {
+    if (it.gen_flag_c() | it.gen_flag_v())
+      emit_addu(reg_c_cache, rn, reg_zero);
+    if (it.gen_flag_v())
+      emit_slt(reg_v_cache, rm, reg_zero);
+    emit_addu(rd, rn, rm);
+    if (it.gen_flag_v()) {
+      emit_slt(reg_a0, rd, reg_c_cache);
+      emit_xor(reg_v_cache, reg_v_cache, reg_a0);
+    }
+    if (it.gen_flag_c())
+      emit_sltu(reg_c_cache, rd, reg_c_cache);
+    update_nz_flags<SetFlags>(it, rd);
+  }
+
+  inline void generate_subs(const BaseInst & it, mips_regnum rd, mips_regnum rn, mips_regnum rm) {
+    if (it.gen_flag_c()) {
+      emit_sltu(reg_c_cache, rn, rm);
+      emit_xori(reg_c_cache, reg_c_cache, 1);
+    }
+    if (it.gen_flag_v())
+      emit_slt(reg_v_cache, rn, rm);
+    emit_subu(rd, rn, rm);
+    update_nz_flags<SetFlags>(it, rd);
+    if (it.gen_flag_v()) {
+      if (!it.gen_flag_n())
+        emit_srl(reg_n_cache, rd, 31);
+      emit_xor(reg_v_cache, reg_v_cache, reg_n_cache);
+    }
+  }
+
+  inline void generate_negs(const BaseInst & it, mips_regnum rd, mips_regnum rs) {
+    if (it.gen_flag_v())
+      emit_slt(reg_v_cache, mips_reg_zero, rs);
+    emit_subu(rd, mips_reg_zero, rs);
+    if (it.gen_flag_z())
+      emit_sltiu(reg_z_cache, rd, 1);
+    if (it.gen_flag_n() | it.gen_flag_v())
+      emit_srl(reg_n_cache, rd, 31);
+    if (it.gen_flag_c())
+      emit_sltiu(reg_c_cache, rd, 1);  // C is 1 only when rs (or rd) are zero.
+    if (it.gen_flag_v()) {
+      emit_srl(reg_n_cache, rd, 31);
+      emit_xor(reg_v_cache, reg_v_cache, reg_n_cache);
+    }
+  }
+
   template <CPUInstMode cm>
   inline void generate_translation_gate(u32 pc) {
     emit_load_pc(reg_a0, pc);
@@ -835,10 +843,10 @@ public:
 
     switch (aluop) {
     case OpAdd:
-      generate_op_adds_reg(rd, rs, rn);
+      generate_adds(it, rd, rs, rn);
       break;
     case OpSub:
-      generate_op_subs_reg(rd, rs, rn);
+      generate_subs(it, rd, rs, rn);
       break;
     };
   }
@@ -872,16 +880,16 @@ public:
       update_nz_flags<SetFlags>(it, rd);
       break;
     case OpAdd:
-      generate_op_adds_reg(rd, rs, rd);
+      generate_adds(it, rd, rs, rd);
       break;
     case OpSub:
-      generate_op_subs_reg(rd, rs, rd);
+      generate_subs(it, rd, rs, rd);
       break;
     case OpAdc:
-      generate_op_adcs_reg(rd, rs, rd);
+      generate_adcs(it, rd, rs, rd);
       break;
     case OpSbc:
-      generate_op_sbcs_reg(rd, rd, rs);
+      generate_sbc<SetFlags>(it, rd, rd, rs);
       break;
     };
   }
@@ -912,7 +920,7 @@ public:
 
     switch (aluop) {
     case OpNeg:
-      generate_op_subs_reg(rd, reg_zero, rs);
+      generate_negs(it, rd, rs);
       break;
     case OpMvn:
       emit_nor(rd, rs, reg_zero);
@@ -932,10 +940,10 @@ public:
       update_nz_flags<SetFlags>(it, reg_temp);
       break;
     case OpCmp:
-      generate_op_subs_reg(reg_temp, rd, rs);
+      generate_subs(it, reg_temp, rd, rs);
       break;
     case OpCmn:
-      generate_op_adds_reg(reg_temp, rs, rd);
+      generate_adds(it, reg_temp, rs, rd);
       break;
     };
   }
@@ -989,7 +997,7 @@ public:
       check_store_reg_pc_thumb(it.rd_hi());
     } else if (aluop == OpCmp) {
       mips_regnum rd = load_alloc_reg(it.rd_hi(), reg_a0, it.pc + 4);
-      generate_op_subs_reg(reg_temp, rd, rs);
+      generate_subs(it, reg_temp, rd, rs);
     } else if (aluop == OpMov) {
       mips_regnum rd = store_alloc_reg(it.rd_hi(), reg_a0);
       emit_addu(rd, rs, reg_zero);
@@ -1406,7 +1414,7 @@ public:
         }
       } else {
         emit_load_imm_reg(reg_temp, imm);
-        generate_op_adds_reg(rd, rn, reg_temp);
+        generate_adds(it, rd, rn, reg_temp);
       }
       break;
     case OpAdc:
@@ -1421,7 +1429,7 @@ public:
         }
       } else {
         emit_load_imm_reg(reg_temp, imm);
-        generate_op_adcs_reg(rd, rn, reg_temp);
+        generate_adcs(it, rd, rn, reg_temp);
       }
       break;
     case OpSub:
@@ -1434,36 +1442,23 @@ public:
         }
       } else {
         emit_load_imm_reg(reg_temp, imm);
-        generate_op_subs_reg(rd, rn, reg_temp);
+        generate_subs(it, rd, rn, reg_temp);
       }
       break;
     case OpRsb:
       emit_load_imm_reg(reg_temp, imm);
       if (flg == NoFlags)
         emit_subu(rd, reg_temp, rn);
-      else {
-        generate_op_subs_reg(rd, reg_temp, rn);
-      }
+      else
+        generate_subs(it, rd, reg_temp, rn);
       break;
     case OpSbc:
       emit_load_imm_reg(reg_a2, imm);
-      if (flg == NoFlags) {
-        emit_xori(reg_temp, reg_c_cache, 1);
-        emit_subu(rd, rn, reg_a2);
-        emit_subu(rd, rd, reg_temp);
-      } else {
-        generate_op_sbcs_reg(rd, rn, reg_a2);
-      }
+      generate_sbc<flg>(it, rd, rn, reg_a2);
       break;
     case OpRsc:
       emit_load_imm_reg(reg_a2, imm);
-      if (flg == NoFlags) {
-        emit_xori(reg_temp, reg_c_cache, 1);
-        emit_subu(rd, reg_a2, rn);
-        emit_subu(rd, rd, reg_temp);
-      } else {
-        generate_op_sbcs_reg(rd, reg_a2, rn);
-      }
+      generate_sbc<flg>(it, rd, reg_a2, rn);
       break;
     };
 
@@ -1508,11 +1503,11 @@ public:
       break;
     case OpCmp:
       emit_load_imm_reg(reg_temp, imm);
-      generate_op_subs_reg(reg_temp, rn, reg_temp);
+      generate_subs(it, reg_temp, rn, reg_temp);
       break;
     case OpCmn:
       emit_load_imm_reg(reg_temp, imm);
-      generate_op_adds_reg(reg_temp, rn, reg_temp);
+      generate_adds(it, reg_temp, rn, reg_temp);
       break;
     };
   }
@@ -1742,16 +1737,15 @@ public:
       break;
 
     case OpAdd:
-      if (flg == NoeFlags)
+      if (flg == NoFlags)
         emit_addu(rd, rn, regop2);
-      else {
-        generate_op_adds_reg(rd, rn, regop2);
-      }
+      else
+        generate_adds(it, rd, rn, regop2);
       break;
     case OpAdc:
-      if (flg == SetFlags) {
-        generate_op_adcs_reg(rd, rn, regop2);
-      } else {
+      if (flg == SetFlags)
+        generate_adcs(it, rd, rn, regop2);
+      else {
         emit_addu(reg_temp, regop2, reg_c_cache);
         emit_addu(rd, rn, reg_temp);
       }
@@ -1759,30 +1753,20 @@ public:
     case OpSub:
       if (flg == NoFlags)
         emit_subu(rd, rn, regop2);
-      else {
-        generate_op_subs_reg(rd, rn, regop2);
-      }
+      else
+        generate_subs(it, rd, rn, regop2);
       break;
     case OpSbc:
-      if (flg == SetFlags) {
-        generate_op_sbcs_reg(rd, rn, regop2);
-      } else {
-        generate_op_sbc_reg(rd, rn, regop2);
-      }
+      generate_sbc<flg>(it, rd, rn, regop2);
       break;
     case OpRsb:
       if (flg == NoFlags)
         emit_subu(rd, regop2, rn);
-      else {
-        generate_op_subs_reg(rd, regop2, rn);
-      }
+      else
+        generate_subs(it, rd, regop2, rn);
       break;
     case OpRsc:
-      if (flg == SetFlags) {
-        generate_op_sbcs_reg(rd, regop2, rn);
-      } else {
-        generate_op_sbc_reg(rd, regop2, rn);
-      }
+      generate_sbc<flg>(it, rd, regop2, rn);
       break;
     };
 
@@ -1835,10 +1819,10 @@ public:
        update_nz_flags<SetFlags>(it, reg_temp);
        break;
     case OpCmp:
-      generate_op_subs_reg(reg_temp, rn, regop2);
+      generate_subs(it, reg_temp, rn, regop2);
       break;
     case OpCmn:
-      generate_op_adds_reg(reg_temp, rn, regop2);
+      generate_adds(it, reg_temp, rn, regop2);
       break;
     };
   }

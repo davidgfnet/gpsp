@@ -115,14 +115,8 @@ const mips_regnum arm_to_mips_reg[] = {
   reg_r12,
   reg_r13,
   reg_r14,
-  reg_a0,
-  reg_a1,
-  reg_a2
+  reg_a0
 };
-
-#define arm_reg_a0   15
-#define arm_reg_a1   16
-#define arm_reg_a2   17
 
 template <typename memtype> inline uintptr_t call_ldr_handler();
 template <typename memtype> inline uintptr_t call_str_handler();
@@ -141,18 +135,18 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 // Places the result in reg_temp, can use a0 as temporary register
 #if defined(USE_XBGR1555_FORMAT)
   /* PS2's native format */
-  #define palette_convert()                       \
+  #define palette_convert()                    \
     emit_andi(reg_temp, reg_a1, 0x7FFF);
 #else
   /* 0BGR to RGB565 (clobbers a0) */
   #ifdef MIPS_HAS_R2_INSTS
-    #define palette_convert()                       \
+    #define palette_convert()                  \
       emit_ext(reg_temp, reg_a1, 10, 5);       \
       emit_ins(reg_temp, reg_a1, 11, 5);       \
       emit_ext(reg_a0, reg_a1, 5, 5);          \
       emit_ins(reg_temp, reg_a0, 6, 5);
   #else
-    #define palette_convert()                       \
+    #define palette_convert()                  \
       emit_srl(reg_a0, reg_a1, 10);            \
       emit_andi(reg_temp, reg_a0, 0x1F);       \
       emit_sll(reg_a0, reg_a1, 1);             \
@@ -166,19 +160,7 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 
 
 #define generate_load_reg(ireg, reg_index)                                    \
-  emit_addu(ireg, arm_to_mips_reg[reg_index], reg_zero)                  \
-
-#define generate_load_imm(ireg, imm)                                          \
-  if(((s32)imm >= -32768) && ((s32)imm <= 32767)) {                           \
-    emit_addiu(ireg, reg_zero, (u16)imm);                                     \
-  } else if(((u32)imm >> 16) == 0x0000) {                                     \
-    emit_ori(ireg, reg_zero, (u16)imm);                                       \
-  } else {                                                                    \
-    emit_lui(ireg, imm >> 16);                                                \
-    if (((u32)(imm) & 0x0000FFFF)) {                                          \
-      emit_ori(ireg, ireg, (imm) & 0xFFFF);                                   \
-    }                                                                         \
-  }                                                                           \
+  emit_addu(ireg, arm_to_mips_reg[reg_index], reg_zero)
 
 #define generate_store_reg(ireg, reg_index)                                   \
   emit_addu(arm_to_mips_reg[reg_index], ireg, reg_zero)                  \
@@ -271,12 +253,6 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
   emit_nop()                                                             \
 
 
-#define check_load_reg_pc(arm_reg, reg_index, pc_offset)                      \
-  if(reg_index == REG_PC) {                                                   \
-    reg_index = arm_reg;                                                      \
-    emit_load_pc(arm_to_mips_reg[arm_reg], (pc + pc_offset));             \
-  }                                                                           \
-
 #define check_store_reg_pc_no_flags(reg_index)                                \
   if(reg_index == REG_PC) {                                                   \
     generate_indirect_branch_arm();                                           \
@@ -346,110 +322,10 @@ u32 execute_spsr_restore_body(u32 address)
   block_exit_position++;                                                      \
 }                                                                             \
 
-#define thumb_load_pc_pool_const(rd, value)                                   \
-  generate_load_imm(arm_to_mips_reg[rd], (value));                            \
-
 #define check_store_reg_pc_thumb(_rd)                                         \
   if(_rd == REG_PC) {                                                         \
     generate_indirect_branch_cycle_update(thumb);                             \
   }                                                                           \
-
-#define update_addi_flags(_rd, _rs, imm)                                      \
-  if (it.gen_flag_v())                                                        \
-    emit_nor(reg_v_cache, _rs, _rs);                                     \
-  emit_addiu(_rd, _rs, imm);                                                  \
-  if (it.gen_flag_c()) {                                                      \
-    /* If result is smaller than imm, there was unsigned overflow! */         \
-    emit_sltiu(reg_c_cache, _rd, imm);                                   \
-  }                                                                           \
-  update_nz_flags<SetFlags>(it, _rd);                                         \
-  if (it.gen_flag_v()) {                                                      \
-    emit_and(reg_v_cache, reg_v_cache, _rd);                             \
-    emit_srl(reg_v_cache, reg_v_cache, 31);                              \
-  }                                                                           \
-
-// V_flag = SignRs & !SignRd = !(!SignRs | SignRd)
-#define update_subi_flags(_rd, _rs, imm)                                      \
-  if (it.gen_flag_c()) {                                                      \
-    /* If rs is smaller than imm, will cause carry! (!borrow) */              \
-    emit_sltiu(reg_c_cache, _rs, imm);                                   \
-    emit_xori(reg_c_cache, reg_c_cache, 1);                              \
-  }                                                                           \
-  if (it.gen_flag_v())                                                        \
-    emit_nor(reg_v_cache, _rs, _rs);                                     \
-  emit_addiu(_rd, _rs, -imm);                                                 \
-  update_nz_flags<SetFlags>(it, _rd);                                         \
-  if (it.gen_flag_v()) {                                                      \
-    emit_nor(reg_v_cache, reg_v_cache, _rd);                             \
-    emit_srl(reg_v_cache, reg_v_cache, 31);                              \
-  }
-
-// Some macros to wrap device-specific instructions
-
-/* MIPS32R2 and PSP support ins, ext, seb, rotr */
-#ifdef MIPS_HAS_R2_INSTS
-  // Inserts LSB bits into another register
-  #define insert_bits(rdest, rsrc, rtemp, pos, size) \
-    emit_ins(rdest, rsrc, pos, size);
-  // Doubles a byte into a halfword
-  #define double_byte(reg, rtmp) \
-    emit_ins(reg, reg, 8, 8);
-  // Clears numbits at LSB position (to align an address)
-  #define emit_align_reg(reg, numbits) \
-    emit_ins(reg, reg_zero, 0, numbits)
-  // Extract a bitfield (pos, size) to a register
-  #define extract_bits(rt, rs, pos, size) \
-    emit_ext(rt, rs, pos, size)
-  // Extends signed byte to u32
-  #define extend_byte_signed(rd, rs) \
-    emit_seb(rd, rs)
-  // Rotates a word using a temp reg if necessary
-  #define rotate_right(rdest, rsrc, rtemp, amount) \
-    emit_rotr(rdest, rsrc, amount);
-  // Same but variable amount rotation (register)
-  #define rotate_right_var(rdest, rsrc, rtemp, ramount) \
-    emit_rotrv(rdest, rsrc, ramount);
-#else
-  // Inserts LSB bits into another register
-  // *assumes dest bits are cleared*!
-  #define insert_bits(rdest, rsrc, rtemp, pos, size) \
-    emit_sll(rtemp, rsrc, 32 - size);           \
-    emit_srl(rtemp, rtemp, 32 - size - pos);    \
-    emit_or(rdest, rdest, rtemp);
-  // Doubles a byte into a halfword
-  #define double_byte(reg, rtmp)    \
-    emit_sll(rtmp, reg, 8);    \
-    emit_andi(reg, reg, 0xff); \
-    emit_or(reg, reg, rtmp);
-  // Clears numbits at LSB position (to align an address)
-  #define emit_align_reg(reg, numbits) \
-    emit_srl(reg, reg, numbits); \
-    emit_sll(reg, reg, numbits)
-  // Extract a bitfield (pos, size) to a register
-  // TODO: Optimize for the case bits are the MSB
-  #define extract_bits(rt, rs, pos, size) \
-    emit_sll(rt, rs, 32 - ((pos) + (size))); \
-    emit_srl(rt, rt, 32 - (size))
-  // Extends signed byte to u32
-  #define extend_byte_signed(rd, rs) \
-    emit_sll(rd, rs, 24); \
-    emit_sra(rd, rd, 24)
-  // Rotates a word (uses temp reg)
-  #define rotate_right(rdest, rsrc, rtemp, amount) \
-    emit_sll(rtemp, rsrc, 32 - (amount));     \
-    emit_srl(rdest, rsrc, (amount));          \
-    emit_or(rdest, rdest, rtemp)
-  // Variable rotation using temp reg (dst != src)
-  #define rotate_right_var(rdest, rsrc, rtemp, ramount) \
-    emit_andi(rtemp, ramount, 0x1F);               \
-    emit_srlv(rdest, rsrc, rtemp);                 \
-    emit_subu(rtemp, reg_zero, rtemp);             \
-    emit_addiu(rtemp, rtemp, 32);                       \
-    emit_sllv(rtemp, rsrc, rtemp);                 \
-    emit_or(rdest, rdest, rtemp)
-
-#endif
-
 
 // Register save layout as follows:
 #define ReOff_RegPC    (REG_PC    * 4) // REG_PC
@@ -576,7 +452,87 @@ public:
     spaccess_trampoline = this->emit_ptr;
     emit_j(mips_absolute_offset(&rom_translation_cache[EWRAM_SPM_OFF]));
     emit_nop();
-    generate_load_imm(reg_pc, block_pc)
+    emit_load_imm_reg(reg_pc, block_pc);
+  }
+
+  inline void extend_byte_signed(mips_regnum rd, mips_regnum rs) {
+    #ifdef MIPS_HAS_R2_INSTS
+      emit_seb(rd, rs);
+    #else
+      emit_sll(rd, rs, 24);
+      emit_sra(rd, rd, 24);
+    #endif
+  }
+
+  // Clears numbits at LSB position (to align an address)
+  inline void emit_align_reg(mips_regnum reg, uint8_t numbits) {
+    #ifdef MIPS_HAS_R2_INSTS
+      emit_ins(reg, reg_zero, 0, numbits);
+    #else
+      emit_srl(reg, reg, numbits);
+      emit_sll(reg, reg, numbits);
+    #endif
+  }
+
+  // Extract a bitfield (pos, size) to a register
+  inline void extract_bits(mips_regnum rd, mips_regnum rs, uint8_t pos, uint8_t size) {
+    if (pos + size == 32)
+      emit_srl(rd, rs, 32 - size);
+    else {
+      #ifdef MIPS_HAS_R2_INSTS
+        emit_ext(rd, rs, pos, size);
+      #else
+        emit_sll(rd, rs, 32 - (pos + size));
+        emit_srl(rd, rd, 32 - size);
+      #endif
+    }
+  }
+
+  inline void double_byte(mips_regnum reg, mips_regnum scratch) {
+    #ifdef MIPS_HAS_R2_INSTS
+      emit_ins(reg, reg, 8, 8);
+    #else
+      emit_andi(reg, reg, 0xff);
+      emit_sll(rtmp, reg, 8);
+      emit_or(reg, reg, rtmp);
+    #endif
+  }
+
+  inline void rotate_right(mips_regnum dst, mips_regnum src, uint8_t amount) {
+    #ifdef MIPS_HAS_R2_INSTS
+      emit_rotr(dst, src, amount);
+    #else
+      emit_sll(reg_temp, src, 32 - amount);
+      emit_srl(dst, src, amount);
+      emit_or(dst, dst, reg_temp);
+    #endif
+  }
+
+  // Requires dst != src
+  // TODO: ram can be usually destroyed! Use tmp to lift the src/dst restriction
+  inline void rotate_right_var(mips_regnum dst, mips_regnum src, mips_regnum ram) {
+    #ifdef MIPS_HAS_R2_INSTS
+      emit_rotrv(dst, src, ram);
+    #else
+      emit_andi(reg_temp, ram, 0x1F);
+      emit_srlv(dst, src, reg_temp);
+      emit_subu(reg_temp, reg_zero, reg_temp);
+      emit_addiu(reg_temp, reg_temp, 32);
+      emit_sllv(reg_temp, src, reg_temp);
+      emit_or(dst, dst, reg_temp);
+    #endif
+  }
+
+  // Inserts LSB bits into another register
+  inline void insert_bits(mips_regnum dst, mips_regnum src, mips_regnum rtmp, uint8_t pos, uint8_t size) {
+    #ifdef MIPS_HAS_R2_INSTS
+      emit_ins(dst, src, pos, size);
+    #else
+      // *assumes dest bits are cleared*!
+      emit_sll(rtmp, src, 32 - size);
+      emit_srl(rtmp, rtmp, 32 - size - pos);
+      emit_or(dst, dst, rtmp);
+    #endif
   }
 
   inline mips_regnum load_alloc_reg(u32 regn, mips_regnum tmp_reg, u32 pcvalue) {
@@ -727,6 +683,35 @@ public:
     }
   }
 
+  inline void generate_addi(const ThumbInst & it, mips_regnum rd, mips_regnum rs, uint32_t imm) {
+    if (it.gen_flag_v())
+      emit_nor(reg_v_cache, rs, rs);
+    emit_addiu(rd, rs, imm);
+    if (it.gen_flag_c())
+      emit_sltiu(reg_c_cache, rd, imm);   // rd < imm -> overflow
+    update_nz_flags<SetFlags>(it, rd);
+    if (it.gen_flag_v()) {
+      emit_and(reg_v_cache, reg_v_cache, rd);
+      emit_srl(reg_v_cache, reg_v_cache, 31);
+    }
+  }
+
+  inline void generate_subi(const ThumbInst & it, mips_regnum rd, mips_regnum rs, uint32_t imm) {
+    // V = SignRs & !SignRd = !(!SignRs | SignRd)
+    if (it.gen_flag_c()) {
+      emit_sltiu(reg_c_cache, rs, imm);
+      emit_xori(reg_c_cache, reg_c_cache, 1);
+    }
+    if (it.gen_flag_v())
+      emit_nor(reg_v_cache, rs, rs);
+    emit_addiu(rd, rs, -imm);
+    update_nz_flags<SetFlags>(it, rd);
+    if (it.gen_flag_v()) {
+      emit_nor(reg_v_cache, reg_v_cache, rd);
+      emit_srl(reg_v_cache, reg_v_cache, 31);
+    }
+  }
+
   template <CPUInstMode cm>
   inline void generate_translation_gate(u32 pc) {
     emit_load_pc(reg_a0, pc);
@@ -747,7 +732,7 @@ public:
   }
 
   inline void emit_load_const_pool(u32 regn, u32 value) {
-    generate_load_imm(arm_to_mips_reg[regn], (value));
+    emit_load_imm_reg(arm_to_mips_reg[regn], value);
   }
 
   inline void arm_conditional_block_header(u32 condition, u32 & cycle_count, u8 * & backpatch_address) {
@@ -960,13 +945,13 @@ public:
       emit_addiu(reg_z_cache, reg_zero, it.imm8() ? 0 : 1);
       break;
     case OpAdd:
-      update_addi_flags(rd, rd, it.imm8());
+      generate_addi(it, rd, rd, it.imm8());
       break;
     case OpSub:
-      update_subi_flags(rd, rd, it.imm8());
+      generate_subi(it, rd, rd, it.imm8());
       break;
     case OpCmp:
-      update_subi_flags(reg_temp, rd, it.imm8());
+      generate_subi(it, reg_temp, rd, it.imm8());
       break;
     };
   }
@@ -978,10 +963,10 @@ public:
 
     switch (aluop) {
     case OpAdd:
-      update_addi_flags(rd, rs, it.imm3());
+      generate_addi(it, rd, rs, it.imm3());
       break;
     case OpSub:
-      update_subi_flags(rd, rs, it.imm3());
+      generate_subi(it, rd, rs, it.imm3());
       break;
     };
   }
@@ -1545,18 +1530,16 @@ public:
     switch (st) {
     case ShiftLSL:
       rm = load_alloc_reg(sreg, dreg, pc);
-      if (flg == SetFlags && sa) {
+      if (flg == SetFlags && sa)
         extract_bits(reg_c_cache, rm, (32 - sa), 1);
-      }
       emit_sll(dreg, rm, sa);
       break;
 
     case ShiftLSR:      /* (sa 0 means shift by 32) */
       if (sa) {
         rm = load_alloc_reg(sreg, dreg, pc);
-        if (flg == SetFlags) {
+        if (flg == SetFlags)
           extract_bits(reg_c_cache, rm, (sa - 1), 1);
-        }
         emit_srl(dreg, rm, sa);
       } else {
         if (flg == SetFlags) {
@@ -1570,16 +1553,15 @@ public:
 
     case ShiftASR:      /* (sa 0 is also shift by 32) */
       rm = load_alloc_reg(sreg, dreg, pc);
-      if (flg == SetFlags) {
+      if (flg == SetFlags)
         extract_bits(reg_c_cache, rm, ((sa ? sa : 32) - 1), 1);
-      }
       emit_sra(dreg, rm, (sa ? sa : 31));
       break;
 
     case ShiftROR:
       rm = load_alloc_reg(sreg, reg_a1, pc);
       if (sa) {
-        rotate_right(dreg, rm, reg_temp, sa);
+        rotate_right(dreg, rm, sa);
         if (flg == SetFlags)
           emit_srl(reg_c_cache, dreg, 31);  // CF is just the MSB bit
       } else {   /* RRX */
@@ -1646,7 +1628,7 @@ public:
         case ShiftROR:
           {
             mips_regnum rm = load_alloc_reg(sreg, reg_a2, pc);
-            rotate_right_var(dreg, rm, reg_temp, reg_a1);
+            rotate_right_var(dreg, rm, reg_a1);
             emit_srl(reg_temp, dreg, 31);  // CF is just the MSB bit
             emit_movn(reg_c_cache, reg_temp, reg_a1);
           }
@@ -1673,7 +1655,7 @@ public:
           break;
         case ShiftROR:
           // TODO: src and dst must be different!
-          rotate_right_var(dreg, rm, reg_temp, reg_a1);
+          rotate_right_var(dreg, rm, reg_a1);
           break;
       };
     }
@@ -1902,7 +1884,7 @@ public:
       generate_load_reg(reg_a0, it.rm());
     } else {
       u32 imm = rotr32(it.imm8(), it.rot4() * 2);
-      generate_load_imm(reg_a0, imm);
+      emit_load_imm_reg(reg_a0, imm);
     }
 
     if (reg == RegCPSR) {
@@ -1911,7 +1893,7 @@ public:
       generate_raw_u32(cpsr_masks[it.field_fc()][0]);
       generate_raw_u32(cpsr_masks[it.field_fc()][1]);
     } else {
-      generate_load_imm(reg_a1, spsr_masks[it.field_fc()]);
+      emit_load_imm_reg(reg_a1, spsr_masks[it.field_fc()]);
       generate_function_call_swap_delay(execute_store_spsr);
     }
   }
@@ -1920,8 +1902,8 @@ public:
   inline void trace_instruction(u32 pc, u32 opcode) {
     #ifdef TRACE_INSTRUCTIONS
     emit_save_regs(false);
-    generate_load_imm(reg_a0, pc);
-    generate_load_imm(reg_a2, opcode);
+    emit_load_imm_reg(reg_a0, pc);
+    emit_load_imm_reg(reg_a2, opcode);
     if (cm == ModeThumb) {
       genccall(&trace_instruction_hook_thumb);
     } else {
@@ -1997,9 +1979,8 @@ public:
 
     // Address checking: jumps to handler if bad region/alignment
     emit_srl(reg_temp, reg_a0, (32 - regionbits));
-    if (!aligned && size != 0) {  // u8 or aligned u32 dont need to check alignment bits
+    if (!aligned && size != 0)   // u8 or aligned u32 dont need to check alignment bits
       insert_bits(reg_temp, reg_a0, reg_rv, regionbits, size);  // Add 1 or 2 bits of alignment
-    }
     if (regioncheck || alignment)   // If region and alignment are zero, can skip
       emit_xori(reg_temp, reg_temp, regioncheck | (alignment << regionbits));
 
@@ -2050,13 +2031,12 @@ public:
     } else if (region == 14) {
       // Read from flash, is a bit special, fn call
       emit_mem_call_ds(&read_backup, 0xFFFF);
-      if (!size && signext) {
+      if (!size && signext)
         extend_byte_signed(reg_rv, reg_rv);
-      } else if (size == 1 && alignment) {
+      else if (size == 1 && alignment)
         extend_byte_signed(reg_rv, reg_rv);
-      } else if (size == 2) {
-        rotate_right(reg_rv, reg_rv, reg_temp, 8 * alignment);
-      }
+      else if (size == 2)
+        rotate_right(reg_rv, reg_rv, 8 * alignment);
       generate_function_return_swap_delay();
       return;
     } else {
@@ -2070,18 +2050,16 @@ public:
       if (region == 2) {
         // Can't do EWRAM with an `andi` instruction (18 bits mask)
         extract_bits(reg_a0, reg_a0, 0, 18);       // &= 0x3ffff
-        if (!aligned && alignment != 0) {
+        if (!aligned && alignment != 0)
           emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
-        }
         // Need to insert a zero in the addr (due to how it's mapped)
         emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to the base addr
       } else if (region == 6) {
         // VRAM is mirrored every 128KB but the last 32KB is mapped to the previous
         extract_bits(reg_temp, reg_a0, 15, 2);     // Extract bits 15 and 16
         emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
-        if (!aligned && alignment != 0) {
+        if (!aligned && alignment != 0)
           emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
-        }
         extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
         emit_bne(reg_zero, reg_temp, 1);   // Skip unless last block
         generate_swap_delay();
@@ -2098,10 +2076,9 @@ public:
     // Emit load operation
     emit_mem_access_loadop(base_addr, size, alignment, signext);
 
-    if (!(alignment == 0 || (size == 1 && signext))) {
+    if (!(alignment == 0 || (size == 1 && signext)))
       // Unaligned accesses require rotation, except for size=1 & signext
-      rotate_right(reg_rv, reg_rv, reg_temp, alignment * 8);
-    }
+      rotate_right(reg_rv, reg_rv, alignment * 8);
 
     generate_function_return_swap_delay();   // Return. Move prev inst to delay slot
   }
@@ -2134,25 +2111,22 @@ public:
 
     emit_lui(reg_rv, ((base_addr + 0x8000) >> 16));
 
-    if (doubleaccess) {
+    if (doubleaccess)
       double_byte(reg_a1, reg_temp);        // value = value | (value << 8)
-    }
 
     if (region == 2) {
       // Can't do EWRAM with an `andi` instruction (18 bits mask)
       extract_bits(reg_a0, reg_a0, 0, 18);       // &= 0x3ffff
-      if (!aligned && realsize != 0) {
+      if (!aligned && realsize != 0)
         emit_align_reg(reg_a0, size);            // addr & ~1/2 (align to size)
-      }
       // Need to insert a zero in the addr (due to how it's mapped)
       emit_addu(reg_rv, reg_rv, reg_a0);    // Adds to the base addr
     } else if (region == 6) {
       // VRAM is mirrored every 128KB but the last 32KB is mapped to the previous
       extract_bits(reg_temp, reg_a0, 15, 2);     // Extract bits 15 and 16
       emit_addiu(reg_temp, reg_temp, -3);   // Check for 3 (last block)
-      if (!aligned && realsize != 0) {
+      if (!aligned && realsize != 0)
         emit_align_reg(reg_a0, realsize);        // addr & ~1/2 (align to size)
-      }
       extract_bits(reg_a0, reg_a0, 0, 17);       // addr & 0x1FFFF [delay]
       emit_bne(reg_zero, reg_temp, 1);   // Skip next inst unless last block
       generate_swap_delay();
@@ -2223,9 +2197,8 @@ public:
     emit_xori(reg_temp, reg_temp, 5);
     emit_bne(reg_zero, reg_temp, st_phndlr_branch(memop_number));
     emit_andi(reg_rv, reg_a0, memmask);   // Clear upper bits (mirroring)
-    if (size == 0) {
+    if (size == 0)
       double_byte(reg_a1, reg_temp);    // value = value | (value << 8)
-    }
     emit_addu(reg_rv, reg_rv, reg_base);
 
     // Store the data in real palette memory
@@ -2442,10 +2415,9 @@ public:
     #endif
 
     // Stores or byte-accesses do not care about alignment
-    if (check_alignment) {
+    if (check_alignment)
       // Move alignment bits for the table lookup (1 or 2, to bits 6 and 7)
       insert_bits(reg_temp, reg_a0, reg_rv, 6, size);
-    }
 
     unsigned tbloff = 256 + 3*1024 + 220 + 4 * toff;  // Skip regs and RAMs
     unsigned tbloff2 = tbloff + 960;              // JAL opcode table
@@ -2504,7 +2476,7 @@ public:
     emit_nop();
 
     // Special trampoline for SP-relative ldm/stm (to EWRAM)
-    generate_load_imm(reg_a1, 0x3FFFC);
+    emit_load_imm_reg(reg_a1, 0x3FFFC);
     emit_and(reg_a1, reg_a1, reg_a2);
     emit_lui(reg_a0, ((u32)(ewram + 0x8000) >> 16));
     generate_function_return_swap_delay();

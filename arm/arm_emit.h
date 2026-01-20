@@ -362,7 +362,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
   }                                                                           \
 
 #define generate_branch_cycle_update(writeback_location, new_pc, mode)        \
-  emit_cycle_update(cycle_count);                                             \
+  emit_cycle_update();                                                        \
   generate_branch_no_cycle_update(writeback_location, new_pc, mode)           \
 
 /* a0 holds the destination */
@@ -371,19 +371,19 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
   emit_ldr_imm(armcg_regpc, reg_base, 4*(REG_USERDEF + armfn_indirect_##type));
 
 #define generate_indirect_branch_cycle_update(type)                           \
-  emit_cycle_update(cycle_count);                                             \
+  emit_cycle_update();                                                        \
   generate_indirect_branch_no_cycle_update(type)                              \
 
 #define generate_indirect_branch_arm() {                                      \
     if(condition == 0x0E) {                                                   \
-      emit_cycle_update(cycle_count);                                         \
+      emit_cycle_update();                                                    \
     }                                                                         \
     generate_indirect_branch_no_cycle_update(arm);                            \
   }                                                                           \
 
 #define generate_indirect_branch_dual() {                                     \
     if(condition == 0x0E) {                                                   \
-      emit_cycle_update(cycle_count);                                         \
+      emit_cycle_update();                                                    \
     }                                                                         \
     generate_indirect_branch_no_cycle_update(dual_arm);                       \
   }                                                                           \
@@ -400,7 +400,7 @@ u32 arm_disect_imm_32bit(u32 imm, u32 *stores, u32 *rotations)
 #define arm_complete_store_reg_pc_flags(scratch_reg, reg_index) {             \
   if (reg_index == REG_PC) {                                                  \
     if(condition == 0x0E) {                                                   \
-      emit_cycle_update(cycle_count);                                         \
+      emit_cycle_update();                                                    \
     }                                                                         \
     generate_function_far_call(armfn_spsr_restore);                           \
   } else {                                                                    \
@@ -587,12 +587,12 @@ public:
       emit_ldr_imm(armcg_regpc, reg_base, 4*(REG_USERDEF + armfn_indirect_thumb));
   }
 
-  inline void emit_cycle_update(u32 & cycle_count) {
-    if (cycle_count) {
-      if (cycle_count >> 8)
-        emit_alu_imm<OpAdd, NoFlags>(reg_cycles, reg_cycles, lshift_to_immshf(8), cycle_count >> 8);
-      emit_alu_imm<OpAdd, NoFlags>(reg_cycles, reg_cycles, 0, cycle_count & 0xFF);
-      cycle_count = 0;
+  inline void emit_cycle_update() {
+    if (cyc_cnt) {
+      if (cyc_cnt >> 8)
+        emit_alu_imm<OpAdd, NoFlags>(reg_cycles, reg_cycles, lshift_to_immshf(8), cyc_cnt >> 8);
+      emit_alu_imm<OpAdd, NoFlags>(reg_cycles, reg_cycles, 0, cyc_cnt & 0xFF);
+      cyc_cnt = 0;
     }
   }
 
@@ -611,8 +611,8 @@ public:
     complete_store_reg<ModeThumb>(rgdst, regn);
   }
 
-  inline void arm_conditional_block_header(u32 condition, u32 & cycle_count, u8 * & backpatch_address) {
-    emit_cycle_update(cycle_count);
+  inline void arm_conditional_block_header(u32 condition, u8 * & backpatch_address) {
+    emit_cycle_update();
     /* This will choose the opposite condition */
     condition ^= 0x01;
     generate_branch_filler(condition, backpatch_address);
@@ -713,7 +713,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluhi(const ThumbInst & it, u32 & cycle_count) {
+  inline void thumb_aluhi(const ThumbInst & it) {
     armcg_regnum rs = prepare_load_reg<ModeThumb>(reg_rn, it.rs_hi(), it.pc, 2);
 
     armcg_regnum rd = (aluop == OpAdd || aluop == OpCmp) ? prepare_load_reg<ModeThumb>(reg_rd, it.rd_hi(), it.pc, 2)
@@ -749,31 +749,47 @@ public:
     complete_store_reg<ModeThumb>(reg_rd, it.rd8());
   }
 
-  inline void thumb_spadj(s8 offset) {
+  inline void thumb_spadj(const ThumbInst & it) {
     armcg_regnum sp = prepare_load_loreg<ModeThumb>(reg_a0, REG_SP);
-    emit_addsub8(sp, sp, offset, lshift_to_immshf(2));
+    emit_addsub8(sp, sp, it.imm71(), lshift_to_immshf(2));
     complete_store_reg<ModeThumb>(reg_a0, REG_SP);
   }
 
-  inline void thumb_bx(u32 pc, u32 regn, u32 & cycle_count) {
-    force_load_reg<ModeThumb>(reg_a0, regn, pc + 4);
+  inline void thumb_bx(const ThumbInst & it) {
+    force_load_reg<ModeThumb>(reg_a0, it.rs_hi(), it.pc + 4);
     generate_indirect_branch_cycle_update(dual_thumb);
   }
 
-  inline void arm_bx(const ARMInst & it, u32 & cycle_count) {
+  inline void thumb_blh(const ThumbInst & it) {
+    u32 offlo = it.abr_offset_lo() & 0xFF;
+    u32 offhi = it.abr_offset_lo() >> 8;
+
+    generate_update_pc(((it.pc + 2) | 0x01));
+    force_load_reg<ModeThumb>(reg_a1, REG_LR, it.pc + 4);
+    force_store_reg<ModeThumb>(reg_a0, REG_LR);
+
+    emit_alu_imm<OpAdd, NoFlags>(reg_a0, reg_a1, 0, offlo);
+    if (offhi)
+      emit_alu_imm<OpAdd, NoFlags>(reg_a0, reg_a0, lshift_to_immshf(8), offhi);
+
+    generate_indirect_branch_cycle_update(thumb);
+  }
+
+  inline void arm_bx(const ARMInst & it) {
     const u8 condition = it.cond();        // TODO remove this
     force_load_reg<ModeARM>(reg_a0, it.rm(), it.pc + 8);
     generate_indirect_branch_dual();
   }
 
-  inline bool thumb_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
+  template <CPUInstMode cpum>
+  inline bool emu_swi(u32 pc, u32 num) {
     switch (num) {
     case 6:
-      cycle_count += 64;
+      cyc_cnt += 64;
       generate_function_far_call(armfn_swi6_emu);
       return true;
     case 7:
-      cycle_count += 64;
+      cyc_cnt += 64;
       generate_function_far_call(armfn_swi7_emu);
       return true;
     default:
@@ -782,21 +798,18 @@ public:
     return false;
   }
 
-  inline bool arm_emu_swi(u32 pc, u32 num, u32 & cycle_count) {
-    return thumb_emu_swi(pc, num, cycle_count);
-  }
-
-  inline u8* thumb_swi(u32 pc, u32 & cycle_count) {
+  inline u8* thumb_swi(const ThumbInst & it) {
     u8 *brtgt = NULL;
+    const u32 pc = it.pc;    // TODO: get rid of this.
 
     generate_function_far_call(armfn_swi_thumb);
-    write32((pc + 2));
+    write32((it.pc + 2));
     generate_branch_cycle_update(brtgt, 0x00000008, arm);
 
     return brtgt;
   }
 
-  inline u8* arm_swi(u32 pc, u32 & cycle_count) {
+  inline u8* arm_swi(u32 pc) {
     u8 *brtgt = NULL;
 
     generate_function_far_call(armfn_swi_arm);
@@ -807,26 +820,26 @@ public:
   }
 
   template <ARMCondCode ccode>
-  inline u8* thumb_brcond(u32 pc, u32 target, u32 & cycle_count) {
+  inline u8* thumb_brcond(u32 pc, u32 target) {
     u8 *brtgt = NULL;
     u8 *ptch = NULL;
 
     u32 oppcode = (ccode ^ 0x01);   // Simple opposite code conversion!
 
-    emit_cycle_update(cycle_count);
+    emit_cycle_update();
     generate_branch_filler(oppcode, ptch);
     generate_branch_no_cycle_update(brtgt, target, thumb);
     generate_branch_patch_conditional(ptch, this->emit_ptr);
     return brtgt;
   }
 
-  inline u8* thumb_b(u32 pc, u32 target, u32 & cycle_count) {
+  inline u8* thumb_b(u32 pc, u32 target) {
     u8 *brtgt = NULL;
     generate_branch_cycle_update(brtgt, target, thumb);
     return brtgt;
   }
 
-  inline u8* arm_b(const ARMInst & it, u32 target, u32 & cycle_count) {
+  inline u8* arm_b(const ARMInst & it, u32 target) {
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     if (it.cond() == CondAL) {
@@ -837,7 +850,7 @@ public:
     return brtgt;
   }
 
-  inline u8* thumb_bl(u32 pc, u32 target, u32 & cycle_count) {
+  inline u8* thumb_bl(u32 pc, u32 target) {
     u8 *brtgt = NULL;
     generate_update_pc(((pc + 2) | 0x01));
     force_store_reg<ModeThumb>(reg_a0, REG_LR);
@@ -845,7 +858,7 @@ public:
     return brtgt;
   }
 
-  inline u8* arm_bl(const ARMInst & it, u32 target, u32 & cycle_count) {
+  inline u8* arm_bl(const ARMInst & it, u32 target) {
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     generate_update_pc(pc + 4);
@@ -856,21 +869,6 @@ public:
       generate_branch_no_cycle_update(brtgt, target, arm);
     }
     return brtgt;
-  }
-
-  inline void thumb_blh(u32 pc, u32 offset, u32 & cycle_count) {
-    u32 offlo = (offset) & 0xFF;
-    u32 offhi = (offset) >> 8;
-
-    generate_update_pc(((pc + 2) | 0x01));
-    force_load_reg<ModeThumb>(reg_a1, REG_LR, pc + 4);
-    force_store_reg<ModeThumb>(reg_a0, REG_LR);
-
-    emit_alu_imm<OpAdd, NoFlags>(reg_a0, reg_a1, 0, offlo);
-    if (offhi)
-      emit_alu_imm<OpAdd, NoFlags>(reg_a0, reg_a0, lshift_to_immshf(8), offhi);
-
-    generate_indirect_branch_cycle_update(thumb);
   }
 
   // ============= Memory functions =================
@@ -895,8 +893,8 @@ public:
   }
 
   template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
-    cycle_count += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
+  inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn) {
+    cyc_cnt += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
     // Generate a call to the right memory section handler.
@@ -911,8 +909,8 @@ public:
   }
 
   template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn, u32 & cycle_count) {
-    cycle_count++;  // TODO: Use proper cycle accounting and honor WAITCNT
+  inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn) {
+    cyc_cnt++;  // TODO: Use proper cycle accounting and honor WAITCNT
     // Generate the address
     thumb_memaddr<memtype, offt>(it, regn);
     // Load value and generate call to handler
@@ -965,8 +963,8 @@ public:
   }
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
-  inline void arm_memst(const ARMInst & it, u32 & cycle_count) {
-    cycle_count++;    // TODO: Use proper cycle accounting and honor WAITCNT
+  inline void arm_memst(const ARMInst & it) {
+    cyc_cnt++;    // TODO: Use proper cycle accounting and honor WAITCNT
 
     // Generate the final address and base address, and write back if necessary
     if (idxm == MemIdxPostWB) {
@@ -990,9 +988,9 @@ public:
   }
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
-  inline void arm_memld(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_memld(const ARMInst & it) {
     const u8 condition = it.cond();        // TODO remove this
-    cycle_count += 2;    // TODO: Use proper cycle accounting and honor WAITCNT
+    cyc_cnt += 2;    // TODO: Use proper cycle accounting and honor WAITCNT
 
     // Generate the final address and base address, and write back if necessary
     if (idxm == MemIdxPostWB) {
@@ -1021,8 +1019,8 @@ public:
   }
 
   template <typename memtype>
-  inline void arm_swap(const ARMInst & it, u32 & cycle_count) {
-    cycle_count += 3;   // TODO: Some more accurate accounting :)
+  inline void arm_swap(const ARMInst & it) {
+    cyc_cnt += 3;   // TODO: Some more accurate accounting :)
 
     // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
 
@@ -1039,9 +1037,9 @@ public:
   }
 
   template <CPUInstMode cpum, AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
-  inline void mem_multi(u32 pc, u32 condition, u32 basereg, u16 rlist, u32 & cycle_count) {
+  inline void mem_multi(u32 pc, u32 condition, u32 basereg, u16 rlist) {
     const u32 numops = bit_count[rlist >> 8] + bit_count[rlist & 0xFF];
-    cycle_count += numops;    // TODO: Use proper cycle accounting.
+    cyc_cnt += numops;    // TODO: Use proper cycle accounting.
 
     const u32 itsize = (cpum == ModeARM) ? 4 : 2;
     const s32 stpoff = (addrmode == AddrPreInc || addrmode == AddrPostInc) ? 4 : -4;
@@ -1121,7 +1119,7 @@ public:
 
   // ======== ARM instructions ======================================
   template <ARMOp aluop, FlagOperation flg>
-  inline void arm_aluimm3(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_aluimm3(const ARMInst & it) {
     armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
@@ -1136,13 +1134,13 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void arm_aluimm2(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_aluimm2(const ARMInst & it) {
     armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
     emit_test_imm<aluop>(rn, it.rot4(), it.imm8());
   }
 
   template <ARMOp aluop, FlagOperation flg>
-  inline void arm_aluimm1(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_aluimm1(const ARMInst & it) {
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
     emit_mov_imm<aluop, flg>(rd, it.rot4(), it.imm8());
@@ -1157,7 +1155,7 @@ public:
 
   // 3 regs (with op2) instructions
   template <ARMOp aluop, FlagOperation flg>
-  inline void arm_alureg3(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_alureg3(const ARMInst & it) {
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
     if (it.op2imm()) {
@@ -1182,7 +1180,7 @@ public:
   }
 
   template <ARMOp aluop, FlagOperation flg>
-  inline void arm_alureg1(const ARMInst & it, u32 & cycle_count) {
+  inline void arm_alureg1(const ARMInst & it) {
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
     if (it.op2imm()) {
       armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);

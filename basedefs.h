@@ -76,10 +76,12 @@ typedef enum {
 class CodeEmitterBase {
 public:
   CodeEmitterBase(uint8_t *emit_ptr, uint8_t *emit_end)
-   : emit_ptr(emit_ptr), emit_end(emit_end) {}
+   : emit_ptr(emit_ptr), emit_end(emit_end), cyc_cnt(0) {}
 
   uint8_t *emit_ptr;              // Points to the JIT buffer, so we can emit code.
   uint8_t *emit_end;              // Points to the "end" of the JIT buffer
+
+  uint32_t cyc_cnt;               // Cycle counter
 };
 
 #endif

@@ -209,7 +209,7 @@ void translate_icache_sync() {
                                                                               \
     if(condition != 0x0E)                                                     \
     {                                                                         \
-      ce.arm_conditional_block_header(condition, cycle_count, backpatch_address);  \
+      ce.arm_conditional_block_header(condition, backpatch_address);          \
     }                                                                         \
   }                                                                           \
   ce.trace_instruction<ModeARM>(pc, opcode);                                  \
@@ -220,15 +220,15 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90)                                             \
       {                                                                       \
         if (opcode & 0x20)     /* STRH rd, [rn], -rm */                       \
-          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>(inst);        \
         else {                                                                \
           /* MUL rd, rm, rs */                                                \
           ce.arm_mul32<NoFlags, MulOnly>(inst);                               \
-          cycle_count += 2;  /* variable 1..4, pick 2 as an aprox. */         \
+          ce.cyc_cnt += 2;  /* variable 1..4, pick 2 as an aprox. */          \
         }                                                                     \
       }                                                                       \
       else         /* AND rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpAnd, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpAnd, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -238,36 +238,36 @@ void translate_icache_sync() {
         {                                                                     \
           case 0:  /* MULS rd, rm, rs */                                      \
             ce.arm_mul32<SetFlags, MulOnly>(inst);                            \
-            cycle_count += 2;  /* variable 1..4, pick 2 as an aprox. */       \
+            ce.cyc_cnt += 2;  /* variable 1..4, pick 2 as an aprox. */        \
             break;                                                            \
           case 1:  /* LDRH rd, [rn], -rm */                                   \
-            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>(inst);      \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn], -rm */                                  \
-            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>(inst);       \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn], -rm */                                  \
-            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>(inst);      \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* ANDS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpAnd, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpAnd, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x02:                                                                \
       if((opcode & 0x90) == 0x90) {                                           \
         if (opcode & 0x20)     /* STRH rd, [rn], -rm */                       \
-          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>(inst);        \
         else {                                                                \
           /* MLA rd, rm, rs, rn */                                            \
           ce.arm_mul32<NoFlags, MulAdd>(inst);                                \
-          cycle_count += 3;  /* variable 2..5, pick 3 as an aprox. */         \
+          ce.cyc_cnt += 3;  /* variable 2..5, pick 3 as an aprox. */          \
         }                                                                     \
       }                                                                       \
       else         /* XOR rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpXor, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpXor, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -277,29 +277,29 @@ void translate_icache_sync() {
           case 0:                                                             \
             /* MLAS rd, rm, rs, rn */                                         \
             ce.arm_mul32<SetFlags, MulAdd>(inst);                             \
-            cycle_count += 3;  /* variable 2..5, pick 3 as an aprox. */       \
+            ce.cyc_cnt += 3;  /* variable 2..5, pick 3 as an aprox. */        \
             break;                                                            \
           case 1:  /* LDRH rd, [rn], -rm */                                   \
-            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>(inst);      \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn], -rm */                                  \
-            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>(inst);       \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn], -rm */                                  \
-            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>(inst);      \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* XORS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpXor, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpXor, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x04:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn], -imm */              \
-        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst);         \
       else         /* SUB rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpSub, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpSub, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -307,26 +307,26 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn], -imm */                                  \
-            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst);     \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn], -imm */                                 \
-            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>(inst);      \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn], -imm */                                 \
-            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>(inst);     \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* SUBS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpSub, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpSub, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x06:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn], -imm */              \
-        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst);         \
       else         /* RSB rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpRsb, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpRsb, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -334,33 +334,33 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn], -imm */                                  \
-            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst);     \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn], -imm */                                 \
-            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>(inst);      \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn], -imm */                                 \
-            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>(inst);     \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* RSBS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpRsb, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpRsb, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x08:                                                                \
       if((opcode & 0x90) == 0x90) {                                           \
         if(opcode & 0x20)              /* STRH rd, [rn], +rm */               \
-          ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+          ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>(inst);        \
         else {                                                                \
           /* UMULL rd, rm, rs */                                              \
           ce.arm_mul64<NoFlags, MulOnly, false>(inst);                        \
-          cycle_count += 3;  /* this is an aproximation :P */                 \
+          ce.cyc_cnt += 3;  /* this is an aproximation :P */                  \
         }                                                                     \
       }                                                                       \
       else         /* ADD rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpAdd, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpAdd, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -370,37 +370,37 @@ void translate_icache_sync() {
           case 0:                                                             \
             /* UMULLS rdlo, rdhi, rm, rs */                                   \
             ce.arm_mul64<SetFlags, MulOnly, false>(inst);                     \
-            cycle_count += 3;  /* this is an aproximation :P */               \
+            ce.cyc_cnt += 3;  /* this is an aproximation :P */                \
             break;                                                            \
           case 1:  /* LDRH rd, [rn], +rm */                                   \
-            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>(inst);      \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn], +rm */                                  \
-            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>(inst);       \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn], +rm */                                  \
-            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>(inst);      \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* ADDS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpAdd, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpAdd, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x0A:                                                                \
       if((opcode & 0x90) == 0x90) {                                           \
         if(opcode & 0x20)              /* STRH rd, [rn], +rm */               \
-          ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+          ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>(inst);        \
         else                                                                  \
         {                                                                     \
           /* UMLAL rd, rm, rs */                                              \
           ce.arm_mul64<NoFlags, MulAdd, false>(inst);                         \
-          cycle_count += 3;  /* Between 2 and 5 cycles? */                    \
+          ce.cyc_cnt += 3;  /* Between 2 and 5 cycles? */                     \
         }                                                                     \
       }                                                                       \
       else         /* ADC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpAdc, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpAdc, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -410,37 +410,37 @@ void translate_icache_sync() {
           case 0:                                                             \
             /* UMLALS rdlo, rdhi, rm, rs */                                   \
             ce.arm_mul64<SetFlags, MulAdd, false>(inst);                      \
-            cycle_count += 3;  /* Between 2 and 5 cycles? */                  \
+            ce.cyc_cnt += 3;  /* Between 2 and 5 cycles? */                   \
             break;                                                            \
           case 1:  /* LDRH rd, [rn], +rm */                                   \
-            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>(inst);      \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn], +rm */                                  \
-            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>(inst);       \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn], +rm */                                  \
-            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>(inst);      \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* ADCS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpAdc, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpAdc, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x0C:                                                                \
       if((opcode & 0x90) == 0x90) {                                           \
         if(opcode & 0x20)              /* STRH rd, [rn], +imm */              \
-          ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+          ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst);       \
         else                                                                  \
         {                                                                     \
           /* SMULL rd, rm, rs */                                              \
           ce.arm_mul64<NoFlags, MulOnly, true>(inst);                         \
-          cycle_count += 2;  /* Between 1 and 4 cycles? */                    \
+          ce.cyc_cnt += 2;  /* Between 1 and 4 cycles? */                     \
         }                                                                     \
       }                                                                       \
       else         /* SBC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpSbc, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpSbc, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -450,37 +450,37 @@ void translate_icache_sync() {
           case 0:                                                             \
             /* SMULLS rdlo, rdhi, rm, rs */                                   \
             ce.arm_mul64<SetFlags, MulOnly, true>(inst);                      \
-            cycle_count += 2;  /* Between 1 and 4 cycles? */                  \
+            ce.cyc_cnt += 2;  /* Between 1 and 4 cycles? */                   \
             break;                                                            \
           case 1:  /* LDRH rd, [rn], +imm */                                  \
-            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst);     \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn], +imm */                                 \
-            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>(inst);      \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn], +imm */                                 \
-            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>(inst);     \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* SBCS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpSbc, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpSbc, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x0E:                                                                \
       if((opcode & 0x90) == 0x90) {                                           \
         if(opcode & 0x20)              /* STRH rd, [rn], +imm */              \
-          ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+          ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst);       \
         else                                                                  \
         {                                                                     \
           /* SMLAL rd, rm, rs */                                              \
           ce.arm_mul64<NoFlags, MulAdd, true>(inst);                          \
-          cycle_count += 3;  /* Between 2 and 5 cycles? */                    \
+          ce.cyc_cnt += 3;  /* Between 2 and 5 cycles? */                     \
         }                                                                     \
       }                                                                       \
       else         /* RSC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpRsc, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpRsc, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -490,30 +490,30 @@ void translate_icache_sync() {
           case 0:                                                             \
             /* SMLALS rdlo, rdhi, rm, rs */                                   \
             ce.arm_mul64<SetFlags, MulAdd, true>(inst);                       \
-            cycle_count += 3;  /* Between 2 and 5 cycles? */                  \
+            ce.cyc_cnt += 3;  /* Between 2 and 5 cycles? */                   \
             break;                                                            \
           case 1:  /* LDRH rd, [rn], +imm */                                  \
-            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst);     \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn], +imm */                                 \
-            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>(inst);      \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn], +imm */                                 \
-            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>(inst);     \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* RSCS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpRsc, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpRsc, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x10:                                                                \
       if((opcode & 0x90) == 0x90) {                                           \
         if(opcode & 0x20)              /* STRH rd, [rn - rm] */               \
-          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
+          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPre>(inst);           \
         else                           /* SWP rd, rm, [rn] */                 \
-          ce.arm_swap<u32>(inst, cycle_count);                                 \
+          ce.arm_swap<u32>(inst);                                             \
       }                                                                       \
       else     /* MRS rd, cpsr */                                             \
         ce.arm_read_psr<RegCPSR>(inst);                                       \
@@ -523,13 +523,13 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn - rm] */                                   \
-            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPre>(inst);         \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn - rm] */                                  \
-            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPre>(inst);          \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn - rm] */                                  \
-            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPre>(inst);         \
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -539,10 +539,10 @@ void translate_icache_sync() {
                                                                               \
     case 0x12:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn - rm]! */              \
-        ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+        ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPreWB>(inst);           \
       else {                                                                  \
         if (opcode & 0x10)   /* BX rm */                                      \
-          ce.arm_bx(inst, cycle_count);                                       \
+          ce.arm_bx(inst);                                                    \
         else     /* MSR cpsr, rm */                                           \
           ce.arm_write_psr<RegCPSR, OpReg>(inst);                             \
       }                                                                       \
@@ -552,13 +552,13 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn - rm]! */                                  \
-            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPreWB>(inst);       \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn - rm]! */                                 \
-            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPreWB>(inst);        \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn - rm]! */                                 \
-            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPreWB>(inst);       \
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -570,9 +570,9 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90)                                             \
       {                                                                       \
         if(opcode & 0x20)              /* STRH rd, [rn - imm] */              \
-          ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
+          ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPre>(inst);          \
         else                           /* SWPB rd, rm, [rn] */                \
-          ce.arm_swap<u8>(inst, cycle_count);                                 \
+          ce.arm_swap<u8>(inst);                                              \
       }                                                                       \
       else     /* MRS rd, spsr */                                             \
         ce.arm_read_psr<RegSPSR>(inst);                                       \
@@ -582,13 +582,13 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn - imm] */                                  \
-            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPre>(inst);        \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn - imm] */                                 \
-            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPre>(inst);         \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn - imm] */                                 \
-            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPre>(inst);        \
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -598,7 +598,7 @@ void translate_icache_sync() {
                                                                               \
     case 0x16:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn - imm]! */             \
-        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPreWB>(inst);          \
       else     /* MSR spsr, rm */                                             \
         ce.arm_write_psr<RegSPSR, OpReg>(inst);                               \
       break;                                                                  \
@@ -607,13 +607,13 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn - imm]! */                                 \
-            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPreWB>(inst);      \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn - imm]! */                                \
-            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPreWB>(inst);       \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn - imm]! */                                \
-            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPreWB>(inst);      \
             break;                                                            \
         }                                                                     \
       }                                                                       \
@@ -623,9 +623,9 @@ void translate_icache_sync() {
                                                                               \
     case 0x18:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + rm] */               \
-        ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPre>(inst, cycle_count);\
+        ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPre>(inst);             \
       else         /* ORR rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpOrr, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpOrr, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -633,51 +633,51 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn + rm] */                                   \
-            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPre>(inst);         \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn + rm] */                                  \
-            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPre>(inst);          \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn + rm] */                                  \
-            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPre>(inst);         \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* ORRS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpOrr, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpOrr, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x1A:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + rm]! */              \
-        ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+        ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPreWB>(inst);           \
       else         /* MOV rd, reg_op */                                       \
-        ce.arm_alureg1<OpMov, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg1<OpMov, NoFlags>(inst);                                 \
       break;                                                                  \
                                                                               \
     case 0x1B:                                                                \
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn + rm]! */                                  \
-            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPreWB>(inst);       \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn + rm]! */                                 \
-            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPreWB>(inst);        \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn + rm]! */                                 \
-            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPreWB>(inst);       \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* MOVS rd, reg_op */                                      \
-        ce.arm_alureg1<OpMov, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg1<OpMov, SetFlags>(inst);                                \
       break;                                                                  \
                                                                               \
     case 0x1C:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + imm] */              \
-        ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPre>(inst, cycle_count);\
+        ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPre>(inst);            \
       else         /* BIC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpBic, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg3<OpBic, NoFlags>(inst);                                 \
                                                                               \
       break;                                                                  \
                                                                               \
@@ -685,96 +685,96 @@ void translate_icache_sync() {
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn + imm] */                                  \
-            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPre>(inst);        \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn + imm] */                                 \
-            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPre>(inst);         \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn + imm] */                                 \
-            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPre>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPre>(inst);        \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* BIC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpBic, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg3<OpBic, SetFlags>(inst);                                \
                                                                               \
       break;                                                                  \
                                                                               \
     case 0x1E:                                                                \
       if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + imm]! */             \
-        ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+        ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPreWB>(inst);          \
       else         /* MVN rd, reg_op */                                       \
-        ce.arm_alureg1<OpMvn, NoFlags>(inst, cycle_count);                    \
+        ce.arm_alureg1<OpMvn, NoFlags>(inst);                                 \
       break;                                                                  \
                                                                               \
     case 0x1F:                                                                \
       if((opcode & 0x90) == 0x90) {                                           \
         switch((opcode >> 5) & 0x03) {                                        \
           case 1:  /* LDRH rd, [rn + imm]! */                                 \
-            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPreWB>(inst);      \
             break;                                                            \
           case 2:  /* LDRSB rd, [rn + imm]! */                                \
-            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPreWB>(inst);       \
             break;                                                            \
           case 3:  /* LDRSH rd, [rn + imm]! */                                \
-            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPreWB>(inst);      \
             break;                                                            \
         }                                                                     \
       }                                                                       \
       else         /* MVNS rd, reg_op */                                      \
-        ce.arm_alureg1<OpMvn, SetFlags>(inst, cycle_count);                   \
+        ce.arm_alureg1<OpMvn, SetFlags>(inst);                                \
       break;                                                                  \
                                                                               \
     case 0x20:     /* AND rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpAnd, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpAnd, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x21:     /* ANDS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpAnd, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpAnd, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x22:     /* EOR rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpXor, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpXor, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x23:     /* EORS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpXor, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpXor, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x24:     /* SUB rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpSub, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpSub, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x25:     /* SUBS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpSub, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpSub, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x26:     /* RSB rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpRsb, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpRsb, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x27:     /* RSBS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpRsb, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpRsb, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x28:     /* ADD rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpAdd, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpAdd, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x29:     /* ADDS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpAdd, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpAdd, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x2A:     /* ADC rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpAdc, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpAdc, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x2B:     /* ADCS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpAdc, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpAdc, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x2C:     /* SBC rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpSbc, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpSbc, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x2D:     /* SBCS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpSbc, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpSbc, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x2E:     /* RSC rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpRsc, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpRsc, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x2F:     /* RSCS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpRsc, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpRsc, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x30 ... 0x31:      /* TST rn, imm */                                \
-      ce.arm_aluimm2<OpTst>(inst, cycle_count);                               \
+      ce.arm_aluimm2<OpTst>(inst);                                            \
       break;                                                                  \
                                                                               \
     case 0x32:                                                                \
@@ -785,399 +785,399 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x33:     /* TEQ rn, imm */                                          \
-      ce.arm_aluimm2<OpTeq>(inst, cycle_count);                               \
+      ce.arm_aluimm2<OpTeq>(inst);                                            \
       break;                                                                  \
     case 0x34 ... 0x35:      /* CMP rn, imm */                                \
-      ce.arm_aluimm2<OpCmp>(inst, cycle_count);                               \
+      ce.arm_aluimm2<OpCmp>(inst);                                            \
       break;                                                                  \
     case 0x37:     /* CMN rn, imm */                                          \
-      ce.arm_aluimm2<OpCmn>(inst, cycle_count);                               \
+      ce.arm_aluimm2<OpCmn>(inst);                                            \
       break;                                                                  \
     case 0x38:     /* ORR rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpOrr, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpOrr, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x39:     /* ORRS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpOrr, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpOrr, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x3A:     /* MOV rd, imm */                                          \
-      ce.arm_aluimm1<OpMov, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm1<OpMov, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x3B:     /* MOVS rd, imm */                                         \
-      ce.arm_aluimm1<OpMov, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm1<OpMov, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x3C:     /* BIC rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpBic, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm3<OpBic, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x3D:     /* BICS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpBic, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm3<OpBic, SetFlags>(inst);                                  \
       break;                                                                  \
     case 0x3E:     /* MVN rd, imm */                                          \
-      ce.arm_aluimm1<OpMvn, NoFlags>(inst, cycle_count);                      \
+      ce.arm_aluimm1<OpMvn, NoFlags>(inst);                                   \
       break;                                                                  \
     case 0x3F:     /* MVNS rd, imm */                                         \
-      ce.arm_aluimm1<OpMvn, SetFlags>(inst, cycle_count);                     \
+      ce.arm_aluimm1<OpMvn, SetFlags>(inst);                                  \
       break;                                                                  \
                                                                               \
     /* Memops with immediate post-increment/decrement */                      \
     case 0x40:     /* STR  rd, [rn], -imm */                                  \
     case 0x42:     /* STRT rd, [rn], -imm */                                  \
-      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPostWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x41:     /* LDR  rd, [rn], -imm */                                  \
     case 0x43:     /* LDRT rd, [rn], -imm */                                  \
-      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPostWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x44:     /* STRB  rd, [rn], -imm */                                 \
     case 0x46:     /* STRBT rd, [rn], -imm */                                 \
-      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPostWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x45:     /* LDRB  rd, [rn], -imm */                                 \
     case 0x47:     /* LDRBT rd, [rn], -imm */                                 \
-      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPostWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x48:     /* STR  rd, [rn], +imm */                                  \
     case 0x4A:     /* STRT rd, [rn], +imm */                                  \
-      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPostWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x49:     /* LDR  rd, [rn], +imm */                                  \
     case 0x4B:     /* LDRT rd, [rn], +imm */                                  \
-      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPostWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x4C:     /* STRB  rd, [rn], +imm */                                 \
     case 0x4E:     /* STRBT rd, [rn], +imm */                                 \
-      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPostWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x4D:     /* LDRB  rd, [rn], +imm */                                 \
     case 0x4F:     /* LDRBT rd, [rn], +imm */                                 \
-      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPostWB>(inst);            \
       break;                                                                  \
                                                                               \
     /* Memops with immediate pre-increment/decrement (optional writeback) */  \
     case 0x50:     /* STR rd, [rn - imm] */                                   \
-      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPre>(inst, cycle_count); \
+      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPre>(inst);              \
       break;                                                                  \
                                                                               \
     case 0x51:     /* LDR rd, [rn - imm] */                                   \
-      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPre>(inst, cycle_count); \
+      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPre>(inst);              \
       break;                                                                  \
                                                                               \
     case 0x52:     /* STR rd, [rn - imm]! */                                  \
-      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPreWB>(inst, cycle_count); \
+      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPreWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x53:     /* LDR rd, [rn - imm]! */                                  \
-      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPreWB>(inst, cycle_count); \
+      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPreWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x54:     /* STRB rd, [rn - imm] */                                  \
-      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPre>(inst, cycle_count);  \
+      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPre>(inst);               \
       break;                                                                  \
                                                                               \
     case 0x55:     /* LDRB rd, [rn - imm] */                                  \
-      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPre>(inst, cycle_count);  \
+      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPre>(inst);               \
       break;                                                                  \
                                                                               \
     case 0x56:     /* STRB rd, [rn - imm]! */                                 \
-      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPreWB>(inst);             \
       break;                                                                  \
                                                                               \
     case 0x57:     /* LDRB rd, [rn - imm]! */                                 \
-      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPreWB>(inst);             \
       break;                                                                  \
                                                                               \
     case 0x58:     /* STR rd, [rn + imm] */                                   \
-      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPre>(inst, cycle_count); \
+      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPre>(inst);              \
       break;                                                                  \
                                                                               \
     case 0x59:     /* LDR rd, [rn + imm] */                                   \
-      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPre>(inst, cycle_count); \
+      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPre>(inst);              \
       break;                                                                  \
                                                                               \
     case 0x5A:     /* STR rd, [rn + imm]! */                                  \
-      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPreWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x5B:     /* LDR rd, [rn + imm]! */                                  \
-      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPreWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x5C:     /* STRB rd, [rn + imm] */                                  \
-      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPre>(inst, cycle_count);  \
+      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPre>(inst);               \
       break;                                                                  \
                                                                               \
     case 0x5D:     /* LDRB rd, [rn + imm] */                                  \
-      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPre>(inst, cycle_count);  \
+      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPre>(inst);               \
       break;                                                                  \
                                                                               \
     case 0x5E:     /* STRB rd, [rn + imm]! */                                 \
-      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPreWB>(inst);             \
       break;                                                                  \
                                                                               \
     case 0x5F:     /* LDRB rd, [rn + imm]! */                                 \
-      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPreWB>(inst);             \
       break;                                                                  \
                                                                               \
     /* Memops with regop as post-increment/decrement */                       \
     case 0x60:     /* STR  rd, [rn], -rm */                                   \
     case 0x62:     /* STRT rd, [rn], -rm */                                   \
-      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst);          \
       break;                                                                  \
     case 0x64:     /* STRB  rd, [rn], -rm */                                  \
     case 0x66:     /* STRBT rd, [rn], -rm */                                  \
-      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x61:     /* LDR  rd, [rn], -rm */                                   \
     case 0x63:     /* LDRT rd, [rn], -rm */                                   \
-      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst);          \
       break;                                                                  \
     case 0x65:     /* LDRB  rd, [rn], -rm */                                  \
     case 0x67:     /* LDRBT rd, [rn], -rm */                                  \
-      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x68:     /* STR  rd, [rn], +rm */                                   \
     case 0x6A:     /* STRT rd, [rn], +rm */                                   \
-      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst);          \
       break;                                                                  \
     case 0x6C:     /* STRB  rd, [rn], +rm */                                  \
     case 0x6E:     /* STRBT rd, [rn], +rm */                                  \
-      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x69:     /* LDR  rd, [rn], +rm */                                   \
     case 0x6B:     /* LDRT rd, [rn], +rm */                                   \
-      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst);          \
       break;                                                                  \
     case 0x6D:     /* LDRB  rd, [rn], +rm */                                  \
     case 0x6F:     /* LDRBT rd, [rn], +rm */                                  \
-      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst, cycle_count);\
+      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst);           \
       break;                                                                  \
                                                                               \
     /* Memops with regop as pre-increment/decrement (optional writeback) */   \
     case 0x70:     /* STR rd, [rn - rm] */                                    \
-      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPre>(inst, cycle_count);\
+      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPre>(inst);             \
       break;                                                                  \
     case 0x72:     /* STR rd, [rn - rm]! */                                   \
-      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x71:                                                                \
       /* LDR rd, [rn - rm] */                                                 \
-      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPre>(inst, cycle_count);\
+      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPre>(inst);             \
       break;                                                                  \
     case 0x73:                                                                \
       /* LDR rd, [rn - rm]! */                                                \
-      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x74:     /* STRB rd, [rn - rm] */                                   \
-      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPre>(inst, cycle_count); \
+      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPre>(inst);              \
       break;                                                                  \
     case 0x76:     /* STRB rd, [rn - rm]! */                                  \
-      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x75:                                                                \
       /* LDRB rd, [rn - rm] */                                                \
-      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPre>(inst, cycle_count); \
+      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPre>(inst);              \
       break;                                                                  \
     case 0x77:                                                                \
       /* LDRB rd, [rn - rm]! */                                               \
-      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x78:     /* STR rd, [rn + rm] */                                    \
-      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPre>(inst, cycle_count);\
+      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPre>(inst);             \
       break;                                                                  \
     case 0x7A:     /* STR rd, [rn + rm]! */                                   \
-      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x79:                                                                \
       /* LDR rd, [rn + rm] */                                                 \
-      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPre>(inst, cycle_count);\
+      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPre>(inst);             \
       break;                                                                  \
     case 0x7B:                                                                \
       /* LDR rd, [rn + rm]! */                                                \
-      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst);           \
       break;                                                                  \
                                                                               \
     case 0x7C:     /* STRB rd, [rn + rm] */                                   \
-      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPre>(inst, cycle_count); \
+      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPre>(inst);              \
       break;                                                                  \
     case 0x7E:     /* STRB rd, [rn + rm]! */                                  \
-      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst);            \
       break;                                                                  \
                                                                               \
     case 0x7D:                                                                \
       /* LDRB rd, [rn + rm] */                                                \
-      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPre>(inst, cycle_count); \
+      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPre>(inst);              \
       break;                                                                  \
     case 0x7F:                                                                \
       /* LDRBT rd, [rn + rm]! */                                              \
-      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst, cycle_count);\
+      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst);            \
       break;                                                                  \
                                                                               \
     /* Muliple memops */                                                      \
     case 0x80:     /* STMDA rn, rlist */                                      \
       ce.mem_multi<ModeARM, AccStore, AddrPostDec, false, false>(             \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x82:     /* STMDA rn!, rlist */                                     \
       ce.mem_multi<ModeARM, AccStore, AddrPostDec, true, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x84:     /* STMDA rn, rlist^ */                                     \
       ce.mem_multi<ModeARM, AccStore, AddrPostDec, false, true>(              \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x86:     /* STMDA rn!, rlist^ */                                    \
       ce.mem_multi<ModeARM, AccStore, AddrPostDec, true, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
                                                                               \
     case 0x81:     /* LDMDA rn, rlist */                                      \
       ce.mem_multi<ModeARM, AccLoad, AddrPostDec, false, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x83:     /* LDMDA rn!, rlist */                                     \
       ce.mem_multi<ModeARM, AccLoad, AddrPostDec, true, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x85:     /* LDMDA rn, rlist^ */                                     \
       ce.mem_multi<ModeARM, AccLoad, AddrPostDec, false, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x87:     /* LDMDA rn!, rlist^ */                                    \
       ce.mem_multi<ModeARM, AccLoad, AddrPostDec, true, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
                                                                               \
     case 0x88:     /* STMIA rn, rlist */                                      \
       ce.mem_multi<ModeARM, AccStore, AddrPostInc, false, false>(             \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x8A:     /* STMIA rn!, rlist */                                     \
       ce.mem_multi<ModeARM, AccStore, AddrPostInc, true, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x8C:     /* STMIA rn, rlist^ */                                     \
       ce.mem_multi<ModeARM, AccStore, AddrPostInc, false, true>(              \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x8E:     /* STMIA rn!, rlist^ */                                    \
       ce.mem_multi<ModeARM, AccStore, AddrPostInc, true, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
                                                                               \
     case 0x89:     /* LDMIA rn, rlist */                                      \
       ce.mem_multi<ModeARM, AccLoad, AddrPostInc, false, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x8B:     /* LDMIA rn!, rlist */                                     \
       ce.mem_multi<ModeARM, AccLoad, AddrPostInc, true, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x8D:     /* LDMIA rn, rlist^ */                                     \
       ce.mem_multi<ModeARM, AccLoad, AddrPostInc, false, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x8F:     /* LDMIA rn!, rlist^ */                                    \
       ce.mem_multi<ModeARM, AccLoad, AddrPostInc, true, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
                                                                               \
     case 0x90:     /* STMDB rn, rlist */                                      \
       ce.mem_multi<ModeARM, AccStore, AddrPreDec, false, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x92:     /* STMDB rn!, rlist */                                     \
       ce.mem_multi<ModeARM, AccStore, AddrPreDec, true, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x94:     /* STMDB rn, rlist^ */                                     \
       ce.mem_multi<ModeARM, AccStore, AddrPreDec, false, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x96:     /* STMDB rn!, rlist^ */                                    \
       ce.mem_multi<ModeARM, AccStore, AddrPreDec, true, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
                                                                               \
     case 0x91:     /* LDMDB rn, rlist */                                      \
       ce.mem_multi<ModeARM, AccLoad, AddrPreDec, false, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x93:     /* LDMDB rn!, rlist */                                     \
       ce.mem_multi<ModeARM, AccLoad, AddrPreDec, true, false>(                \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x95:     /* LDMDB rn, rlist^ */                                     \
       ce.mem_multi<ModeARM, AccLoad, AddrPreDec, false, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x97:     /* LDMDB rn!, rlist^ */                                    \
       ce.mem_multi<ModeARM, AccLoad, AddrPreDec, true, true>(                 \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
                                                                               \
     case 0x98:     /* STMIB rn, rlist */                                      \
       ce.mem_multi<ModeARM, AccStore, AddrPreInc, false, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x9A:     /* STMIB rn!, rlist */                                     \
       ce.mem_multi<ModeARM, AccStore, AddrPreInc, true, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x9C:     /* STMIB rn, rlist^ */                                     \
       ce.mem_multi<ModeARM, AccStore, AddrPreInc, false, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x9E:     /* STMIB rn!, rlist^ */                                    \
       ce.mem_multi<ModeARM, AccStore, AddrPreInc, true, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
                                                                               \
     case 0x99:     /* LDMIB rn, rlist */                                      \
       ce.mem_multi<ModeARM, AccLoad, AddrPreInc, false, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x9B:     /* LDMIB rn!, rlist */                                     \
       ce.mem_multi<ModeARM, AccLoad, AddrPreInc, true, false>(                \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x9D:     /* LDMIB rn, rlist^ */                                     \
       ce.mem_multi<ModeARM, AccLoad, AddrPreInc, false, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
     case 0x9F:     /* LDMIB rn!, rlist^ */                                    \
       ce.mem_multi<ModeARM, AccLoad, AddrPreInc, true, true>(                 \
-        inst.pc, condition, inst.rn(), inst.rlist(), cycle_count);            \
+        inst.pc, condition, inst.rn(), inst.rlist());                         \
       break;                                                                  \
                                                                               \
     case 0xA0 ... 0xAF:      /* B label */                                    \
-      block_exits[block_exit_position].branch_source =                        \
-        ce.arm_b(inst, block_exits[block_exit_position].branch_target, cycle_count);  \
+      iblk_exits[block_exit_position].branch_source =                         \
+        ce.arm_b(inst, iblk_exits[block_exit_position].branch_target);        \
       block_exit_position++;                                                  \
       break;                                                                  \
                                                                               \
     case 0xB0 ... 0xBF:      /* BL label */                                   \
-      block_exits[block_exit_position].branch_source =                        \
-        ce.arm_bl(inst, block_exits[block_exit_position].branch_target, cycle_count);  \
+      iblk_exits[block_exit_position].branch_source =                         \
+        ce.arm_bl(inst, iblk_exits[block_exit_position].branch_target);       \
       block_exit_position++;                                                  \
       break;                                                                  \
                                                                               \
     case 0xF0 ... 0xFF:      /* SWI number */                                 \
-      if (!ce.arm_emu_swi(inst.pc, (opcode >> 16) & 0xFF, cycle_count)) {     \
-        block_exits[block_exit_position++].branch_source = ce.arm_swi(inst.pc, cycle_count); \
+      if (!ce.emu_swi<ModeARM>(inst.pc, (opcode >> 16) & 0xFF)) {             \
+        iblk_exits[block_exit_position++].branch_source = ce.arm_swi(inst.pc);\
       }                                                                       \
       break;                                                                  \
   }                                                                           \
@@ -1280,7 +1280,7 @@ void translate_icache_sync() {
           break;                                                              \
         case 0x0D:           /* MUL rd, rs */                                 \
           ce.thumb_aluop2<OpMul>(inst);                                       \
-          cycle_count += 2;  /* Between 1 and 4 extra cycles */               \
+          ce.cyc_cnt += 2;  /* Between 1 and 4 extra cycles */                \
           break;                                                              \
         case 0x0E:           /* BIC rd, rs */                                 \
           ce.thumb_aluop2<OpBic>(inst);                                       \
@@ -1292,17 +1292,17 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0x44:     /* ADD rd, rs */                                           \
-      ce.thumb_aluhi<OpAdd>(inst, cycle_count);                               \
+      ce.thumb_aluhi<OpAdd>(inst);                                            \
       break;                                                                  \
     case 0x45:     /* CMP rd, rs */                                           \
-      ce.thumb_aluhi<OpCmp>(inst, cycle_count);                               \
+      ce.thumb_aluhi<OpCmp>(inst);                                            \
       break;                                                                  \
     case 0x46:     /* MOV rd, rs */                                           \
-      ce.thumb_aluhi<OpMov>(inst, cycle_count);                               \
+      ce.thumb_aluhi<OpMov>(inst);                                            \
       break;                                                                  \
                                                                               \
     case 0x47:     /* BX rs */                                                \
-      ce.thumb_bx(inst.pc, inst.rs_hi(), cycle_count);                        \
+      ce.thumb_bx(inst);                                                      \
       break;                                                                  \
                                                                               \
     case 0x48 ... 0x4F:                                                       \
@@ -1316,61 +1316,61 @@ void translate_icache_sync() {
           u32 value = address32(pc_address_block, (aoff & 0x7FFF));           \
           ce.emit_load_const_pool(rdreg, value);                              \
         } else {                                                              \
-          ce.thumb_memld<u32, OffPC>(inst, inst.rd8(), REG_PC, cycle_count);  \
+          ce.thumb_memld<u32, OffPC>(inst, inst.rd8(), REG_PC);               \
         }                                                                     \
       }                                                                       \
       break;                                                                  \
                                                                               \
     case 0x50 ... 0x51:      /* STR rd, [rb + ro] */                          \
-      ce.thumb_memst<u32, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
+      ce.thumb_memst<u32, OffReg>(inst, inst.rd(), inst.rb());                \
       break;                                                                  \
     case 0x52 ... 0x53:      /* STRH rd, [rb + ro] */                         \
-      ce.thumb_memst<u16, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
+      ce.thumb_memst<u16, OffReg>(inst, inst.rd(), inst.rb());                \
       break;                                                                  \
     case 0x54 ... 0x55:      /* STRB rd, [rb + ro] */                         \
-      ce.thumb_memst<u8, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);    \
+      ce.thumb_memst<u8, OffReg>(inst, inst.rd(), inst.rb());                 \
       break;                                                                  \
                                                                               \
     case 0x56 ... 0x57:      /* LDSB rd, [rb + ro] */                         \
-      ce.thumb_memld<s8, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);    \
+      ce.thumb_memld<s8, OffReg>(inst, inst.rd(), inst.rb());                 \
       break;                                                                  \
     case 0x58 ... 0x59:      /* LDR rd, [rb + ro] */                          \
-      ce.thumb_memld<u32, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
+      ce.thumb_memld<u32, OffReg>(inst, inst.rd(), inst.rb());                \
       break;                                                                  \
     case 0x5A ... 0x5B:      /* LDRH rd, [rb + ro] */                         \
-      ce.thumb_memld<u16, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
+      ce.thumb_memld<u16, OffReg>(inst, inst.rd(), inst.rb());                \
       break;                                                                  \
     case 0x5C ... 0x5D:      /* LDRB rd, [rb + ro] */                         \
-      ce.thumb_memld<u8, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);    \
+      ce.thumb_memld<u8, OffReg>(inst, inst.rd(), inst.rb());                 \
       break;                                                                  \
     case 0x5E ... 0x5F:      /* LDSH rd, [rb + ro] */                         \
-      ce.thumb_memld<s16, OffReg>(inst, inst.rd(), inst.rb(), cycle_count);   \
+      ce.thumb_memld<s16, OffReg>(inst, inst.rd(), inst.rb());                \
       break;                                                                  \
                                                                               \
     case 0x60 ... 0x67:      /* STR rd, [rb + imm] */                         \
-      ce.thumb_memst<u32, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);  \
+      ce.thumb_memst<u32, OffImm5>(inst, inst.rd(), inst.rb());               \
       break;                                                                  \
     case 0x68 ... 0x6F:      /* LDR rd, [rb + imm] */                         \
-      ce.thumb_memld<u32, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);  \
+      ce.thumb_memld<u32, OffImm5>(inst, inst.rd(), inst.rb());               \
       break;                                                                  \
     case 0x70 ... 0x77:      /* STRB rd, [rb + imm] */                        \
-      ce.thumb_memst<u8, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);   \
+      ce.thumb_memst<u8, OffImm5>(inst, inst.rd(), inst.rb());                \
       break;                                                                  \
     case 0x78 ... 0x7F:      /* LDRB rd, [rb + imm] */                        \
-      ce.thumb_memld<u8, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);   \
+      ce.thumb_memld<u8, OffImm5>(inst, inst.rd(), inst.rb());                \
       break;                                                                  \
     case 0x80 ... 0x87:      /* STRH rd, [rb + imm] */                        \
-      ce.thumb_memst<u16, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);  \
+      ce.thumb_memst<u16, OffImm5>(inst, inst.rd(), inst.rb());               \
       break;                                                                  \
     case 0x88 ... 0x8F:      /* LDRH rd, [rb + imm] */                        \
-      ce.thumb_memld<u16, OffImm5>(inst, inst.rd(), inst.rb(), cycle_count);  \
+      ce.thumb_memld<u16, OffImm5>(inst, inst.rd(), inst.rb());               \
       break;                                                                  \
                                                                               \
     case 0x90 ... 0x97:      /* STR r0..7, [sp + imm] */                      \
-      ce.thumb_memst<u32, OffImm8>(inst, inst.rd8(), REG_SP, cycle_count);    \
+      ce.thumb_memst<u32, OffImm8>(inst, inst.rd8(), REG_SP);                 \
       break;                                                                  \
     case 0x98 ... 0x9F:      /* LDR r0..7, [sp + imm] */                      \
-      ce.thumb_memld<u32, OffImm8>(inst, inst.rd8(), REG_SP, cycle_count);    \
+      ce.thumb_memld<u32, OffImm8>(inst, inst.rd8(), REG_SP);                 \
       break;                                                                  \
                                                                               \
     case 0xA0 ... 0xA7:      /* ADD r0..7, pc, +imm */                        \
@@ -1380,128 +1380,128 @@ void translate_icache_sync() {
       ce.thumb_regoff<REG_SP>(inst);                                          \
       break;                                                                  \
     case 0xB0 ... 0xB3:      /* ADD sp, sp, +/-imm */                         \
-      ce.thumb_spadj(inst.imm71());                                           \
+      ce.thumb_spadj(inst);                                                   \
       break;                                                                  \
                                                                               \
     case 0xB4:               /* PUSH rlist */                                 \
       ce.mem_multi<ModeThumb, AccStore, AddrPreDec, true, false>(             \
-        inst.pc, 0, REG_SP, inst.rlist(), cycle_count);                       \
+        inst.pc, 0, REG_SP, inst.rlist());                                    \
       break;                                                                  \
     case 0xB5:               /* PUSH rlist, lr */                             \
       ce.mem_multi<ModeThumb, AccStore, AddrPreDec, true, false>(             \
-        inst.pc, 0, REG_SP, inst.rlist() | (1 << REG_LR), cycle_count);       \
+        inst.pc, 0, REG_SP, inst.rlist() | (1 << REG_LR));                    \
       break;                                                                  \
     case 0xBC:               /* POP rlist */                                  \
       ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
-        inst.pc, 0, REG_SP, inst.rlist(), cycle_count);                       \
+        inst.pc, 0, REG_SP, inst.rlist());                                    \
       break;                                                                  \
     case 0xBD:               /* POP rlist, pc */                              \
       ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
-        inst.pc, 0, REG_SP, inst.rlist() | (1 << REG_PC), cycle_count);       \
+        inst.pc, 0, REG_SP, inst.rlist() | (1 << REG_PC));                    \
       break;                                                                  \
     case 0xC0 ... 0xC7:      /* STMIA r0-7!, rlist */                         \
       ce.mem_multi<ModeThumb, AccStore, AddrPostInc, true, false>(            \
-        inst.pc, 0, inst.rptr(), inst.rlist(), cycle_count);                  \
+        inst.pc, 0, inst.rptr(), inst.rlist());                               \
       break;                                                                  \
     case 0xC8 ... 0xCF:      /* LDMIA r0-7!, rlist */                         \
       ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
-        inst.pc, 0, inst.rptr(), inst.rlist(), cycle_count);                  \
+        inst.pc, 0, inst.rptr(), inst.rlist());                               \
       break;                                                                  \
                                                                               \
     case 0xD0:     /* BEQ label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondEQ>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD1:     /* BNE label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondNE>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD2:     /* BCS label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondCS>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD3:     /* BCC label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondCC>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD4:     /* BMI label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondMI>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD5:     /* BPL label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondPL>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD6:     /* BVS label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondVS>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD7:     /* BVC label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondVC>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD8:     /* BHI label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondHI>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xD9:     /* BLS label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondLS>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xDA:     /* BGE label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondGE>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xDB:     /* BLT label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondLT>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xDC:     /* BGT label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondGT>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
     case 0xDD:     /* BLE label */                                            \
-      block_exits[block_exit_position].branch_source =                        \
+      iblk_exits[block_exit_position].branch_source =                        \
         ce.thumb_brcond<CondLE>(inst.pc,                                      \
-        block_exits[block_exit_position].branch_target, cycle_count);         \
+        iblk_exits[block_exit_position].branch_target);                      \
       block_exit_position++;                                                  \
       break;                                                                  \
                                                                               \
     case 0xDF:                                                                \
-      if (!ce.thumb_emu_swi(inst.pc, opcode & 0xFF, cycle_count)) {           \
-        block_exits[block_exit_position++].branch_source = ce.thumb_swi(inst.pc, cycle_count); \
+      if (!ce.emu_swi<ModeThumb>(inst.pc, opcode & 0xFF)) {                   \
+        iblk_exits[block_exit_position++].branch_source = ce.thumb_swi(inst);\
       }                                                                       \
       break;                                                                  \
                                                                               \
     case 0xE0 ... 0xE7:      /* B label */                                    \
-      block_exits[block_exit_position].branch_source =                        \
-        ce.thumb_b(inst.pc, block_exits[block_exit_position].branch_target, cycle_count);  \
+      iblk_exits[block_exit_position].branch_source =                        \
+        ce.thumb_b(inst.pc, iblk_exits[block_exit_position].branch_target);  \
       block_exit_position++;                                                  \
       break;                                                                  \
                                                                               \
@@ -1514,12 +1514,12 @@ void translate_icache_sync() {
       /* This might not be preceeding a BL low word (Golden Sun 2), if so     \
          it must be handled like an indirect branch. */                       \
       if((last_opcode >= 0xF000) && (last_opcode < 0xF800)) {                 \
-        block_exits[block_exit_position].branch_source =                      \
-          ce.thumb_bl(inst.pc, block_exits[block_exit_position].branch_target, cycle_count);  \
+        iblk_exits[block_exit_position].branch_source =                      \
+          ce.thumb_bl(inst.pc, iblk_exits[block_exit_position].branch_target);  \
         block_exit_position++;                                                \
       }                                                                       \
       else                                                                    \
-        ce.thumb_blh(inst.pc, inst.abr_offset_lo(), cycle_count);             \
+        ce.thumb_blh(inst);                                                   \
       break;                                                                  \
   }                                                                           \
                                                                               \
@@ -1973,7 +1973,7 @@ u8 function_cc *block_lookup_address_thumb(u32 pc)
 #define arm_instruction_width 4
 
 #define arm_base_cycles()                                                     \
-  cycle_count += def_seq_cycles[pc >> 24][1]                                  \
+  ce.cyc_cnt += def_seq_cycles[pc >> 24][1]                                   \
 
 // For now this just sets a variable that says flags should always be
 // computed.
@@ -2043,7 +2043,7 @@ u8 function_cc *block_lookup_address_thumb(u32 pc)
 #define thumb_instruction_width 2
 
 #define thumb_base_cycles()                                                   \
-  cycle_count += def_seq_cycles[pc >> 24][0]                                  \
+  ce.cyc_cnt += def_seq_cycles[pc >> 24][0]                                   \
 
 // Here's how this works: each instruction has three different sets of flag
 // attributes, each consisiting of a 4bit mask describing how that instruction
@@ -2090,7 +2090,7 @@ u8 function_cc *block_lookup_address_thumb(u32 pc)
 #define MAX_EXITS          32   // This covers 99% blocks
 
 block_data_type block_data[MAX_BLOCK_SIZE];
-block_exit_type block_exits[MAX_EXITS];
+block_exit_type iblk_exits[MAX_EXITS];
 
 #define smc_write_arm_yes() {                                                 \
   intptr_t offset = (pc < 0x03000000) ? 0x40000 : -0x8000;                    \
@@ -2132,7 +2132,7 @@ block_exit_type block_exits[MAX_EXITS];
       {                                                                       \
         __label__ no_direct_branch;                                           \
         type##_branch_target();                                               \
-        block_exits[block_exit_position].branch_target = branch_target;       \
+        iblk_exits[block_exit_position].branch_target = branch_target;       \
         block_exit_position++;                                                \
                                                                               \
         /* Give the branch target macro somewhere to bail if it turns out to  \
@@ -2144,7 +2144,7 @@ block_exit_type block_exits[MAX_EXITS];
          not parsed as an exit_point but rather an "instruction" of sorts. */ \
       if(type##_opcode_swi)                                                   \
       {                                                                       \
-        block_exits[block_exit_position].branch_target = 0x00000008;          \
+        iblk_exits[block_exit_position].branch_target = 0x00000008;          \
         block_exit_position++;                                                \
       }                                                                       \
                                                                               \
@@ -2160,7 +2160,7 @@ block_exit_type block_exits[MAX_EXITS];
         int i;                                                                \
         for(i = block_exit_position - 2; i >= 0; i--)                         \
         {                                                                     \
-          if(block_exits[i].branch_target == block_end_pc)                    \
+          if(iblk_exits[i].branch_target == block_end_pc)                    \
             break;                                                            \
         }                                                                     \
                                                                               \
@@ -2223,11 +2223,10 @@ bool translate_block_arm(u32 pc, bool ram_region)
   u32 block_exit_position = 0;
   s32 block_data_position = 0;
   u32 external_block_exit_position = 0;
-  u32 cycle_count = 0;
   u8 *translation_target;
   u8 *backpatch_address = NULL;
   u32 flag_status;
-  block_exit_type external_block_exits[MAX_EXITS];
+  block_exit_type eblk_exits[MAX_EXITS];
   arm_fix_pc();
 
   if(!pc_address_block)
@@ -2251,7 +2250,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
   ce.emit_block_prologue();
 
   for(unsigned i = 0; i < block_exit_position; i++) {
-    u32 tgt = block_exits[i].branch_target;
+    u32 tgt = iblk_exits[i].branch_target;
     if((tgt > block_start_pc) && (tgt < block_end_pc))
       block_data[(tgt - block_start_pc) / arm_instruction_width].update_cycles = 1;
   }
@@ -2290,7 +2289,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
     /* If the next instruction is a block entry point update the
        cycle counter and update */
     if (pc != block_end_pc && block_data[block_data_position].update_cycles)
-      ce.emit_cycle_update(cycle_count);
+      ce.emit_cycle_update();
   }
 
   /* This can happen if the last instruction is *not* inconditional */
@@ -2305,15 +2304,15 @@ bool translate_block_arm(u32 pc, bool ram_region)
   ce.generate_translation_gate<ModeARM>(pc);
 
   for (unsigned i = 0; i < block_exit_position; i++) {
-    u32 tgt = block_exits[i].branch_target;
+    u32 tgt = iblk_exits[i].branch_target;
     if ((tgt >= block_start_pc) && (tgt < block_end_pc)) {
       /* Internal branch, patch to recorded address */
       translation_target = block_data[(tgt - block_start_pc) / arm_instruction_width].block_offset;
-      generate_branch_patch_unconditional(block_exits[i].branch_source, translation_target);
+      generate_branch_patch_unconditional(iblk_exits[i].branch_source, translation_target);
     } else {
       /* External branch, save for later */
-      external_block_exits[external_block_exit_position].branch_target = tgt;
-      external_block_exits[external_block_exit_position].branch_source = block_exits[i].branch_source;
+      eblk_exits[external_block_exit_position].branch_target = tgt;
+      eblk_exits[external_block_exit_position].branch_source = iblk_exits[i].branch_source;
       external_block_exit_position++;
     }
   }
@@ -2324,7 +2323,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
     rom_translation_ptr = ce.emit_ptr;
 
   for(unsigned i = 0; i < external_block_exit_position; i++) {
-    u32 tgt = external_block_exits[i].branch_target;
+    u32 tgt = eblk_exits[i].branch_target;
     if(tgt == 0x00000008)
       translation_target = bios_swi_entrypoint;
     else
@@ -2332,7 +2331,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
     if (!translation_target)
       return false;
     generate_branch_patch_unconditional(
-      external_block_exits[i].branch_source, translation_target);
+      eblk_exits[i].branch_source, translation_target);
   }
   return true;
 }
@@ -2349,21 +2348,17 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   u32 block_exit_position = 0;
   s32 block_data_position = 0;
   u32 external_block_exit_position = 0;
-  u32 cycle_count = 0;
   u8 *translation_target;
   u32 flag_status;
-  block_exit_type external_block_exits[MAX_EXITS];
+  block_exit_type eblk_exits[MAX_EXITS];
   thumb_fix_pc();
 
   if(!pc_address_block)
     pc_address_block = load_gamepak_page(pc_region & 0x3FF);
 
-  if(ram_region)
-  {
+  if (ram_region) {
     scan_block(thumb, yes);
-  }
-  else
-  {
+  } else {
     scan_block(thumb, no);
   }
 
@@ -2379,7 +2374,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   ce.emit_block_prologue();
 
   for(unsigned i = 0; i < block_exit_position; i++) {
-    u32 tgt = block_exits[i].branch_target;
+    u32 tgt = iblk_exits[i].branch_target;
     if ((tgt > block_start_pc) && (tgt < block_end_pc))
       block_data[(tgt - block_start_pc) / thumb_instruction_width].update_cycles = 1;
   }
@@ -2416,7 +2411,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
     /* If the next instruction is a block entry point update the
        cycle counter and update */
     if (pc != block_end_pc && block_data[block_data_position].update_cycles)
-      ce.emit_cycle_update(cycle_count);
+      ce.emit_cycle_update();
   }
 
   /* Unconditionally generate translation targets. In case we hit one or
@@ -2424,25 +2419,15 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   ce.generate_translation_gate<ModeThumb>(pc);
 
   for (unsigned i = 0; i < block_exit_position; i++) {
-    u32 branch_target = block_exits[i].branch_target;
-
-    if((branch_target >= block_start_pc) && (branch_target < block_end_pc))
-    {
+    u32 tgt = iblk_exits[i].branch_target;
+    if ((tgt >= block_start_pc) && (tgt < block_end_pc)) {
       /* Internal branch, patch to recorded address */
-      translation_target =
-       block_data[(branch_target - block_start_pc) /
-        thumb_instruction_width].block_offset;
-
-      generate_branch_patch_unconditional(block_exits[i].branch_source,
-       translation_target);
-    }
-    else
-    {
+      translation_target = block_data[(tgt - block_start_pc) / thumb_instruction_width].block_offset;
+      generate_branch_patch_unconditional(iblk_exits[i].branch_source, translation_target);
+    } else {
       /* External branch, save for later */
-      external_block_exits[external_block_exit_position].branch_target =
-       branch_target;
-      external_block_exits[external_block_exit_position].branch_source =
-       block_exits[i].branch_source;
+      eblk_exits[external_block_exit_position].branch_target = tgt;
+      eblk_exits[external_block_exit_position].branch_source = iblk_exits[i].branch_source;
       external_block_exit_position++;
     }
   }
@@ -2453,15 +2438,15 @@ bool translate_block_thumb(u32 pc, bool ram_region)
     rom_translation_ptr = ce.emit_ptr;
 
   for (unsigned i = 0; i < external_block_exit_position; i++) {
-    u32 branch_target = external_block_exits[i].branch_target;
-    if(branch_target == 0x00000008)
+    u32 tgt = eblk_exits[i].branch_target;
+    if (tgt == 0x00000008)
       translation_target = bios_swi_entrypoint;
     else
-      translation_target = block_lookup_translate_thumb(branch_target);
+      translation_target = block_lookup_translate_thumb(tgt);
     if (!translation_target)
       return false;
     generate_branch_patch_unconditional(
-      external_block_exits[i].branch_source, translation_target);
+      eblk_exits[i].branch_source, translation_target);
   }
   return true;
 }

@@ -605,12 +605,6 @@ public:
     }
   }
 
-  inline void emit_load_const_pool(u32 regn, u32 value) {
-    armcg_regnum rgdst = prepare_store_reg<ModeThumb>(reg_a0, regn);
-    load_imm32(rgdst, value);
-    complete_store_reg<ModeThumb>(rgdst, regn);
-  }
-
   inline void arm_conditional_block_header(u32 condition, u8 * & backpatch_address) {
     emit_cycle_update();
     /* This will choose the opposite condition */
@@ -872,57 +866,63 @@ public:
   }
 
   // ============= Memory functions =================
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
-    // Generate the memory address to a0
-    if (offt == OffPC)
-      // PC-relative offset. It is word aligned.
-      load_imm32(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
-    else {
-      const u32 sam = sizeof(memtype) / 2;  // log2(size) for 1/2/4
-      armcg_regnum rb = prepare_load_loreg<ModeThumb>(reg_a0, regn);
-      if (offt == OffReg) {
-        armcg_regnum ro = prepare_load_loreg<ModeThumb>(reg_a1, it.ro());
-        emit_alu_reg_immshift<OpAdd, NoFlags>(reg_a0, rb, ro);
-      }
-      else if (offt == OffImm5)
-        emit_alu_imm<OpAdd, NoFlags>(reg_a0, rb, 0, it.imm5() << sam);
-      else
-        emit_alu_imm<OpAdd, NoFlags>(reg_a0, rb, lshift_to_immshf(2), it.imm8());
+  template <bool onram>
+  inline void thumb_loadpool(const ThumbInst & it) {
+    const u32 daddr = 4 + it.imm8() * 4 + (it.pc & ~3U);
+    if (!onram && (daddr >> 15) == (it.pc >> 15)) {
+      u8 *blkb = memory_map_read[it.pc >> 15];
+      u32 value = address32(blkb, (daddr & 0x7FFF));
+      armcg_regnum rgdst = prepare_store_reg<ModeThumb>(reg_a0, it.rd8());
+      load_imm32(rgdst, value);
+      complete_store_reg<ModeThumb>(rgdst, it.rd8());
+    } else {
+      cyc_cnt += 2;      // TODO: We can calculate this here rather precisely.
+
+      u32 ldtype = ldr_handler_offset<u32>();
+      emit_ldr_imm(reg_a2, reg_base, (daddr >> 24) * 4 + (STORE_TBL_OFF + 68*ldtype + 4));
+      load_imm32(reg_a0, daddr);
+      emit_blx(reg_a2);
+      write32(it.pc);
+      force_store_reg<ModeThumb>(reg_rv, it.rd8());
     }
   }
 
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn) {
-    cyc_cnt += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
-    // Generate the address
-    thumb_memaddr<memtype, offt>(it, regn);
+  template <AccMode memmode, typename memtype, ThumbMemOffset offt>
+  inline void thumb_memacc(const ThumbInst & it) {
+    cyc_cnt += (memmode == AccLoad) ? 2 : 1;  // TODO: Use proper cycle accounting and honor WAITCNT
+
+    const u32 basereg = (offt == OffSP) ? REG_SP : it.rb();
+    armcg_regnum rb = prepare_load_loreg<ModeThumb>(reg_a0, basereg);
+    if (offt == OffReg) {
+      armcg_regnum ro = prepare_load_loreg<ModeThumb>(reg_a1, it.ro());
+      emit_alu_reg_immshift<OpAdd, NoFlags>(reg_a0, rb, ro);
+    }
+    else if (offt == OffImm5)
+      emit_alu_imm<OpAdd, NoFlags>(reg_a0, rb, 0, it.imm5() * sizeof(memtype));
+    else
+      emit_alu_imm<OpAdd, NoFlags>(reg_a0, rb, lshift_to_immshf(2), it.imm8());
+
+    const u32 datareg = (offt == OffSP) ? it.rd8() : it.rd();
     // Generate a call to the right memory section handler.
-    u32 ldtype = ldr_handler_offset<memtype>();
-    u32 nbits = sizeof(memtype) / 2;  // log2(size)
-    mem_calc_region(nbits);
-    generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
-    emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
-    emit_blx(reg_a2);
-    write32(it.pc);
-    force_store_reg<ModeThumb>(reg_rv, regd);
+    if (memmode == AccLoad) {
+      u32 ldtype = ldr_handler_offset<memtype>();
+      u32 nbits = sizeof(memtype) / 2;  // log2(size)
+      mem_calc_region(nbits);
+      generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*ldtype + 4) >> 2, 0);
+      emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
+      emit_blx(reg_a2);
+      write32(it.pc);
+      force_store_reg<ModeThumb>(reg_rv, datareg);
+    } else {
+      u32 sttype = str_handler_offset<memtype>();
+      mem_calc_region(0);
+      generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*sttype + 4) >> 2, 0);
+      emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
+      force_load_reg<ModeThumb>(reg_a1, datareg, it.pc + 4);
+      emit_blx(reg_a2);
+      write32((it.pc + 2));
+    }
   }
-
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn) {
-    cyc_cnt++;  // TODO: Use proper cycle accounting and honor WAITCNT
-    // Generate the address
-    thumb_memaddr<memtype, offt>(it, regn);
-    // Load value and generate call to handler
-    u32 sttype = str_handler_offset<memtype>();
-    mem_calc_region(0);
-    generate_add_imm(reg_a2, (STORE_TBL_OFF + 68*sttype + 4) >> 2, 0);
-    emit_ldr_reg(reg_a2, reg_base, reg_a2, ShiftLSL, 2);
-    force_load_reg<ModeThumb>(reg_a1, regd, it.pc + 4);
-    emit_blx(reg_a2);
-    write32((it.pc + 2));
-  }
-
 
   template <ARMMemOffset offt, MemOffDir dir>
   inline void arm_memaddr(armcg_regnum oreg, const ARMInst & it) {
@@ -1116,6 +1116,15 @@ public:
     }
   }
 
+  template <AccMode amode, AddrMode addrmode>
+  inline void thumb_memmulti(const ThumbInst & it) {
+    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, it.rptr(), it.rlist());
+  }
+
+  template <AccMode amode, AddrMode addrmode, unsigned extraregm = 0>
+  inline void thumb_pushpop(const ThumbInst & it) {
+    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, REG_SP, it.rlist() | extraregm);
+  }
 
   // ======== ARM instructions ======================================
   template <ARMOp aluop, FlagOperation flg>

@@ -730,10 +730,6 @@ public:
     generate_function_call(mips_cheat_hook);
   }
 
-  inline void emit_load_const_pool(u32 regn, u32 value) {
-    emit_load_imm_reg(arm_to_mips_reg[regn], value);
-  }
-
   inline void arm_conditional_block_header(u32 condition, u8 * & backpatch_address) {
     // TODO: Fix cycle generation
     backpatch_address = emit_opp_condbranch((ARMCondCode)condition);  // TODO: use ARMCondCode as type natively
@@ -1111,48 +1107,52 @@ public:
   }
 
   // ============= Memory functions =================
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
-    // Generate the memory address to a0
-    switch (offt) {
-    case OffPC:
-      // PC-relative offset. It is word aligned.
-      emit_load_pc(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
-      break;
+  template <bool onram>
+  inline void thumb_loadpool(const ThumbInst & it) {
+    const u32 daddr = 4 + it.imm8() * 4 + (it.pc & ~3U);
+    if (!onram && (daddr >> 15) == (it.pc >> 15)) {
+      u8 *blkb = memory_map_read[it.pc >> 15];
+      u32 value = address32(blkb, (daddr & 0x7FFF));
+      emit_load_imm_reg(arm_to_mips_reg[it.rd8()], value);
+    } else {
+      cyc_cnt += 2;      // TODO: We can calculate this here rather precisely.
 
-    // rb/ro/regn are never PC in thumb mode (this is handled by OffPC mode)
-    case OffReg:
-      emit_addu(reg_a0, arm_to_mips_reg[regn], arm_to_mips_reg[it.ro()]);
-      break;
-    case OffImm5:
-      emit_addiu(reg_a0, arm_to_mips_reg[regn], it.imm5() * sizeof(memtype));
-      break;
-    case OffImm8:
-      emit_addiu(reg_a0, arm_to_mips_reg[regn], it.imm8() * sizeof(memtype));
-      break;
+      emit_load_pc(reg_a0, daddr);
+      emit_load_pc(reg_a1, it.pc);
+      generate_function_call_swap_delay(call_ldr_handler<u32>());
+      generate_store_reg(reg_rv, it.rd8());
     }
   }
 
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn) {
-    cyc_cnt += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
-    // Generate the address
-    thumb_memaddr<memtype, offt>(it, regn);
-    // Generate call to handler, store the result in the rd() register
-    emit_load_pc(reg_a1, it.pc);
-    generate_function_call_swap_delay(call_ldr_handler<memtype>());
-    generate_store_reg(reg_rv, regd);
-  }
+  template <AccMode memmode, typename memtype, ThumbMemOffset offt>
+  inline void thumb_memacc(const ThumbInst & it) {
+    cyc_cnt += (memmode == AccLoad) ? 2 : 1;  // TODO: Use proper cycle accounting and honor WAITCNT
 
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn) {
-    cyc_cnt++;  // TODO: Use proper cycle accounting and honor WAITCNT
-    // Generate the address
-    thumb_memaddr<memtype, offt>(it, regn);
-    // Load value and generate call to handler
-    generate_load_reg(reg_a1, regd);
-    emit_load_pc(reg_a2, (it.pc + 2));
-    generate_function_call_swap_delay(call_str_handler<memtype>());
+    // Generate the memory address to a0
+    // rb/ro/regn are never PC in thumb mode
+    switch (offt) {
+    case OffReg:
+      emit_addu(reg_a0, arm_to_mips_reg[it.rb()], arm_to_mips_reg[it.ro()]);
+      break;
+    case OffImm5:
+      emit_addiu(reg_a0, arm_to_mips_reg[it.rb()], it.imm5() * sizeof(memtype));
+      break;
+    case OffSP:
+      emit_addiu(reg_a0, arm_to_mips_reg[REG_SP], it.imm8() * sizeof(memtype));
+      break;
+    }
+
+    const u32 datareg = (offt == OffSP) ? it.rd8() : it.rd();
+    // Generate a call to the right memory section handler.
+    if (memmode == AccLoad) {
+      emit_load_pc(reg_a1, it.pc);
+      generate_function_call_swap_delay(call_ldr_handler<memtype>());
+      generate_store_reg(reg_rv, datareg);
+    } else {
+      generate_load_reg(reg_a1, datareg);
+      emit_load_pc(reg_a2, (it.pc + 2));
+      generate_function_call_swap_delay(call_str_handler<memtype>());
+    }
   }
 
   template <ARMMemOffset offt, MemOffDir dir>
@@ -1334,6 +1334,16 @@ public:
         generate_indirect_branch_cycle_update(thumb);
       }
     }
+  }
+
+  template <AccMode amode, AddrMode addrmode>
+  inline void thumb_memmulti(const ThumbInst & it) {
+    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, it.rptr(), it.rlist());
+  }
+
+  template <AccMode amode, AddrMode addrmode, unsigned extraregm = 0>
+  inline void thumb_pushpop(const ThumbInst & it) {
+    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, REG_SP, it.rlist() | extraregm);
   }
 
 

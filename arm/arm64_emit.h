@@ -401,10 +401,6 @@ public:
     generate_function_call(a64_cheat_hook);
   }
 
-  inline void emit_load_const_pool(u32 regn, u32 value) {
-    generate_load_imm(arm_to_a64_reg[regn], (value));
-  }
-
   inline void arm_conditional_block_header(u32 condition, u8 * & backpatch_address) {
     generate_cycle_update();
     backpatch_address = emit_opp_condbranch((ARMCondCode)condition);  // TODO: use ARMCondCode as type natively
@@ -796,51 +792,55 @@ public:
   }
 
   // ============= Memory functions =================
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memaddr(const ThumbInst & it, u32 regn) {
-    // Generate the memory address to a0
-    switch (offt) {
-    case OffPC:
-      // PC-relative offset. It is word aligned.
-      generate_load_pc(reg_a0, ((it.pc & (~3U)) + it.imm8() * 4 + 4));
-      break;
-
-    // rb/ro/regn are never PC in thumb mode (this is handled by OffPC mode)
-    case OffReg:
-      aa64_emit_add<NoFlags>(reg_a0, arm_to_a64_reg[regn], arm_to_a64_reg[it.ro()]);
-      break;
-    case OffImm5:
-      aa64_emit_addi<NoFlags>(reg_a0, arm_to_a64_reg[regn], it.imm5() * sizeof(memtype));
-      break;
-    case OffImm8:
-      aa64_emit_addi<NoFlags>(reg_a0, arm_to_a64_reg[regn], it.imm8() * sizeof(memtype));
-      break;
+  template <bool onram>
+  inline void thumb_loadpool(const ThumbInst & it) {
+    const u32 daddr = 4 + it.imm8() * 4 + (it.pc & ~3U);
+    if (!onram && (daddr >> 15) == (it.pc >> 15)) {
+      u8 *blkb = memory_map_read[it.pc >> 15];
+      u32 value = address32(blkb, (daddr & 0x7FFF));
+      generate_load_imm(arm_to_a64_reg[it.rd8()], value);
+    } else {
+      cyc_cnt += 2;      // TODO: We can calculate this here rather precisely.
+      generate_load_pc(reg_a0, daddr);
+      generate_load_pc(reg_a1, it.pc);
+      generate_function_call(call_ldr_handler<u32>());
+      generate_store_reg(reg_res, it.rd8());
     }
   }
 
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memld(const ThumbInst & it, u32 regd, u32 regn) {
-    cyc_cnt += 2;  // TODO: Use proper cycle accounting and honor WAITCNT
+  template <AccMode memmode, typename memtype, ThumbMemOffset offt>
+  inline void thumb_memacc(const ThumbInst & it) {
+    cyc_cnt += (memmode == AccLoad) ? 2 : 1;  // TODO: Use proper cycle accounting and honor WAITCNT
 
-    // Generate the address
-    thumb_memaddr<memtype, offt>(it, regn);
-    // Generate a call to the right memory section handler.
-    generate_load_pc(reg_a1, it.pc);
-    generate_function_call(call_ldr_handler<memtype>());
-    generate_store_reg(reg_res, regd);
+    // Load address to reg_a0
+    // rb/ro/regn are never PC in thumb mode (this is handled by OffPC mode)
+    switch (offt) {
+    case OffReg:
+      aa64_emit_add<NoFlags>(reg_a0, arm_to_a64_reg[it.rb()], arm_to_a64_reg[it.ro()]);
+      break;
+    case OffImm5:
+      aa64_emit_addi<NoFlags>(reg_a0, arm_to_a64_reg[it.rb()], it.imm5() * sizeof(memtype));
+      break;
+    case OffSP:
+      aa64_emit_addi<NoFlags>(reg_a0, arm_to_a64_reg[REG_SP], it.imm8() * sizeof(memtype));
+      break;
+    }
+
+    const u32 datareg = (offt == OffSP) ? it.rd8() : it.rd();
+
+    if (memmode == AccLoad) {
+      // Generate call to handler, store the result in the dest reg
+      generate_load_pc(reg_a1, it.pc);
+      generate_function_call(call_ldr_handler<memtype>());
+      generate_store_reg(reg_res, datareg);
+    } else {
+      // Load value and generate call to handler
+      force_load_reg(datareg, reg_a1, it.pc + 4);
+      generate_load_pc(reg_a2, (it.pc + 2));
+      generate_function_call(call_str_handler<memtype>());
+    }
   }
 
-  template <typename memtype, ThumbMemOffset offt>
-  inline void thumb_memst(const ThumbInst & it, u32 regd, u32 regn) {
-    cyc_cnt++;  // TODO: Use proper cycle accounting and honor WAITCNT
-
-    // Generate the address
-    thumb_memaddr<memtype, offt>(it, regn);
-    // Load value and generate call to handler
-    force_load_reg(regd, reg_a1, it.pc + 4);
-    generate_load_pc(reg_a2, (it.pc + 2));
-    generate_function_call(call_str_handler<memtype>());
-  }
 
   template <ARMMemOffset offt, MemOffDir dir>
   inline void arm_memaddr(arm64_regnum oreg, const ARMInst & it) {
@@ -1019,6 +1019,15 @@ public:
     }
   }
 
+  template <AccMode amode, AddrMode addrmode>
+  inline void thumb_memmulti(const ThumbInst & it) {
+    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, it.rptr(), it.rlist());
+  }
+
+  template <AccMode amode, AddrMode addrmode, unsigned extraregm = 0>
+  inline void thumb_pushpop(const ThumbInst & it) {
+    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, REG_SP, it.rlist() | extraregm);
+  }
 
   // ======== ARM instructions ======================================
   template <ARMOp aluop, FlagOperation flg>

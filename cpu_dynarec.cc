@@ -107,7 +107,7 @@ typedef enum {
   OpTst, OpTeq, OpCmp, OpCmn
 } AluOperation;*/
 
-typedef enum { OffReg, OffPC, OffImm5, OffImm8 } ThumbMemOffset;
+typedef enum { OffReg, OffImm5, OffSP } ThumbMemOffset;
 
 typedef enum { OffOp2Reg, OffHImm8, OffImm12, OffHReg } ARMMemOffset;
 typedef enum { OffPositive, OffNegative } MemOffDir;
@@ -117,6 +117,12 @@ typedef enum {
   AddrPreInc, AddrPreDec, AddrPostInc, AddrPostDec
 } AddrMode;
 
+// Typedef for emitters
+// template<typename InstClass>
+// void (CodeEmitter::*rinst_emitter_fn)(const InstClass &);
+
+// template<typename InstClass>
+// u8* (CodeEmitter::*binst_emitter_fn)(const InstClass &);
 
 // Div (6) and DivArm (7)
 #define is_div_swi(swinum) (((swinum) & 0xFE) == 0x06)
@@ -176,22 +182,22 @@ void translate_icache_sync() {
 
 /* End of Cache invalidation */
 
-#define check_pc_region(pc)                                                   \
-  new_pc_region = (pc >> 15);                                                 \
-  if(new_pc_region != pc_region)                                              \
-  {                                                                           \
+#define check_pc_region(pc) {                                                 \
+  u32 new_pc_region = (pc >> 15);                                             \
+  if (new_pc_region != pc_region) {                                           \
     pc_region = new_pc_region;                                                \
     pc_address_block = memory_map_read[new_pc_region];                        \
                                                                               \
     if(!pc_address_block)                                                     \
       pc_address_block = load_gamepak_page(pc_region & 0x3FF);                \
   }                                                                           \
+}
 
 #define translate_arm_instruction()                                           \
   check_pc_region(pc);                                                        \
   opcode = address32(pc_address_block, (pc & 0x7FFF));                        \
   condition = block_data[block_data_position].condition;                      \
-  ARMInst inst(pc, opcode, flag_status);                                      \
+  ARMInst inst(pc, opcode, 0xF /* TODO: Add ARM flag elimination */);         \
                                                                               \
   if((condition != last_condition) || (condition >= 0x20))                    \
   {                                                                           \
@@ -1184,18 +1190,16 @@ void translate_icache_sync() {
                                                                               \
   pc += 4                                                                     \
 
-#define arm_flag_status()                                                     \
 
 #define translate_thumb_instruction()                                         \
-  flag_status = block_data[block_data_position].flag_data;                    \
+  u32 flagdata = block_data[block_data_position].flag_data;                   \
   check_pc_region(pc);                                                        \
   last_opcode = opcode;                                                       \
   opcode = address16(pc_address_block, (pc & 0x7FFF));                        \
   ce.trace_instruction<ModeThumb>(pc, opcode);                                \
-  u8 hiop = opcode >> 8;                                                      \
-  ThumbInst inst(pc, opcode, flag_status);                                    \
+  ThumbInst inst(pc, opcode, flagdata);                                       \
                                                                               \
-  switch(hiop) {                                                              \
+  switch(opcode >> 8) {                                                       \
     case 0x00 ... 0x07:      /* LSL rd, rs, imm */                            \
       ce.thumb_shft<OpImm, ShiftLSL>(inst);                                   \
       break;                                                                  \
@@ -1305,72 +1309,63 @@ void translate_icache_sync() {
       ce.thumb_bx(inst);                                                      \
       break;                                                                  \
                                                                               \
-    case 0x48 ... 0x4F:                                                       \
-      /* LDR r0..7, [pc + imm] */                                             \
-      {                                                                       \
-        u32 imm = opcode & 0xFF;                                              \
-        u32 rdreg = (hiop & 7);                                               \
-        u32 aoff = (pc & ~2) + (imm*4) + 4;                                   \
-        /* ROM + same page -> optimize as const load */                       \
-        if (!ram_region && (((aoff + 4) >> 15) == (pc >> 15))) {              \
-          u32 value = address32(pc_address_block, (aoff & 0x7FFF));           \
-          ce.emit_load_const_pool(rdreg, value);                              \
-        } else {                                                              \
-          ce.thumb_memld<u32, OffPC>(inst, inst.rd8(), REG_PC);               \
-        }                                                                     \
-      }                                                                       \
+    case 0x48 ... 0x4F:      /* LDR r0..7, [pc + imm] */                      \
+      if (ram_region)                                                         \
+        ce.thumb_loadpool<true>(inst);                                        \
+      else                                                                    \
+        ce.thumb_loadpool<false>(inst);                                       \
       break;                                                                  \
                                                                               \
     case 0x50 ... 0x51:      /* STR rd, [rb + ro] */                          \
-      ce.thumb_memst<u32, OffReg>(inst, inst.rd(), inst.rb());                \
+      ce.thumb_memacc<AccStore, u32, OffReg>(inst);                           \
       break;                                                                  \
     case 0x52 ... 0x53:      /* STRH rd, [rb + ro] */                         \
-      ce.thumb_memst<u16, OffReg>(inst, inst.rd(), inst.rb());                \
+      ce.thumb_memacc<AccStore, u16, OffReg>(inst);                           \
       break;                                                                  \
     case 0x54 ... 0x55:      /* STRB rd, [rb + ro] */                         \
-      ce.thumb_memst<u8, OffReg>(inst, inst.rd(), inst.rb());                 \
+      ce.thumb_memacc<AccStore, u8, OffReg>(inst);                            \
       break;                                                                  \
                                                                               \
     case 0x56 ... 0x57:      /* LDSB rd, [rb + ro] */                         \
-      ce.thumb_memld<s8, OffReg>(inst, inst.rd(), inst.rb());                 \
+      ce.thumb_memacc<AccLoad, s8, OffReg>(inst);                             \
       break;                                                                  \
     case 0x58 ... 0x59:      /* LDR rd, [rb + ro] */                          \
-      ce.thumb_memld<u32, OffReg>(inst, inst.rd(), inst.rb());                \
+      ce.thumb_memacc<AccLoad, u32, OffReg>(inst);                            \
       break;                                                                  \
     case 0x5A ... 0x5B:      /* LDRH rd, [rb + ro] */                         \
-      ce.thumb_memld<u16, OffReg>(inst, inst.rd(), inst.rb());                \
+      ce.thumb_memacc<AccLoad, u16, OffReg>(inst);                            \
       break;                                                                  \
     case 0x5C ... 0x5D:      /* LDRB rd, [rb + ro] */                         \
-      ce.thumb_memld<u8, OffReg>(inst, inst.rd(), inst.rb());                 \
+      ce.thumb_memacc<AccLoad, u8, OffReg>(inst);                             \
       break;                                                                  \
     case 0x5E ... 0x5F:      /* LDSH rd, [rb + ro] */                         \
-      ce.thumb_memld<s16, OffReg>(inst, inst.rd(), inst.rb());                \
+      ce.thumb_memacc<AccLoad, s16, OffReg>(inst);                            \
       break;                                                                  \
                                                                               \
     case 0x60 ... 0x67:      /* STR rd, [rb + imm] */                         \
-      ce.thumb_memst<u32, OffImm5>(inst, inst.rd(), inst.rb());               \
+      ce.thumb_memacc<AccStore, u32, OffImm5>(inst);                          \
       break;                                                                  \
     case 0x68 ... 0x6F:      /* LDR rd, [rb + imm] */                         \
-      ce.thumb_memld<u32, OffImm5>(inst, inst.rd(), inst.rb());               \
+      ce.thumb_memacc<AccLoad, u32, OffImm5>(inst);                           \
       break;                                                                  \
     case 0x70 ... 0x77:      /* STRB rd, [rb + imm] */                        \
-      ce.thumb_memst<u8, OffImm5>(inst, inst.rd(), inst.rb());                \
+      ce.thumb_memacc<AccStore, u8, OffImm5>(inst);                           \
       break;                                                                  \
     case 0x78 ... 0x7F:      /* LDRB rd, [rb + imm] */                        \
-      ce.thumb_memld<u8, OffImm5>(inst, inst.rd(), inst.rb());                \
+      ce.thumb_memacc<AccLoad, u8, OffImm5>(inst);                            \
       break;                                                                  \
     case 0x80 ... 0x87:      /* STRH rd, [rb + imm] */                        \
-      ce.thumb_memst<u16, OffImm5>(inst, inst.rd(), inst.rb());               \
+      ce.thumb_memacc<AccStore, u16, OffImm5>(inst);                          \
       break;                                                                  \
     case 0x88 ... 0x8F:      /* LDRH rd, [rb + imm] */                        \
-      ce.thumb_memld<u16, OffImm5>(inst, inst.rd(), inst.rb());               \
+      ce.thumb_memacc<AccLoad, u16, OffImm5>(inst);                           \
       break;                                                                  \
                                                                               \
     case 0x90 ... 0x97:      /* STR r0..7, [sp + imm] */                      \
-      ce.thumb_memst<u32, OffImm8>(inst, inst.rd8(), REG_SP);                 \
+      ce.thumb_memacc<AccStore, u32, OffSP>(inst);                            \
       break;                                                                  \
     case 0x98 ... 0x9F:      /* LDR r0..7, [sp + imm] */                      \
-      ce.thumb_memld<u32, OffImm8>(inst, inst.rd8(), REG_SP);                 \
+      ce.thumb_memacc<AccLoad, u32, OffSP>(inst);                             \
       break;                                                                  \
                                                                               \
     case 0xA0 ... 0xA7:      /* ADD r0..7, pc, +imm */                        \
@@ -1384,28 +1379,22 @@ void translate_icache_sync() {
       break;                                                                  \
                                                                               \
     case 0xB4:               /* PUSH rlist */                                 \
-      ce.mem_multi<ModeThumb, AccStore, AddrPreDec, true, false>(             \
-        inst.pc, 0, REG_SP, inst.rlist());                                    \
+      ce.thumb_pushpop<AccStore, AddrPreDec>(inst);                           \
       break;                                                                  \
     case 0xB5:               /* PUSH rlist, lr */                             \
-      ce.mem_multi<ModeThumb, AccStore, AddrPreDec, true, false>(             \
-        inst.pc, 0, REG_SP, inst.rlist() | (1 << REG_LR));                    \
+      ce.thumb_pushpop<AccStore, AddrPreDec, 1 << REG_LR>(inst);              \
       break;                                                                  \
     case 0xBC:               /* POP rlist */                                  \
-      ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
-        inst.pc, 0, REG_SP, inst.rlist());                                    \
+      ce.thumb_pushpop<AccLoad, AddrPostInc>(inst);                           \
       break;                                                                  \
     case 0xBD:               /* POP rlist, pc */                              \
-      ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
-        inst.pc, 0, REG_SP, inst.rlist() | (1 << REG_PC));                    \
+      ce.thumb_pushpop<AccLoad, AddrPostInc, 1 << REG_PC>(inst);              \
       break;                                                                  \
     case 0xC0 ... 0xC7:      /* STMIA r0-7!, rlist */                         \
-      ce.mem_multi<ModeThumb, AccStore, AddrPostInc, true, false>(            \
-        inst.pc, 0, inst.rptr(), inst.rlist());                               \
+      ce.thumb_memmulti<AccStore, AddrPostInc>(inst);                         \
       break;                                                                  \
     case 0xC8 ... 0xCF:      /* LDMIA r0-7!, rlist */                         \
-      ce.mem_multi<ModeThumb, AccLoad, AddrPostInc, true, false>(             \
-        inst.pc, 0, inst.rptr(), inst.rlist());                               \
+      ce.thumb_memmulti<AccLoad, AddrPostInc>(inst);                          \
       break;                                                                  \
                                                                               \
     case 0xD0:     /* BEQ label */                                            \
@@ -1525,126 +1514,122 @@ void translate_icache_sync() {
                                                                               \
   pc += 2                                                                     \
 
-#define thumb_flag_modifies_all()                                             \
-  flag_status |= 0xFF                                                         \
+#define thumb_flag_modifies_all(flginfo)                                      \
+  flginfo |= 0xFF                                                             \
 
-#define thumb_flag_modifies_zn()                                              \
-  flag_status |= 0xCC                                                         \
+#define thumb_flag_modifies_zn(flginfo)                                       \
+  flginfo |= 0xCC                                                             \
 
-#define thumb_flag_modifies_znc()                                             \
-  flag_status |= 0xEE                                                         \
+#define thumb_flag_modifies_znc(flginfo)                                      \
+  flginfo |= 0xEE                                                             \
 
-#define thumb_flag_modifies_zn_maybe_c()                                      \
-  flag_status |= 0xCE                                                         \
+#define thumb_flag_modifies_zn_maybe_c(flginfo)                               \
+  flginfo |= 0xCE                                                             \
 
-#define thumb_flag_modifies_c()                                               \
-  flag_status |= 0x22                                                         \
+#define thumb_flag_modifies_c(flginfo)                                        \
+  flginfo |= 0x22                                                             \
 
-#define thumb_flag_requires_c()                                               \
-  flag_status |= 0x200                                                        \
+#define thumb_flag_requires_c(flginfo)                                        \
+  flginfo |= 0x200                                                            \
 
-#define thumb_flag_requires_all()                                             \
-  flag_status |= 0xF00                                                        \
+#define thumb_flag_requires_all(flginfo)                                      \
+  flginfo |= 0xF00                                                            \
 
-#define thumb_flag_status()                                                   \
-{                                                                             \
-  u16 flag_status = 0;                                                        \
-  switch((opcode >> 8) & 0xFF)                                                \
-  {                                                                           \
+#define thumb_flag_status() {                                                 \
+  u16 flagdata = 0;                                                           \
+  switch((opcode >> 8) & 0xFF) {                                              \
     /* left shift by imm */                                                   \
     case 0x00 ... 0x07:                                                       \
-      thumb_flag_modifies_zn();                                               \
+      thumb_flag_modifies_zn(flagdata);                                       \
       if(((opcode >> 6) & 0x1F) != 0)                                         \
       {                                                                       \
-        thumb_flag_modifies_c();                                              \
+        thumb_flag_modifies_c(flagdata);                                      \
       }                                                                       \
       break;                                                                  \
                                                                               \
     /* right shift by imm */                                                  \
     case 0x08 ... 0x17:                                                       \
-      thumb_flag_modifies_znc();                                              \
+      thumb_flag_modifies_znc(flagdata);                                      \
       break;                                                                  \
                                                                               \
     /* add, subtract */                                                       \
     case 0x18 ... 0x1F:                                                       \
-      thumb_flag_modifies_all();                                              \
+      thumb_flag_modifies_all(flagdata);                                      \
       break;                                                                  \
                                                                               \
     /* mov reg, imm */                                                        \
     case 0x20 ... 0x27:                                                       \
-      thumb_flag_modifies_zn();                                               \
+      thumb_flag_modifies_zn(flagdata);                                       \
       break;                                                                  \
                                                                               \
     /* cmp reg, imm; add, subtract */                                         \
     case 0x28 ... 0x3F:                                                       \
-      thumb_flag_modifies_all();                                              \
+      thumb_flag_modifies_all(flagdata);                                      \
       break;                                                                  \
                                                                               \
     case 0x40:                                                                \
-      switch((opcode >> 6) & 0x03)                                            \
-      {                                                                       \
+      switch((opcode >> 6) & 0x03) {                                          \
         case 0x00:                                                            \
           /* AND rd, rs */                                                    \
-          thumb_flag_modifies_zn();                                           \
+          thumb_flag_modifies_zn(flagdata);                                   \
           break;                                                              \
                                                                               \
         case 0x01:                                                            \
           /* EOR rd, rs */                                                    \
-          thumb_flag_modifies_zn();                                           \
+          thumb_flag_modifies_zn(flagdata);                                   \
           break;                                                              \
                                                                               \
         case 0x02:                                                            \
           /* LSL rd, rs */                                                    \
-          thumb_flag_modifies_zn_maybe_c();                                   \
+          thumb_flag_modifies_zn_maybe_c(flagdata);                           \
           break;                                                              \
                                                                               \
         case 0x03:                                                            \
           /* LSR rd, rs */                                                    \
-          thumb_flag_modifies_zn_maybe_c();                                   \
+          thumb_flag_modifies_zn_maybe_c(flagdata);                           \
           break;                                                              \
       }                                                                       \
       break;                                                                  \
                                                                               \
     case 0x41:                                                                \
-      switch((opcode >> 6) & 0x03)                                            \
-      {                                                                       \
+      switch((opcode >> 6) & 0x03) {                                          \
         case 0x00:                                                            \
           /* ASR rd, rs */                                                    \
-          thumb_flag_modifies_zn_maybe_c();                                   \
+          thumb_flag_modifies_zn_maybe_c(flagdata);                           \
           break;                                                              \
                                                                               \
         case 0x01:                                                            \
           /* ADC rd, rs */                                                    \
-          thumb_flag_modifies_all();                                          \
-          thumb_flag_requires_c();                                            \
+          thumb_flag_modifies_all(flagdata);                                  \
+          thumb_flag_requires_c(flagdata);                                    \
           break;                                                              \
                                                                               \
         case 0x02:                                                            \
           /* SBC rd, rs */                                                    \
-          thumb_flag_modifies_all();                                          \
-          thumb_flag_requires_c();                                            \
+          thumb_flag_modifies_all(flagdata);                                  \
+          thumb_flag_requires_c(flagdata);                                    \
           break;                                                              \
                                                                               \
         case 0x03:                                                            \
           /* ROR rd, rs */                                                    \
-          thumb_flag_modifies_zn_maybe_c();                                   \
+          thumb_flag_modifies_zn_maybe_c(flagdata);                           \
           break;                                                              \
       }                                                                       \
       break;                                                                  \
                                                                               \
     /* TST, NEG, CMP, CMN */                                                  \
     case 0x42:                                                                \
-      thumb_flag_modifies_all();                                              \
+      thumb_flag_modifies_all(flagdata);                                      \
       break;                                                                  \
                                                                               \
     /* ORR, MUL, BIC, MVN */                                                  \
     case 0x43:                                                                \
-      thumb_flag_modifies_zn();                                               \
+      thumb_flag_modifies_zn(flagdata);                                       \
       break;                                                                  \
                                                                               \
     case 0x45:                                                                \
       /* CMP rd, rs */                                                        \
-      thumb_flag_modifies_all();                                              \
+      thumb_flag_modifies_all(flagdata);                                      \
       break;                                                                  \
                                                                               \
     /* mov might change PC (fall through if so) */                            \
@@ -1657,11 +1642,13 @@ void translate_icache_sync() {
     case 0xBD:                                                                \
     case 0xD0 ... 0xE7:                                                       \
     case 0xF0 ... 0xFF:                                                       \
-      thumb_flag_requires_all();                                              \
+      thumb_flag_requires_all(flagdata);                                      \
       break;                                                                  \
   }                                                                           \
-  block_data[block_data_position].flag_data = flag_status;                    \
+  block_data[block_data_position].flag_data = flagdata;                       \
 }                                                                             \
+
+#define arm_flag_status()
 
 // I/EWRAM memory tagging
 // Code emitted in the RAM cache has tags (16 bit values) in the mirror tag ram
@@ -1972,14 +1959,10 @@ u8 function_cc *block_lookup_address_thumb(u32 pc)
 
 #define arm_instruction_width 4
 
-#define arm_base_cycles()                                                     \
-  ce.cyc_cnt += def_seq_cycles[pc >> 24][1]                                   \
-
 // For now this just sets a variable that says flags should always be
 // computed.
 
-#define arm_dead_flag_eliminate()                                             \
-  flag_status = 0xF                                                           \
+#define arm_dead_flag_eliminate()
 
 // The following Thumb instructions can exit:
 // b, bl, bx, swi, pop {... pc}, and mov pc, ..., the latter being a hireg
@@ -2042,9 +2025,6 @@ u8 function_cc *block_lookup_address_thumb(u32 pc)
 
 #define thumb_instruction_width 2
 
-#define thumb_base_cycles()                                                   \
-  ce.cyc_cnt += def_seq_cycles[pc >> 24][0]                                   \
-
 // Here's how this works: each instruction has three different sets of flag
 // attributes, each consisiting of a 4bit mask describing how that instruction
 // interacts with the 4 main flags (N/Z/C/V).
@@ -2078,11 +2058,10 @@ u8 function_cc *block_lookup_address_thumb(u32 pc)
                                                                               \
   while(--block_data_position >= 0)                                           \
   {                                                                           \
-    flag_status = block_data[block_data_position].flag_data;                  \
-    block_data[block_data_position].flag_data =                               \
-     (flag_status & needed_mask);                                             \
-    needed_mask &= ~((flag_status >> 4) & 0x0F);                              \
-    needed_mask |= flag_status >> 8;                                          \
+    u32 curr_data = block_data[block_data_position].flag_data;                \
+    block_data[block_data_position].flag_data = (curr_data & needed_mask);    \
+    needed_mask &= ~((curr_data >> 4) & 0x0F);                                \
+    needed_mask |= curr_data >> 8;                                            \
   }                                                                           \
 }                                                                             \
 
@@ -2193,12 +2172,6 @@ block_exit_type iblk_exits[MAX_EXITS];
   block_end:;                                                                 \
 }                                                                             \
 
-#define arm_fix_pc()                                                          \
-  pc &= ~0x03                                                                 \
-
-#define thumb_fix_pc()                                                        \
-  pc &= ~0x01                                                                 \
-
 #define update_pc_limits()                                                    \
 if (ram_region) {                                                             \
   if (pc >= 0x3000000) {                                                      \
@@ -2210,24 +2183,20 @@ if (ram_region) {                                                             \
   }                                                                           \
 }                                                                             \
 
-bool translate_block_arm(u32 pc, bool ram_region)
-{
+bool translate_block_arm(u32 pc, bool ram_region) {
+  pc &= ~3U;
+
   u32 opcode = 0;
   u32 condition;
   u32 last_condition;
   u32 pc_region = (pc >> 15);
-  u32 new_pc_region;
   u8 *pc_address_block = memory_map_read[pc_region];
   const u32 block_start_pc = pc;
   u32 block_end_pc = pc;
   u32 block_exit_position = 0;
   s32 block_data_position = 0;
-  u32 external_block_exit_position = 0;
-  u8 *translation_target;
   u8 *backpatch_address = NULL;
-  u32 flag_status;
   block_exit_type eblk_exits[MAX_EXITS];
-  arm_fix_pc();
 
   if(!pc_address_block)
     pc_address_block = load_gamepak_page(pc_region & 0x3FF);
@@ -2264,7 +2233,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
 
   while (pc != block_end_pc) {
     block_data[block_data_position].block_offset = ce.emit_ptr;
-    arm_base_cycles();
+    ce.cyc_cnt += def_seq_cycles[pc >> 24][1];  // TODO: improve (SEQ/NSEQ)?
 
     if (pc == cheat_master_hook)
       ce.emit_cheat_hook<ModeARM>();
@@ -2303,17 +2272,18 @@ bool translate_block_arm(u32 pc, bool ram_region)
      in the unlikely case that block was too big (and not finalized) */
   ce.generate_translation_gate<ModeARM>(pc);
 
+  u32 eexit_cnt = 0;
   for (unsigned i = 0; i < block_exit_position; i++) {
     u32 tgt = iblk_exits[i].branch_target;
     if ((tgt >= block_start_pc) && (tgt < block_end_pc)) {
       /* Internal branch, patch to recorded address */
-      translation_target = block_data[(tgt - block_start_pc) / arm_instruction_width].block_offset;
-      generate_branch_patch_unconditional(iblk_exits[i].branch_source, translation_target);
+      const u8 *tr_tgt = block_data[(tgt - block_start_pc) / arm_instruction_width].block_offset;
+      generate_branch_patch_unconditional(iblk_exits[i].branch_source, tr_tgt);
     } else {
       /* External branch, save for later */
-      eblk_exits[external_block_exit_position].branch_target = tgt;
-      eblk_exits[external_block_exit_position].branch_source = iblk_exits[i].branch_source;
-      external_block_exit_position++;
+      eblk_exits[eexit_cnt].branch_target = tgt;
+      eblk_exits[eexit_cnt].branch_source = iblk_exits[i].branch_source;
+      eexit_cnt++;
     }
   }
 
@@ -2322,36 +2292,28 @@ bool translate_block_arm(u32 pc, bool ram_region)
   else
     rom_translation_ptr = ce.emit_ptr;
 
-  for(unsigned i = 0; i < external_block_exit_position; i++) {
+  for(unsigned i = 0; i < eexit_cnt; i++) {
     u32 tgt = eblk_exits[i].branch_target;
-    if(tgt == 0x00000008)
-      translation_target = bios_swi_entrypoint;
-    else
-      translation_target = block_lookup_translate_arm(tgt);
-    if (!translation_target)
+    const u8 *tr_tgt = (tgt == 0x8) ? bios_swi_entrypoint : block_lookup_translate_arm(tgt);
+    if (!tr_tgt)
       return false;
-    generate_branch_patch_unconditional(
-      eblk_exits[i].branch_source, translation_target);
+    generate_branch_patch_unconditional(eblk_exits[i].branch_source, tr_tgt);
   }
   return true;
 }
 
-bool translate_block_thumb(u32 pc, bool ram_region)
-{
+bool translate_block_thumb(u32 pc, bool ram_region) {
+  pc &= ~1U;
+
   u32 opcode = 0;
   u32 last_opcode;
   u32 pc_region = (pc >> 15);
-  u32 new_pc_region;
   u8 *pc_address_block = memory_map_read[pc_region];
   const u32 block_start_pc = pc;
   u32 block_end_pc = pc;
   u32 block_exit_position = 0;
   s32 block_data_position = 0;
-  u32 external_block_exit_position = 0;
-  u8 *translation_target;
-  u32 flag_status;
   block_exit_type eblk_exits[MAX_EXITS];
-  thumb_fix_pc();
 
   if(!pc_address_block)
     pc_address_block = load_gamepak_page(pc_region & 0x3FF);
@@ -2386,7 +2348,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
 
   while (pc != block_end_pc) {
     block_data[block_data_position].block_offset = ce.emit_ptr;
-    thumb_base_cycles();
+    ce.cyc_cnt += def_seq_cycles[pc >> 24][0];  // TODO: Can this be improved?
 
     if (pc == cheat_master_hook)
       ce.emit_cheat_hook<ModeThumb>();
@@ -2418,17 +2380,18 @@ bool translate_block_thumb(u32 pc, bool ram_region)
      in the unlikely case that block was too big (and not finalized) */
   ce.generate_translation_gate<ModeThumb>(pc);
 
+  u32 eexit_cnt = 0;
   for (unsigned i = 0; i < block_exit_position; i++) {
     u32 tgt = iblk_exits[i].branch_target;
     if ((tgt >= block_start_pc) && (tgt < block_end_pc)) {
       /* Internal branch, patch to recorded address */
-      translation_target = block_data[(tgt - block_start_pc) / thumb_instruction_width].block_offset;
-      generate_branch_patch_unconditional(iblk_exits[i].branch_source, translation_target);
+      const u8 *tr_tgt = block_data[(tgt - block_start_pc) / thumb_instruction_width].block_offset;
+      generate_branch_patch_unconditional(iblk_exits[i].branch_source, tr_tgt);
     } else {
       /* External branch, save for later */
-      eblk_exits[external_block_exit_position].branch_target = tgt;
-      eblk_exits[external_block_exit_position].branch_source = iblk_exits[i].branch_source;
-      external_block_exit_position++;
+      eblk_exits[eexit_cnt].branch_target = tgt;
+      eblk_exits[eexit_cnt].branch_source = iblk_exits[i].branch_source;
+      eexit_cnt++;
     }
   }
 
@@ -2437,16 +2400,12 @@ bool translate_block_thumb(u32 pc, bool ram_region)
   else
     rom_translation_ptr = ce.emit_ptr;
 
-  for (unsigned i = 0; i < external_block_exit_position; i++) {
+  for (unsigned i = 0; i < eexit_cnt; i++) {
     u32 tgt = eblk_exits[i].branch_target;
-    if (tgt == 0x00000008)
-      translation_target = bios_swi_entrypoint;
-    else
-      translation_target = block_lookup_translate_thumb(tgt);
-    if (!translation_target)
+    const u8 *tr_tgt = (tgt == 0x8) ? bios_swi_entrypoint : block_lookup_translate_thumb(tgt);
+    if (!tr_tgt)
       return false;
-    generate_branch_patch_unconditional(
-      eblk_exits[i].branch_source, translation_target);
+    generate_branch_patch_unconditional(eblk_exits[i].branch_source, tr_tgt);
   }
   return true;
 }

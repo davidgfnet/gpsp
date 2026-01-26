@@ -20,16 +20,18 @@
 #ifndef CPU_H
 #define CPU_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdbool.h>
 #include "gpsp_config.h"
 
 extern u32 instruction_count;
 
 void execute_arm(u32 cycles);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Functions used from ASM, use C namings.
 
 u32 function_cc execute_load_u8(u32 address);
 u32 function_cc execute_load_u16(u32 address);
@@ -40,6 +42,13 @@ void function_cc execute_store_u8(u32 address, u32 source);
 void function_cc execute_store_u16(u32 address, u32 source);
 void function_cc execute_store_u32(u32 address, u32 source);
 void function_cc execute_store_aligned_u32(u32 address, u32 source);
+void function_cc flush_translation_cache_rom(void);
+void function_cc flush_translation_cache_ram(void);
+
+#ifdef __cplusplus
+}
+#endif
+
 u32 execute_arm_translate(u32 cycles);
 void init_translater(void);
 
@@ -73,16 +82,10 @@ extern u32 translation_gate_target_pc[MAX_TRANSLATION_GATES];
 
 extern u32 rom_branch_hash[ROM_BRANCH_HASH_SIZE];
 
-void flush_translation_cache_rom(void);
-void flush_translation_cache_ram(void);
 void dump_translation_cache(void);
 void init_dynarec_caches(void);
 void flush_dynarec_caches(void);
 void init_emitter(bool);
 void init_bios_hooks(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

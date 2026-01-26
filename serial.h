@@ -20,10 +20,6 @@
 #ifndef SERIAL_H
 #define SERIAL_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define SERIAL_MODE_DISABLED      0
 #define SERIAL_MODE_RFU           1  // Wifi Adapter
 #define SERIAL_MODE_GBP           2  // Connected to the GB Player
@@ -48,10 +44,6 @@ void rfu_net_receive(const void* buf, size_t len, uint16_t client_id);
 
 // GBP interface
 u32 gbp_transfer(u32 value);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif
 

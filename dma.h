@@ -18,12 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef DMA_H
-#define DMA_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef DMA_HH
+#define DMA_HH
 
 #define DMA_CHAN_CNT   4
 
@@ -81,10 +77,6 @@ typedef struct
 
 extern dma_transfer_type dma[DMA_CHAN_CNT];
 extern u32 dma_bus_val;
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif
 

@@ -542,7 +542,7 @@ void retro_init(void)
 
 #if defined(HAVE_DYNAREC)
   #if defined(MMAP_JIT_CACHE)
-   rom_translation_cache = map_jit_block(ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
+   rom_translation_cache = (u8*)map_jit_block(ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
    ram_translation_cache = &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE];
   #elif defined(_3DS)
    if (__ctr_svchax && !translation_caches_inited)

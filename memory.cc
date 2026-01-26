@@ -19,6 +19,7 @@
  */
 
 #include "common.h"
+#include "dma.h"
 #include "gba_memory_cpp.h"
 
 #include "streams/file_stream.h"

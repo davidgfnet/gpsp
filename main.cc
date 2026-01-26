@@ -18,6 +18,7 @@
  */
 
 #include "common.h"
+#include "dma.h"
 
 timer_type timer[4];
 

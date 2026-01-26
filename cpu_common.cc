@@ -113,7 +113,7 @@ void init_cpu() {
 // reg_mode[new_mode][6]. When swapping to/from FIQ retire/load reg[8]
 // through reg[14] to/from reg_mode[MODE_FIQ][0] through reg_mode[MODE_FIQ][6].
 
-void set_cpu_mode(cpu_mode_type new_mode) {
+void function_cc set_cpu_mode(cpu_mode_type new_mode) {
   cpu_mode_type cpu_mode = reg[CPU_MODE];
 
   if (cpu_mode == new_mode)

@@ -34,10 +34,8 @@ static retro_input_state_t input_state_cb;
 
 void retro_set_input_state(retro_input_state_t cb) { input_state_cb = cb; }
 
-extern "C" {
-  // TODO move libretro API to a separate header file
-  extern void set_fastforward_override(bool fastforward);
-}
+// TODO move libretro API to a separate header file
+void set_fastforward_override(bool fastforward);
 
 static void trigger_key(u32 key)
 {

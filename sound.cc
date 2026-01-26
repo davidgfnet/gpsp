@@ -18,6 +18,7 @@
  */
 
 #include "common.h"
+#include "dma.h"
 
 typedef struct {
    u32 rate;

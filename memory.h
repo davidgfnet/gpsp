@@ -22,34 +22,9 @@
 
 #include "libretro.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define FEAT_AUTODETECT  -1
 #define FEAT_DISABLE      0
 #define FEAT_ENABLE       1
-
-// Memory read handlers
-u32 function_cc read_memory8(u32 address);
-u32 function_cc read_memory8s(u32 address);
-u32 function_cc read_memory16(u32 address);
-u32 function_cc read_memory16s(u32 address);
-u32 function_cc read_memory32(u32 address);
-// Memory write handlers
-cpu_alert_type function_cc write_memory8(u32 address, u8 value);
-cpu_alert_type function_cc write_memory16(u32 address, u16 value);
-cpu_alert_type function_cc write_memory32(u32 address, u32 value);
-// I/O specific write handlers
-cpu_alert_type function_cc write_io_register8 (u32 address, u32 value);
-cpu_alert_type function_cc write_io_register16(u32 address, u32 value);
-cpu_alert_type function_cc write_io_register32(u32 address, u32 value);
-
-u32 function_cc read_eeprom(void);
-void function_cc write_eeprom(u32 address, u32 value);
-u8 read_backup(u32 address);
-void function_cc write_backup(u32 address, u32 value);
-void function_cc write_gpio(u32 address, u32 value);
 
 void write_rumble(bool oldv, bool newv);
 void rumble_frame_reset();
@@ -138,6 +113,33 @@ static inline void clear_gamepak_stickybits(void)
 bool memory_check_savestate(const u8*src);
 bool memory_read_savestate(const u8*src);
 unsigned memory_write_savestate(u8 *dst);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// This functions are called from assembly, use C namings.
+
+// Memory read handlers
+u32 function_cc read_memory8(u32 address);
+u32 function_cc read_memory8s(u32 address);
+u32 function_cc read_memory16(u32 address);
+u32 function_cc read_memory16s(u32 address);
+u32 function_cc read_memory32(u32 address);
+// Memory write handlers
+cpu_alert_type function_cc write_memory8(u32 address, u8 value);
+cpu_alert_type function_cc write_memory16(u32 address, u16 value);
+cpu_alert_type function_cc write_memory32(u32 address, u32 value);
+// I/O specific write handlers
+cpu_alert_type function_cc write_io_register8 (u32 address, u32 value);
+cpu_alert_type function_cc write_io_register16(u32 address, u32 value);
+cpu_alert_type function_cc write_io_register32(u32 address, u32 value);
+
+u32 function_cc read_eeprom(void);
+void function_cc write_eeprom(u32 address, u32 value);
+u8 function_cc read_backup(u32 address);
+void function_cc write_backup(u32 address, u32 value);
+void function_cc write_gpio(u32 address, u32 value);
 
 #ifdef __cplusplus
 }

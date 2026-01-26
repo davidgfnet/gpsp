@@ -18,6 +18,7 @@
  */
 
 #include "common.h"
+#include "dma.h"
 
 const u8 *state_mem_read_ptr;
 u8 *state_mem_write_ptr;

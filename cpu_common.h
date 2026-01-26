@@ -18,11 +18,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <stdbool.h>
+#ifndef _CPU_COMMON_HH
+#define _CPU_COMMON_HH
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdbool.h>
 
 void init_cpu();
 
@@ -88,9 +87,6 @@ extern const u32 cpu_modes[16];
 extern const u32 cpsr_masks[4][2];
 extern const u32 spsr_masks[4];
 
-// Changes the CPU mode (and banks registers in and out as needed).
-void set_cpu_mode(cpu_mode_type new_mode);
-
 // Memory handler (and instruction) side-effect reporting.
 typedef u8 cpu_alert_type;
 
@@ -118,13 +114,6 @@ typedef u16 irq_type;
 #define IRQ_KEYPAD   0x1000
 #define IRQ_GAMEPAK  0x2000
 
-// Checks if an IRQ is pending and processes it (by changing the CPU mode and PC)
-u32 check_and_raise_interrupts(void);
-// Returns if there's a pending interrupt
-cpu_alert_type check_interrupt(void);
-// Flags an interrupt, but doesn't immediately raise it.
-cpu_alert_type flag_interrupt(irq_type irq_raised);
-
 // Savestates
 bool cpu_check_savestate(const u8 *src);
 unsigned cpu_write_savestate(u8* dst);
@@ -148,6 +137,23 @@ extern u8 ws_cyc_nseq[16][2];
 void reload_timing_info();
 
 #ifdef __cplusplus
+extern "C" {
+#endif
+
+// Functions that are called from ASM, using C namings.
+
+// Changes the CPU mode (and banks registers in and out as needed).
+void function_cc set_cpu_mode(cpu_mode_type new_mode);
+// Checks if an IRQ is pending and processes it (by changing the CPU mode and PC)
+u32 check_and_raise_interrupts(void);
+// Returns if there's a pending interrupt
+cpu_alert_type check_interrupt(void);
+// Flags an interrupt, but doesn't immediately raise it.
+cpu_alert_type flag_interrupt(irq_type irq_raised);
+
+#ifdef __cplusplus
 }
+#endif
+
 #endif
 

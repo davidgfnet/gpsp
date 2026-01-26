@@ -20,10 +20,6 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define ror(dest, value, shift)                                               \
   dest = ((value) >> (shift)) | ((value) << (32 - (shift)))                   \
 
@@ -166,21 +162,17 @@ extern const u8 bit_count[256];
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include "gba_regs.h"
-#include "cpu_common.h"
-#include "cpu.h"
-#include "memory.h"
-#include "dma.h"
-#include "savestate.h"
-#include "video.h"
-#include "input.h"
-#include "sound.h"
-#include "main.h"
-#include "cheats.h"
-#include "serial.h"
 
-#ifdef __cplusplus
-}
-#endif
+#include "cheats.h"
+#include "cpu.h"
+#include "cpu_common.h"
+#include "gba_regs.h"
+#include "input.h"
+#include "main.h"
+#include "memory.h"
+#include "savestate.h"
+#include "sound.h"
+#include "video.h"
+#include "serial.h"
 
 #endif

@@ -21,10 +21,7 @@
 #define MAIN_H
 
 #include <stdio.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdbool.h>
 
 #define TIMER_INACTIVE                0
 #define TIMER_PRESCALE                1
@@ -91,7 +88,6 @@ void rand_seed(u32 data);
 
 #define cycles_to_run(c) ((c) & 0x7FFF)
 #define completed_frame(c) ((c) & 0x80000000)
-u32 function_cc update_gba(int remaining_cycles);
 void reset_gba(void);
 
 void init_main(void);
@@ -117,6 +113,14 @@ void print_regs(void);
 #else  /* TRACE_EVENTS */
   #define trace_update_gba(x)
 #endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Functions that are called from ASM, using C namings.
+
+u32 function_cc update_gba(int remaining_cycles);
 
 #ifdef __cplusplus
 }

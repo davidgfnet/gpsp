@@ -20,10 +20,6 @@
 #ifndef __GPSP_CHEATS_H__
 #define __GPSP_CHEATS_H__
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef enum {
    CheatNoError = 0,
    CheatErrorTooMany,
@@ -32,11 +28,16 @@ typedef enum {
    CheatErrorNotSupported
 } cheat_error;
 
-void process_cheats(void);
 cheat_error cheat_parse(unsigned index, const char *code);
 void cheat_clear(void);
 
 extern u32 cheat_master_hook;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void process_cheats(void);
 
 #ifdef __cplusplus
 }

@@ -59,6 +59,17 @@ extern u8 iwram[1024 * 32 * 2];
 
 extern u8 *memory_map_read[8 * 1024];
 
+inline uint16_t read_ioreg(unsigned regnum) {
+  return leread16(io_registers[regnum]);
+}
+inline void write_ioreg(unsigned regnum, uint16_t value) {
+  io_registers[regnum] = leread16(value);
+}
+
+inline uint32_t read_ioreg32(unsigned regnum) {
+  return read_ioreg(regnum) | (read_ioreg(regnum+1) << 16);
+}
+
 #define BACKUP_SRAM       0
 #define BACKUP_FLASH      1
 #define BACKUP_EEPROM     2

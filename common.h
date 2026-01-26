@@ -20,11 +20,11 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#define ror(dest, value, shift)                                               \
-  dest = ((value) >> (shift)) | ((value) << (32 - (shift)))                   \
+#include <stdint.h>
 
-#define rotr32(value, shift)                                                  \
-  ((value) >> (shift)) | ((value) << (32 - (shift)))                          \
+inline uint32_t rotr32(uint32_t value, uint32_t shift) {
+  return (value >> shift) | (value << (32 - shift));
+}
 
 #define MAX(a,b)  ((a) > (b) ? (a) : (b))
 #define MIN(a,b)  ((a) < (b) ? (a) : (b))
@@ -43,23 +43,6 @@
 #else
   #define function_cc
 #endif
-
-#ifdef ARM_ARCH
-
-#define _BSD_SOURCE // sync
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <stdarg.h>
-#include <time.h>
-#include <sys/time.h>
-
-#endif /* ARM_ARCH */
-
-// Huge thanks to pollux for the heads up on using native file I/O
-// functions on PSP for vastly improved memstick performance.
 
 #ifdef PSP
   #include <pspkernel.h>
@@ -98,12 +81,6 @@
 #define GBA_SCREEN_BUFFER_SIZE  \
   (GBA_SCREEN_PITCH * (GBA_SCREEN_HEIGHT + 1) * sizeof(uint16_t))
 
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  #define netorder32(value) (value)
-#else
-  #define netorder32(value) __builtin_bswap32(value)
-#endif
-
 typedef u32 fixed16_16;
 typedef u32 fixed8_24;
 
@@ -137,17 +114,21 @@ typedef u32 fixed8_24;
 #define address32(base, offset)                                               \
   *((u32 *)((u8 *)base + (offset)))                                           \
 
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  #define eswap16(value) __builtin_bswap16(value)
-  #define eswap32(value) __builtin_bswap32(value)
-#else
-  #define eswap16(value) (value)
-  #define eswap32(value) (value)
-#endif
+inline uint16_t leread16(uint16_t value) {
+  #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return __builtin_bswap16(value);
+  #else
+    return value;
+  #endif
+}
 
-#define read_ioreg(regnum) (eswap16(io_registers[(regnum)]))
-#define write_ioreg(regnum, val) io_registers[(regnum)] = eswap16(val)
-#define read_ioreg32(regnum) (read_ioreg(regnum) | (read_ioreg((regnum)+1) << 16))
+inline uint32_t netorder32(uint32_t value) {
+  #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return value;
+  #else
+    return __builtin_bswap32(value);
+  #endif
+}
 
 // Random generation
 u16 rand_gen();
@@ -155,7 +136,6 @@ void rand_seed(u32 data);
 
 // Util stuff
 extern const u8 bit_count[256];
-
 
 #include <unistd.h>
 #include <time.h>

@@ -125,7 +125,7 @@ template <>
 inline void write_palette(u32 address, u16 value) {
   u16 cvalue = convert_palette(value);
   write_mem((u8*)palette_ram, address, value);
-  write_mem((u8*)palette_ram_converted, address, cvalue);
+  write_mem((u8*)palette_ram_converted, address, memswap(cvalue));
 }
 template <>
 inline void write_palette(u32 address, u8 value) {

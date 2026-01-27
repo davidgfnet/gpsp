@@ -31,10 +31,7 @@ inline u16 read_dmareg16(u32 dmachan) {
 }
 template <u32 regnum>
 inline u32 read_dmareg32(u32 dmachan) {
-  u16 lo = io_registers[regnum + dmachan * 6];
-  u16 hi = io_registers[regnum + dmachan * 6 + 1];
-  u32 ret = lo | (hi << 16);
-  return memswap(ret);
+  return read_dmareg16<regnum>(dmachan) | (read_dmareg16<regnum+1>(dmachan) << 16);
 }
 template <u32 regnum>
 inline void write_dmareg16(u32 dmachan, u16 value) {

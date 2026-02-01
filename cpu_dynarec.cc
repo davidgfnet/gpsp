@@ -2162,11 +2162,8 @@ block_exit_type iblk_exits[MAX_EXITS];
                                                                               \
     block_data[block_data_position].update_cycles = 0;                        \
     block_data_position++;                                                    \
-    if((block_data_position == MAX_BLOCK_SIZE) ||                             \
-     (block_end_pc == 0x3007FF0) || (block_end_pc == 0x203FFFF0))             \
-    {                                                                         \
+    if (block_data_position == MAX_BLOCK_SIZE)                                \
       break;                                                                  \
-    }                                                                         \
   } while(1);                                                                 \
                                                                               \
   block_end:;                                                                 \

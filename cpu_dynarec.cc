@@ -1693,8 +1693,8 @@ static u32 ram_block_tag = INITIAL_TOP_TAG;
 
 inline static ramtag_type* get_ram_tag(u16 tagval) {
   ramtag_type *tbl = (ramtag_type*)&ram_translation_cache[RAM_TRANSLATION_CACHE_SIZE];
-  s16 tgidx = (s16)(tagval);
-  return &tbl[tgidx >> 1];  /* Since LSB is always 1 and thus unused */
+  int tgidx = (tagval >> 1) - 0x8000;   /* Since LSB is always 1 and thus unused */
+  return &tbl[tgidx];
 }
 
 // This function will return a pointer to a translated block of code. If it

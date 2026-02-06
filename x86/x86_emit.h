@@ -219,10 +219,12 @@ template <> inline uintptr_t call_str_handler<u8>()  { return (uintptr_t)execute
 
 class CodeEmitter : public X86Emitter {
 public:
-  CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
-   : X86Emitter(emit_ptr, emit_end) {}
+  CodeEmitter(u8 *emit_ptr, u32 pc)
+   : X86Emitter(emit_ptr) {}
 
-  static unsigned block_prologue_size() { return 0; }
+  static unsigned block_header_size() { return 0; }
+
+  inline void emit_block_header() {}
   inline void emit_block_prologue() {}
 
   inline void write_flag_reg(x86_condition_codes code, u32 regnum) {
@@ -409,8 +411,12 @@ public:
   // ======================================================
   // ================ Thumb instructions ==================
   // ======================================================
+  void thumb_invalid(const ThumbInst & it) {
+    // Do nothing on purpose.
+  }
+
   template <ARMOp aluop>
-  inline void thumb_aluop2(const ThumbInst & it) {
+  void thumb_aluop2(const ThumbInst & it) {
     load_reg(reg_a0, it.rd());    // Load operands
     load_reg(reg_a1, it.rs());
 
@@ -457,7 +463,7 @@ public:
   }
 
   template <OpType stype, ShiftType st>
-  inline void thumb_shft(const ThumbInst & it) {
+  void thumb_shft(const ThumbInst & it) {
     if (stype == OpImm) {
       if (it.gen_flag_c())
         emit_op2_shimm<SetFlags>(reg_a0, it.rs(), st, it.imm5(), 0);
@@ -482,7 +488,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluop1(const ThumbInst & it) {
+  void thumb_aluop1(const ThumbInst & it) {
     load_reg(reg_a0, it.rs());   // Load operand
 
     switch (aluop) {
@@ -502,7 +508,7 @@ public:
   }
 
   template <ARMOp testop>
-  inline void thumb_testop(const ThumbInst & it) {
+  void thumb_testop(const ThumbInst & it) {
     load_reg(reg_a0, it.rd());    // Load operands
     load_reg(reg_a1, it.rs());
 
@@ -523,7 +529,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluimm2(const ThumbInst & it) {
+  void thumb_aluimm2(const ThumbInst & it) {
     switch (aluop) {
     case OpMov:
       store_reg_imm32(it.imm8(), it.rd8());
@@ -548,7 +554,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluimm3(const ThumbInst & it) {
+  void thumb_aluimm3(const ThumbInst & it) {
     load_reg(reg_a0, it.rs());
 
     switch (aluop) {
@@ -566,7 +572,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluop3(const ThumbInst & it) {
+  void thumb_aluop3(const ThumbInst & it) {
     load_reg(reg_a0, it.rs());
 
     switch (aluop) {
@@ -584,7 +590,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluhi(const ThumbInst & it) {
+  void thumb_aluhi(const ThumbInst & it) {
     load_reg_pc(reg_a0, it.rs_hi(), it.pc + 4);
 
     switch (aluop) {
@@ -605,7 +611,7 @@ public:
   }
 
   template <u32 ref_reg>
-  inline void thumb_regoff(const ThumbInst & it) {
+  void thumb_regoff(const ThumbInst & it) {
     if (ref_reg == REG_PC)
       store_reg_imm32((it.pc & ~2) + 4 + 4 * it.imm8(), it.rd8());
     else {
@@ -615,16 +621,16 @@ public:
     }
   }
 
-  inline void thumb_spadj(const ThumbInst & it) {
+  void thumb_spadj(const ThumbInst & it) {
     x86_emit_mem_imm_add(it.imm71() * 4, reg_base, regoff(REG_SP));
   }
 
-  inline void thumb_bx(const ThumbInst & it) {
+  void thumb_bx(const ThumbInst & it) {
     load_reg_pc(reg_a0, it.rs_hi(), it.pc + 4);
     generate_indirect_branch_cycle_update(dual);
   }
 
-  inline void thumb_blh(const ThumbInst & it) {
+  void thumb_blh(const ThumbInst & it) {
     load_pc(reg_a0, ((it.pc + 2) | 0x01));
     load_reg(reg_a1, REG_LR);
     store_reg(reg_a0, REG_LR);
@@ -633,64 +639,18 @@ public:
     generate_indirect_branch_cycle_update(thumb);
   }
 
-  template <CPUInstMode cpum>
-  inline bool emu_swi(u32 pc, u32 num) {
-    u8 *jmpinst;
-
-    switch (num) {
-    case 6:
-    case 7:
-      load_reg(reg_a0, ((num == 6) ? 0 : 1));   // Same SWI but swapped operands
-      load_reg(reg_a2, ((num == 6) ? 1 : 0));
-      x86_emit_imm_cmp(reg_a2, 0);
-      x86_emit_j_filler(x86_condition_code_z, jmpinst);
-      x86_emit_cdq();
-      x86_emit_idiv_eax(reg_a2);
-      store_reg(reg_a0, 0);
-      store_reg(reg_a1, 1);
-      x86_emit_reg_mov(reg_a1, reg_a0);
-      x86_emit_reg_sar_imm(reg_a1, 31);
-      x86_emit_reg_xor(reg_a0, reg_a1);
-      x86_emit_reg_sub(reg_a0, reg_a1);
-      store_reg(reg_a0, 3);
-      generate_branch_patch_conditional(jmpinst, this->emit_ptr);
-      cyc_cnt += 64;    // Big under-estimation here
-      return true;
-    default:
-      return false;
-    };
-    return false;
-  }
-
-  inline u8* thumb_swi(const ThumbInst & it) {
-    u8 *brtgt = NULL;
-    const u32 pc = it.pc;    // TODO: get rid of this.
-
-    load_pc(reg_arg0, it.pc + 2);
-    generate_function_call(execute_swi);
-    generate_branch_cycle_update(brtgt, 0x00000008);
-
-    return brtgt;
-  }
-
-  inline void arm_bx(const ARMInst & it) {
-    const u8 condition = it.cond();        // TODO remove this
-    load_reg_pc(reg_a0, it.rm(), it.pc + 8);
-    generate_indirect_branch_dual();
-  }
-
-  inline u8* arm_swi(u32 pc) {
+  u8* thumb_swi(u32 pc, u32 target) {
     u8 *brtgt = NULL;
 
-    load_pc(reg_arg0, (pc + 4));
+    load_pc(reg_arg0, pc + 2);
     generate_function_call(execute_swi);
-    generate_branch_cycle_update(brtgt, 0x00000008);
+    generate_branch_cycle_update(brtgt, target);
 
     return brtgt;
   }
 
   template <ARMCondCode ccode>
-  inline u8* thumb_brcond(u32 pc, u32 target) {
+  u8* thumb_brcond(u32 pc, u32 target) {
     u8 *brtgt = NULL;
 
     generate_cycle_update();
@@ -700,24 +660,13 @@ public:
     return brtgt;
   }
 
-  inline u8* thumb_b(u32 pc, u32 target) {
+  u8* thumb_b(u32 pc, u32 target) {
     u8 *brtgt = NULL;
     generate_branch_cycle_update(brtgt, target);
     return brtgt;
   }
 
-  inline u8* arm_b(const ARMInst & it, u32 target) {
-    const u32 pc = it.pc;  // TODO: Remove this
-    u8 *brtgt = NULL;
-    if (it.cond() == CondAL) {
-      generate_branch_cycle_update(brtgt, target);
-    } else {
-      generate_branch_no_cycle_update(brtgt, target);
-    }
-    return brtgt;
-  }
-
-  inline u8* thumb_bl(u32 pc, u32 target) {
+  u8* thumb_bl(u32 pc, u32 target) {
     u8 *brtgt = NULL;
 
     load_pc(reg_a0, ((pc + 2) | 0x01));
@@ -727,22 +676,9 @@ public:
     return brtgt;
   }
 
-  inline u8* arm_bl(const ARMInst & it, u32 target) {
-    const u32 pc = it.pc;  // TODO: Remove this
-    u8 *brtgt = NULL;
-    load_pc(reg_a0, (pc + 4));
-    store_reg(reg_a0, REG_LR);
-    if (it.cond() == CondAL) {
-      generate_branch_cycle_update(brtgt, target);
-    } else {
-      generate_branch_no_cycle_update(brtgt, target);
-    }
-    return brtgt;
-  }
-
   // ======== Memory instructions ===================================
   template <AccMode memmode, typename memtype, ThumbMemOffset offt>
-  inline void thumb_memacc(const ThumbInst & it) {
+  void thumb_memacc(const ThumbInst & it) {
     cyc_cnt += (memmode == AccLoad) ? 2 : 1;  // TODO: Use proper cycle accounting and honor WAITCNT
 
     // Generate the memory address to a0
@@ -750,9 +686,9 @@ public:
     load_reg(reg_a0, basereg);
     if (offt == OffReg)
       x86_emit_mem_add(reg_a0, reg_base, regoff(it.ro()));
-    else if (offt == OffImm5)
+    else if (offt == OffImm5 && it.imm5())
       x86_emit_imm_add(reg_a0, it.imm5() * sizeof(memtype));
-    else
+    else if (offt == OffSP && it.imm8())
       x86_emit_imm_add(reg_a0, it.imm8() * sizeof(memtype));
 
     const u32 datareg = (offt == OffSP) ? it.rd8() : it.rd();
@@ -771,8 +707,7 @@ public:
   }
 
   template <bool onram>
-  inline void thumb_loadpool(const ThumbInst & it) {
-
+  void thumb_loadpool(const ThumbInst & it) {
     const u32 daddr = 4 + it.imm8() * 4 + (it.pc & ~3U);
     if (!onram && (daddr >> 15) == (it.pc >> 15)) {
       u8 *blkb = memory_map_read[it.pc >> 15];
@@ -787,6 +722,16 @@ public:
       generate_function_call(call_ldr_handler<u32>());
       store_reg(reg_rv, it.rd8());
     }
+  }
+
+  template <AccMode amode, AddrMode addrmode>
+  void thumb_memmulti(const ThumbInst & it) {
+    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, it.rptr(), it.rlist());
+  }
+
+  template <AccMode amode, AddrMode addrmode, unsigned extraregm = 0>
+  void thumb_pushpop(const ThumbInst & it) {
+    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, REG_SP, it.rlist() | extraregm);
   }
 
   template <ARMMemOffset offt, MemOffDir dir>
@@ -946,16 +891,6 @@ public:
         generate_indirect_branch_cycle_update(thumb);
       }
     }
-  }
-
-  template <AccMode amode, AddrMode addrmode>
-  inline void thumb_memmulti(const ThumbInst & it) {
-    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, it.rptr(), it.rlist());
-  }
-
-  template <AccMode amode, AddrMode addrmode, unsigned extraregm = 0>
-  inline void thumb_pushpop(const ThumbInst & it) {
-    this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, REG_SP, it.rlist() | extraregm);
   }
 
   // ======== ARM instructions ======================================
@@ -1426,6 +1361,30 @@ public:
     store_reg(reg_a1, it.rdhi());
   }
 
+  inline u8* arm_bl(const ARMInst & it, u32 target) {
+    const u32 pc = it.pc;  // TODO: Remove this
+    u8 *brtgt = NULL;
+    load_pc(reg_a0, (pc + 4));
+    store_reg(reg_a0, REG_LR);
+    if (it.cond() == CondAL) {
+      generate_branch_cycle_update(brtgt, target);
+    } else {
+      generate_branch_no_cycle_update(brtgt, target);
+    }
+    return brtgt;
+  }
+
+  inline u8* arm_b(const ARMInst & it, u32 target) {
+    const u32 pc = it.pc;  // TODO: Remove this
+    u8 *brtgt = NULL;
+    if (it.cond() == CondAL) {
+      generate_branch_cycle_update(brtgt, target);
+    } else {
+      generate_branch_no_cycle_update(brtgt, target);
+    }
+    return brtgt;
+  }
+
   // PSR register read
   template<PSReg reg>
   inline void arm_read_psr(const ARMInst &it) {
@@ -1436,6 +1395,22 @@ public:
     }
 
     store_reg(reg_rv, it.rd());
+  }
+
+  inline void arm_bx(const ARMInst & it) {
+    const u8 condition = it.cond();        // TODO remove this
+    load_reg_pc(reg_a0, it.rm(), it.pc + 8);
+    generate_indirect_branch_dual();
+  }
+
+  inline u8* arm_swi(u32 pc) {
+    u8 *brtgt = NULL;
+
+    load_pc(reg_arg0, (pc + 4));
+    generate_function_call(execute_swi);
+    generate_branch_cycle_update(brtgt, 0x00000008);
+
+    return brtgt;
   }
 
   // PSR register write
@@ -1457,6 +1432,32 @@ public:
       x86_emit_load_imm(reg_a1, spsr_masks[it.field_fc()]);
       generate_function_call(execute_store_spsr);
     }
+  }
+
+  static bool can_emu_swi(u32 pc, u32 num) {
+    return (num == 6 || num == 7);
+  }
+
+  template <CPUInstMode cpum, typename iclass>
+  void emu_swi(const iclass &it) {
+    u8 *jmpinst;
+    const u32 num = it.swinum();
+
+    load_reg(reg_a0, ((num == 6) ? 0 : 1));   // Same SWI but swapped operands
+    load_reg(reg_a2, ((num == 6) ? 1 : 0));
+    x86_emit_imm_cmp(reg_a2, 0);
+    x86_emit_j_filler(x86_condition_code_z, jmpinst);
+    x86_emit_cdq();
+    x86_emit_idiv_eax(reg_a2);
+    store_reg(reg_a0, 0);
+    store_reg(reg_a1, 1);
+    x86_emit_reg_mov(reg_a1, reg_a0);
+    x86_emit_reg_sar_imm(reg_a1, 31);
+    x86_emit_reg_xor(reg_a0, reg_a1);
+    x86_emit_reg_sub(reg_a0, reg_a1);
+    store_reg(reg_a0, 3);
+    generate_branch_patch_conditional(jmpinst, this->emit_ptr);
+    cyc_cnt += 64;    // Big under-estimation here
   }
 
   template <CPUInstMode cm>

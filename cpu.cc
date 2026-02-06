@@ -791,10 +791,6 @@ inline static void thumb_shift_reg(const ThumbInstDec &it) {
   reg[REG_PC] += 2;  // Advance PC
 }
 
-inline static u32 thumb_hireg_read(u32 rs) {
-  return reg[rs] + ((rs == REG_PC) ? 4 : 0);
-}
-
 inline static void thumb_hireg_write(u32 rd, u32 value) {
   if (rd == REG_PC) {
     reg[REG_PC] = value & (~1U);
@@ -935,18 +931,18 @@ cpu_alert_type execute_thumb_instruction(u16 opcode16, s32 &cyccnt) {
          break;
 
       case 0x44:         /* ADD rd, rs */
-         thumb_hireg_write(inst.rd_hi(), thumb_hireg_read(inst.rd_hi()) + thumb_hireg_read(inst.rs_hi()));
+         thumb_hireg_write(inst.rd_hi(), read_reg<4>(inst.rd_hi()) + read_reg<4>(inst.rs_hi()));
          break;
       case 0x45:         /* CMP rd, rs */
-         thumb_cmp(reg[inst.rd_hi()], thumb_hireg_read(inst.rs_hi()));
+         thumb_cmp(reg[inst.rd_hi()], read_reg<4>(inst.rs_hi()));
          break;
       case 0x46:         /* MOV rd, rs */
-         thumb_hireg_write(inst.rd_hi(), thumb_hireg_read(inst.rs_hi()));
+         thumb_hireg_write(inst.rd_hi(), read_reg<4>(inst.rs_hi()));
          break;
 
       case 0x47:         /* BX rs */
          {
-            u32 newpc = thumb_hireg_read(inst.rs_hi());
+            u32 newpc = read_reg<4>(inst.rs_hi());
             if (newpc & 0x01)
                reg[REG_PC] = newpc - 1;
             else {

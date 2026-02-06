@@ -103,8 +103,8 @@ public:
     this->emit_ptr += 4;
   }
 
-  ARM64Emitter(uint8_t *emit_ptr, uint8_t *emit_end)
-   : CodeEmitterBase(emit_ptr, emit_end) {}
+  ARM64Emitter(uint8_t *emit_ptr)
+   : CodeEmitterBase(emit_ptr) {}
 
   // Logic instructions
   inline void aa64_emit_orr(arm64_regnum rd, arm64_regnum rs, arm64_regnum rm) {

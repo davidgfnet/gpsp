@@ -113,8 +113,8 @@ private:
 
 public:
 
-  ARMEmitter(uint8_t *emit_ptr, uint8_t *emit_end)
-   : CodeEmitterBase(emit_ptr, emit_end) {}
+  ARMEmitter(uint8_t *emit_ptr)
+   : CodeEmitterBase(emit_ptr) {}
 
   // Performs an ALU operation (with/out flag setting) with some immediate shift amount
   template <armcg_op op, FlagOperation flg>

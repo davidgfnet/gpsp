@@ -435,22 +435,25 @@ inline bool isimm16s(u32 imm) {
 
 class CodeEmitter : public MIPSEmitter {
 public:
-  CodeEmitter(u8 *emit_ptr, u8 *emit_end, u32 pc)
-   : MIPSEmitter(emit_ptr, emit_end), block_pc(pc) {}
+  CodeEmitter(u8 *emit_ptr, u32 pc)
+   : MIPSEmitter(emit_ptr), block_pc(pc) {}
 
   u32 block_pc;              // PC address for the block base
   u8 *update_trampoline;
   u8 *spaccess_trampoline;
 
-  static unsigned block_prologue_size() { return 16; }  // 4 trampoline insts.
+  static unsigned block_header_size() { return 16; }  // 4 trampoline insts.
 
-  inline void emit_block_prologue() {
+  inline void emit_block_header() {
     update_trampoline = this->emit_ptr;
     emit_j(mips_absolute_offset(mips_update_gba));
     emit_nop();
     spaccess_trampoline = this->emit_ptr;
     emit_j(mips_absolute_offset(&rom_translation_cache[EWRAM_SPM_OFF]));
     emit_nop();
+  }
+
+  inline void emit_block_prologue() {
     emit_load_imm_reg(reg_pc, block_pc);
   }
 
@@ -814,9 +817,15 @@ public:
     return ret;
   }
 
+  // ======================================================
+  // ================ Thumb instructions ==================
+  // ======================================================
+  void thumb_invalid(const ThumbInst & it) {
+    // Do nothing on purpose.
+  }
 
   template <ARMOp aluop>
-  inline void thumb_aluop3(const ThumbInst & it) {
+  void thumb_aluop3(const ThumbInst & it) {
     const mips_regnum rs = arm_to_mips_reg[it.rs()];
     const mips_regnum rn = arm_to_mips_reg[it.rn()];
     const mips_regnum rd = arm_to_mips_reg[it.rd()];
@@ -832,7 +841,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluop2(const ThumbInst & it) {
+  void thumb_aluop2(const ThumbInst & it) {
     const mips_regnum rs = arm_to_mips_reg[it.rs()];
     const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
@@ -875,7 +884,7 @@ public:
   }
 
   template <OpType stype, ShiftType st>
-  inline void thumb_shft(const ThumbInst & it) {
+  void thumb_shft(const ThumbInst & it) {
     const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
     if (stype == OpImm) {
@@ -894,7 +903,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluop1(const ThumbInst & it) {
+  void thumb_aluop1(const ThumbInst & it) {
     const mips_regnum rs = arm_to_mips_reg[it.rs()];
     const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
@@ -910,7 +919,7 @@ public:
   }
 
   template <ARMOp testop>
-  inline void thumb_testop(const ThumbInst & it) {
+  void thumb_testop(const ThumbInst & it) {
     const mips_regnum rs = arm_to_mips_reg[it.rs()];
     const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
@@ -930,7 +939,7 @@ public:
 
 
   template <ARMOp aluop>
-  inline void thumb_aluimm2(const ThumbInst & it) {
+  void thumb_aluimm2(const ThumbInst & it) {
     const mips_regnum rd = arm_to_mips_reg[it.rd8()];
 
     switch (aluop) {
@@ -952,7 +961,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluimm3(const ThumbInst & it) {
+  void thumb_aluimm3(const ThumbInst & it) {
     const mips_regnum rs = arm_to_mips_reg[it.rs()];
     const mips_regnum rd = arm_to_mips_reg[it.rd()];
 
@@ -967,7 +976,7 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void thumb_aluhi(const ThumbInst & it) {
+  void thumb_aluhi(const ThumbInst & it) {
     const mips_regnum rs = load_alloc_reg(it.rs_hi(), reg_a1, it.pc + 4);
 
     // TODO Improve and make PC writes clearer!
@@ -986,23 +995,23 @@ public:
   }
 
   template <u32 ref_reg>
-  inline void thumb_regoff(const ThumbInst & it) {
+  void thumb_regoff(const ThumbInst & it) {
     if (ref_reg == REG_PC)
       emit_load_pc(arm_to_mips_reg[it.rd8()], (it.pc & ~2) + 4 + 4 * it.imm8());
     else
       emit_addiu(arm_to_mips_reg[it.rd8()], arm_to_mips_reg[ref_reg], 4 * it.imm8());
   }
 
-  inline void thumb_spadj(ThumbInst & it) {
+  void thumb_spadj(const ThumbInst & it) {
     emit_addiu(reg_r13, reg_r13, 4 * it.imm71());
   }
 
-  inline void thumb_bx(const ThumbInst & it) {
+  void thumb_bx(const ThumbInst & it) {
     force_load_reg(reg_a0, it.rs_hi(), it.pc + 4);
     generate_indirect_branch_cycle_update(dual);
   }
 
-  inline void thumb_blh(const ThumbInst & it) {
+  void thumb_blh(const ThumbInst & it) {
     emit_addiu(reg_a0, reg_r14, it.abr_offset_lo());
     emit_load_pc(reg_r14, ((it.pc + 2) | 0x01));
     generate_indirect_branch_cycle_update(thumb);
@@ -1014,37 +1023,33 @@ public:
     generate_indirect_branch_dual();
   }
 
-  template <CPUInstMode cpum>
-  inline bool emu_swi(u32 pc, u32 num) {
-    switch (num) {
-    case 6:
-    case 7:
-      {
-        mips_regnum regA = (num == 6) ? reg_r0 : reg_r1;
-        mips_regnum regB = (num == 6) ? reg_r1 : reg_r0;
-
-        emit_div(regA, regB);
-        emit_mflo(reg_r0);
-        emit_mfhi(reg_r1);
-        emit_sra(reg_a0, reg_r0, 31);
-        emit_xor(reg_r3, reg_r0, reg_a0);
-        emit_subu(reg_r3, reg_r3, reg_a0);
-      }
-      cyc_cnt += 64;    // Big under-estimation here
-      return true;
-    default:
-      return false;
-    };
-    return false;
+  static bool can_emu_swi(u32 pc, u32 num) {
+    return (num == 6 || num == 7);
   }
 
-  inline u8* thumb_swi(const ThumbInst & it) {
+  template <CPUInstMode cpum, typename iclass>
+  void emu_swi(const iclass &it) {
+    const u32 num = it.swinum();
+
+    mips_regnum regA = (num == 6) ? reg_r0 : reg_r1;
+    mips_regnum regB = (num == 6) ? reg_r1 : reg_r0;
+
+    emit_div(regA, regB);
+    emit_mflo(reg_r0);
+    emit_mfhi(reg_r1);
+    emit_sra(reg_a0, reg_r0, 31);
+    emit_xor(reg_r3, reg_r0, reg_a0);
+    emit_subu(reg_r3, reg_r3, reg_a0);
+
+    cyc_cnt += 64;    // Big under-estimation here
+  }
+
+  u8* thumb_swi(u32 pc, u32 target) {
     u8 *brtgt = NULL;
-    const u32 pc = it.pc;    // TODO: get rid of this.
 
     emit_load_pc(reg_a0, (pc + 2));
     generate_function_call_swap_delay(execute_swi);
-    generate_branch_cycle_update(brtgt, 0x00000008);
+    generate_branch_cycle_update(brtgt, target);
 
     return brtgt;
   }
@@ -1060,7 +1065,7 @@ public:
   }
 
   template <ARMCondCode ccode>
-  inline u8* thumb_brcond(u32 pc, u32 target) {
+  u8* thumb_brcond(u32 pc, u32 target) {
     u8 *brtgt = NULL;
 
     u8 *ptch = emit_opp_condbranch(ccode);
@@ -1069,7 +1074,7 @@ public:
     return brtgt;
   }
 
-  inline u8* thumb_b(u32 pc, u32 target) {
+  u8* thumb_b(u32 pc, u32 target) {
     u8 *brtgt = NULL;
     generate_branch_cycle_update(brtgt, target);
     return brtgt;
@@ -1086,7 +1091,7 @@ public:
     return brtgt;
   }
 
-  inline u8* thumb_bl(u32 pc, u32 target) {
+  u8* thumb_bl(u32 pc, u32 target) {
     u8 *brtgt = NULL;
 
     emit_load_pc(reg_r14, ((pc + 2) | 0x01));
@@ -1108,7 +1113,7 @@ public:
 
   // ============= Memory functions =================
   template <bool onram>
-  inline void thumb_loadpool(const ThumbInst & it) {
+  void thumb_loadpool(const ThumbInst & it) {
     const u32 daddr = 4 + it.imm8() * 4 + (it.pc & ~3U);
     if (!onram && (daddr >> 15) == (it.pc >> 15)) {
       u8 *blkb = memory_map_read[it.pc >> 15];
@@ -1125,7 +1130,7 @@ public:
   }
 
   template <AccMode memmode, typename memtype, ThumbMemOffset offt>
-  inline void thumb_memacc(const ThumbInst & it) {
+  void thumb_memacc(const ThumbInst & it) {
     cyc_cnt += (memmode == AccLoad) ? 2 : 1;  // TODO: Use proper cycle accounting and honor WAITCNT
 
     // Generate the memory address to a0
@@ -1337,12 +1342,12 @@ public:
   }
 
   template <AccMode amode, AddrMode addrmode>
-  inline void thumb_memmulti(const ThumbInst & it) {
+  void thumb_memmulti(const ThumbInst & it) {
     this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, it.rptr(), it.rlist());
   }
 
   template <AccMode amode, AddrMode addrmode, unsigned extraregm = 0>
-  inline void thumb_pushpop(const ThumbInst & it) {
+  void thumb_pushpop(const ThumbInst & it) {
     this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, REG_SP, it.rlist() | extraregm);
   }
 
@@ -2575,7 +2580,7 @@ public:
 
 void init_emitter(bool must_swap) {
   // Emit at the cache base
-  CodeEmitter ce(rom_translation_cache, &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE], 0);
+  CodeEmitter ce(rom_translation_cache, 0);
   ce.emit_stubs(must_swap);
 
   // Ensure rom flushes do not wipe this area

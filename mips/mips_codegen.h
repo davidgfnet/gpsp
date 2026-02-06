@@ -181,8 +181,8 @@ private:
 
 public:
 
-  MIPSEmitter(uint8_t *emit_ptr, uint8_t *emit_end)
-   : CodeEmitterBase(emit_ptr, emit_end) {}
+  MIPSEmitter(uint8_t *emit_ptr)
+   : CodeEmitterBase(emit_ptr) {}
 
   inline void emit_nop() {
     emit_sll(mips_reg_zero, mips_reg_zero, 0);

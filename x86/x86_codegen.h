@@ -192,8 +192,8 @@ private:
 
 public:
 
-  X86Emitter(uint8_t *emit_ptr, uint8_t *emit_end)
-   : CodeEmitterBase(emit_ptr, emit_end) {}
+  X86Emitter(uint8_t *emit_ptr)
+   : CodeEmitterBase(emit_ptr) {}
 
   // Move (load store, imm)
   inline void x86_emit_reg_mov(x86_regnum dst, x86_regnum src) {

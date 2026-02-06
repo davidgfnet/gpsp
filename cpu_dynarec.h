@@ -48,7 +48,6 @@ class ThumbInst : public ThumbInstDec, public BaseInst {
 public:
   ThumbInst(u32 pc, u16 opcode, u16 flag_status)
    : ThumbInstDec(opcode), BaseInst(pc, flag_status) {}
-
 };
 
 class ARMInst : public ARMInstDec, public BaseInst {

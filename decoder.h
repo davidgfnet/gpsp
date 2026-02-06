@@ -124,6 +124,11 @@ public:
   u32 abr_offset_lo() const {
     return (opcode & 0x07FF) << 1;
   }
+
+  // SWI
+  u32 swinum() const {
+    return opcode & 0xFF;
+  }
 };
 
 
@@ -217,6 +222,11 @@ public:
   }
   u32 off8() const {
     return ((opcode >> 4) & 0xF0) | (opcode & 0x0F);
+  }
+
+  // SWI
+  u32 swinum() const {
+    return (opcode >> 16) & 0xFF;
   }
 };
 

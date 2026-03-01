@@ -2264,6 +2264,7 @@ block_exit_type iblk_exits[MAX_EXITS];
     smc_write_##type##_##smc_write_op();                                      \
     type##_load_opcode();                                                     \
     type##_flag_status();                                                     \
+    block_data[block_data_position].update_cycles = 0;                        \
                                                                               \
     if(type##_exit_point)                                                     \
     {                                                                         \
@@ -2321,7 +2322,6 @@ block_exit_type iblk_exits[MAX_EXITS];
         goto block_end;                                                       \
     }                                                                         \
                                                                               \
-    block_data[block_data_position].update_cycles = 0;                        \
     block_data_position++;                                                    \
     if (block_data_position == MAX_BLOCK_SIZE)                                \
       break;                                                                  \

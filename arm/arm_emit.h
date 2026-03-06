@@ -606,11 +606,11 @@ public:
     }
   }
 
-  inline void arm_conditional_block_header(u32 condition, u8 * & backpatch_address) {
+  inline u8* arm_conditional_block_header(u32 condition) {
     emit_cycle_update();
-    /* This will choose the opposite condition */
-    condition ^= 0x01;
-    generate_branch_filler(condition, backpatch_address);
+    u8 *ret = this->emit_ptr;
+    emit_bcond((condition ^ 1), 0);    // This will choose the opposite condition.
+    return ret;
   }
 
 
@@ -776,7 +776,7 @@ public:
     generate_indirect_branch_cycle_update(thumb);
   }
 
-  inline void arm_bx(const ARMInst & it) {
+  void arm_bx(const ARMInst & it) {
     const u8 condition = it.cond();        // TODO remove this
     force_load_reg<ModeARM>(reg_a0, it.rm(), it.pc + 8);
     generate_indirect_branch_dual();
@@ -794,7 +794,8 @@ public:
     generate_function_far_call((num == 6 ? armfn_swi6_emu : armfn_swi7_emu));
   }
 
-  u8* thumb_swi(u32 pc, u32 target) {
+  u8* thumb_swi(const ThumbInst & it, u32 target) {
+    const u32 pc = it.pc;  // TODO: Remove this.
     u8 *brtgt = NULL;
 
     generate_function_far_call(armfn_swi_thumb);
@@ -804,18 +805,20 @@ public:
     return brtgt;
   }
 
-  inline u8* arm_swi(u32 pc) {
+  u8* arm_swi(const ARMInst & it, u32 target) {
     u8 *brtgt = NULL;
+    const u32 pc = it.pc;  // TODO: Remove this.
 
     generate_function_far_call(armfn_swi_arm);
     write32((pc + 4));
-    generate_branch_cycle_update(brtgt, 0x00000008, arm);
+    generate_branch_cycle_update(brtgt, target, arm);
 
     return brtgt;
   }
 
   template <ARMCondCode ccode>
-  u8* thumb_brcond(u32 pc, u32 target) {
+  u8* thumb_brcond(const ThumbInst & it, u32 target) {
+    const u32 pc = it.pc;  // TODO: Remove this.
     u8 *brtgt = NULL;
     u8 *ptch = NULL;
 
@@ -828,13 +831,14 @@ public:
     return brtgt;
   }
 
-  u8* thumb_b(u32 pc, u32 target) {
+  u8* thumb_b(const ThumbInst & it, u32 target) {
     u8 *brtgt = NULL;
+    const u32 pc = it.pc;  // TODO: Remove this.
     generate_branch_cycle_update(brtgt, target, thumb);
     return brtgt;
   }
 
-  inline u8* arm_b(const ARMInst & it, u32 target) {
+  u8* arm_b(const ARMInst & it, u32 target) {
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     if (it.cond() == CondAL) {
@@ -845,15 +849,16 @@ public:
     return brtgt;
   }
 
-  u8* thumb_bl(u32 pc, u32 target) {
+  u8* thumb_bl(const ThumbInst & it, u32 target) {
     u8 *brtgt = NULL;
+    const u32 pc = it.pc;  // TODO: Remove this.
     generate_update_pc(((pc + 2) | 0x01));
     force_store_reg<ModeThumb>(reg_a0, REG_LR);
     generate_branch_cycle_update(brtgt, target, thumb);
     return brtgt;
   }
 
-  inline u8* arm_bl(const ARMInst & it, u32 target) {
+  u8* arm_bl(const ARMInst & it, u32 target) {
     const u32 pc = it.pc;  // TODO: Remove this
     u8 *brtgt = NULL;
     generate_update_pc(pc + 4);
@@ -964,7 +969,7 @@ public:
   }
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
-  inline void arm_memst(const ARMInst & it) {
+  void arm_memst(const ARMInst & it) {
     cyc_cnt++;    // TODO: Use proper cycle accounting and honor WAITCNT
 
     // Generate the final address and base address, and write back if necessary
@@ -989,7 +994,7 @@ public:
   }
 
   template <typename memtype, ARMMemOffset offt, MemOffDir dir, MemIdxMode idxm>
-  inline void arm_memld(const ARMInst & it) {
+  void arm_memld(const ARMInst & it) {
     const u8 condition = it.cond();        // TODO remove this
     cyc_cnt += 2;    // TODO: Use proper cycle accounting and honor WAITCNT
 
@@ -1020,7 +1025,7 @@ public:
   }
 
   template <typename memtype>
-  inline void arm_swap(const ARMInst & it) {
+  void arm_swap(const ARMInst & it) {
     cyc_cnt += 3;   // TODO: Some more accurate accounting :)
 
     // rd = mem[rn], mem[rn] = rm (Note: all regs could be the same!)
@@ -1127,9 +1132,20 @@ public:
     this->mem_multi<ModeThumb, amode, addrmode, true, false>(it.pc, 0, REG_SP, it.rlist() | extraregm);
   }
 
-  // ======== ARM instructions ======================================
+  // ======================================================
+  // ================= ARM instructions ===================
+  // ======================================================
+  void arm_invalid(const ARMInst & it) {
+    // Do nothing on purpose.
+  }
+
+  template <AccMode amode, AddrMode addrmode, bool writeback, bool sbit>
+  void arm_memmulti(const ARMInst & it) {
+    this->mem_multi<ModeARM, amode, addrmode, writeback, sbit>(it.pc, it.cond(), it.rn(), it.rlist());
+  }
+
   template <ARMOp aluop, FlagOperation flg>
-  inline void arm_aluimm3(const ARMInst & it) {
+  void arm_aluimm3(const ARMInst & it) {
     armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
@@ -1144,13 +1160,13 @@ public:
   }
 
   template <ARMOp aluop>
-  inline void arm_aluimm2(const ARMInst & it) {
+  void arm_aluimm2(const ARMInst & it) {
     armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
     emit_test_imm<aluop>(rn, it.rot4(), it.imm8());
   }
 
   template <ARMOp aluop, FlagOperation flg>
-  inline void arm_aluimm1(const ARMInst & it) {
+  void arm_aluimm1(const ARMInst & it) {
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
     emit_mov_imm<aluop, flg>(rd, it.rot4(), it.imm8());
@@ -1165,7 +1181,7 @@ public:
 
   // 3 regs (with op2) instructions
   template <ARMOp aluop, FlagOperation flg>
-  inline void arm_alureg3(const ARMInst & it) {
+  void arm_alureg3(const ARMInst & it) {
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
 
     if (it.op2imm()) {
@@ -1190,7 +1206,7 @@ public:
   }
 
   template <ARMOp aluop, FlagOperation flg>
-  inline void arm_alureg1(const ARMInst & it) {
+  void arm_alureg1(const ARMInst & it) {
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_rd, it.rd());
     if (it.op2imm()) {
       armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
@@ -1211,7 +1227,7 @@ public:
 
   // compare/test instructions
   template <ARMOp aluop, FlagOperation c_flag>
-  inline void arm_alureg2(const ARMInst & it) {
+  void arm_alureg2(const ARMInst & it) {
     if (it.op2imm()) {
       armcg_regnum rn = prepare_load_reg<ModeARM>(reg_rn, it.rn(), it.pc, 2);
       armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
@@ -1228,7 +1244,7 @@ public:
 
   // Performs 32 bit multiplications (rd and rn are swapped)
   template<FlagOperation flg, MulMode mm>
-  inline void arm_mul32(const ARMInst &it) {
+  void arm_mul32(const ARMInst &it) {
     armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
     armcg_regnum rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 2);
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_a2, it.rn());
@@ -1243,7 +1259,7 @@ public:
 
   // Performs 64 bit multiplications
   template<FlagOperation flg, MulMode mm, bool signmul>
-  inline void arm_mul64(const ARMInst &it) {
+  void arm_mul64(const ARMInst &it) {
     armcg_regnum rm = prepare_load_reg<ModeARM>(reg_rm, it.rm(), it.pc, 2);
     armcg_regnum rs = prepare_load_reg<ModeARM>(reg_rs, it.rs(), it.pc, 2);
     armcg_regnum rdlo = (mm == MulAdd) ? prepare_load_reg<ModeARM>(reg_a1, it.rdlo(), it.pc, 2)
@@ -1269,7 +1285,7 @@ public:
 
   // PSR register read
   template<PSReg reg>
-  inline void arm_read_psr(const ARMInst &it) {
+  void arm_read_psr(const ARMInst &it) {
     armcg_regnum rd = prepare_store_reg<ModeARM>(reg_a0, it.rd());
 
     if (reg == RegCPSR) {
@@ -1290,7 +1306,7 @@ public:
 
   // PSR register write
   template<PSReg reg, OpType opt>
-  inline void arm_write_psr(const ARMInst &it) {
+  void arm_write_psr(const ARMInst &it) {
     if (opt == OpReg)
       force_load_reg<ModeARM>(reg_a0, it.rm(), it.pc + 8);
     else

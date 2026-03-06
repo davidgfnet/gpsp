@@ -22,7 +22,7 @@
 
 /* Should be an upperbound to the maximum number of bytes a single JIT'ed
    instruction can take. STM/LDM are tipically the biggest ones */
-#define TRANSLATION_CACHE_LIMIT_THRESHOLD (1024 * 2)
+#define TRANSLATION_CACHE_LIMIT_THRESHOLD (1024 * 32)
 
 /* Hash table size for ROM trans cache lookups */
 #define ROM_BRANCH_HASH_BITS                           16

@@ -81,14 +81,6 @@ typedef struct {
 
 u32 rom_branch_hash[ROM_BRANCH_HASH_SIZE];
 
-typedef struct
-{
-  u8 *block_offset;
-  u16 flag_data;
-  u8 condition;
-  u8 update_cycles;
-} block_data_type;
-
 typedef struct {
   u32 branch_target;
   u8 *branch_source;
@@ -263,6 +255,18 @@ static inline bool pc_on_ram(uint32_t pc) {
   return (pc >> 25) == 1;   // PC is 0x02XXXXXX or 0x03XXXXXX
 }
 
+// TODO: Improve this
+template <TranslRegion reg>
+bool valid_code_addr(uint32_t pc) {
+  if (reg == RegionRAM)
+    return (pc >> 25) == 1;   // Area 2 and 3
+  return !(pc >> 24) || (pc >> 27) == 1;  // Area 0 (BIOS) or ROM (8 to 15)
+}
+
+bool valid_brtgt(uint32_t pc) {
+  return valid_code_addr<RegionRAM>(pc) || valid_code_addr<RegionROM>(pc);
+}
+
 template <TranslRegion region>
 class JITArea {
 public:
@@ -311,1016 +315,1185 @@ public:
 #define MAX_EXITS          32   // This covers 99% blocks
 #define MAX_LINKQ_SIZE   2048   // 1K should cover it all, 2K just in case
 
-/* End of Cache invalidation */
+#define INFO_DIRECT_BRANCH             0x01
+#define INFO_INDIRECT_BRANCH           0x02
+#define INFO_UNCOND_BRANCH             0x20
+#define INFO_SYNC_CYCLES               0x40
+#define INFO_INVALID_INST              0x80
 
-#define check_pc_region(pc) {                                                 \
-  u32 new_pc_region = (pc >> 15);                                             \
-  if (new_pc_region != pc_region) {                                           \
-    pc_region = new_pc_region;                                                \
-    pc_address_block = memory_map_read[new_pc_region];                        \
-                                                                              \
-    if(!pc_address_block)                                                     \
-      pc_address_block = load_gamepak_page(pc_region & 0x3FF);                \
-  }                                                                           \
+#define FLAG_WRITE_NZCV         0xFF
+#define FLAG_WRITE_NZ           0xCC
+#define FLAG_WRITE_NZC          0xEE
+#define FLAG_WRITE_C            0x22
+#define FLAG_WRITE_NZ_MAYBE_C   0xCE
+#define FLAG_WRITE_MAYBE_NZCV   0x0F
+
+#define FLAG_READ_NZCV         0xF00
+#define FLAG_READ_C            0x200
+
+class ThumbInstInfo : public ThumbInst {
+public:
+  ThumbInstInfo(u32 pc, u16 opcode)
+   : ThumbInst(pc, opcode, 0), cyccnt(0), info(0) {}
+
+  u8 cyccnt;                   // Number of cycles on top of the base cycles.
+  u8 info;                     // Info on the instruction (ie. it's a branch, etc)
+  u32 branch_tgt;              // Branch target (whenever the instruction is a direct jump)
+  u8 *branch_ptr;              // Branch patching pointer. (TODO: could we get rid of this perhaps?)
+  u8 *eptr;                    // Points to the JIT address where this was emitted.
+  union {                      // Emitter functions.
+    void (CodeEmitter::*inst_fn)(const ThumbInst &);
+    u8 * (CodeEmitter::*branch_fn)(const ThumbInst &, u32);
+  } emitter;
+};
+
+
+class ARMInstInfo : public ARMInst {
+public:
+  ARMInstInfo(u32 pc, u32 opcode)
+   : ARMInst(pc, opcode, 0), cyccnt(0), info(0) {}
+
+  u8 cyccnt;                   // Number of cycles on top of the base cycles.
+  u8 info;                     // Info on the instruction (ie. it's a branch, etc)
+  u32 branch_tgt;              // Branch target (whenever the instruction is a direct jump)
+  u8 *branch_ptr;              // Branch patching pointer. (TODO: could we get rid of this perhaps?)
+  u8 *eptr;                    // Points to the JIT address where this was emitted.
+  union {                      // Emitter functions.
+    void (CodeEmitter::*inst_fn)(const ARMInst &);
+    u8 * (CodeEmitter::*branch_fn)(const ARMInst &, u32);
+  } emitter;
+};
+
+template <TranslRegion reg>
+ARMInstInfo decode_arm_instruction(u32 pc, const ARMInstDec & inst) {
+  ARMInstInfo ret(pc, inst.opcode);
+  ret.emitter.inst_fn = &CodeEmitter::arm_invalid;
+  bool opc90 = ((inst.opcode & 0x90) == 0x90);
+  unsigned opc53 = ((inst.opcode >> 5) & 0x3);
+
+  switch (inst.op8()) {
+    case 0x00:
+      if (opc90) {
+        if (inst.opcode & 0x20)   /* STRH rd, [rn], -rm */
+          ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>;
+        else {                   /* MUL rd, rm, rs */
+          ret.emitter.inst_fn = &CodeEmitter::arm_mul32<NoFlags, MulOnly>;
+          ret.cyccnt = 2;  // variable 1..4, pick 2 as an aprox.
+        }
+      }
+      else {       /* AND rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpAnd, NoFlags>;
+      }
+
+      break;
+
+    case 0x01:
+      if (opc90) {
+        switch (opc53) {
+          case 0:  /* MULS rd, rm, rs */
+            ret.emitter.inst_fn = &CodeEmitter::arm_mul32<SetFlags, MulOnly>;
+            ret.flag_status = FLAG_WRITE_NZ;
+            ret.cyccnt = 2;  // variable 1..4, pick 2 as an aprox.
+            break;
+          case 1:  /* LDRH rd, [rn], -rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn], -rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn], -rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>;
+            break;
+        }
+      }
+      else {       /* ANDS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpAnd, SetFlags>;
+      }
+      break;
+
+    case 0x02:
+      if (opc90) {
+        if (inst.opcode & 0x20)   /* STRH rd, [rn], -rm */
+          ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>;
+        else {                 /* MLA rd, rm, rs, rn */
+          ret.emitter.inst_fn = &CodeEmitter::arm_mul32<NoFlags, MulAdd>;
+          ret.cyccnt = 3;  /* variable 2..5, pick 3 as an aprox. */
+        }
+      }
+      else {       /* XOR rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpXor, NoFlags>;
+      }
+      break;
+
+    case 0x03:
+      if (opc90) {
+        switch (opc53) {
+          case 0:
+            /* MLAS rd, rm, rs, rn */
+            ret.emitter.inst_fn = &CodeEmitter::arm_mul32<SetFlags, MulAdd>;
+            ret.flag_status = FLAG_WRITE_NZ;
+            ret.cyccnt = 3;  /* variable 2..5, pick 3 as an aprox. */
+            break;
+          case 1:  /* LDRH rd, [rn], -rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn], -rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn], -rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>;
+            break;
+        }
+      }
+      else {       /* XORS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpXor, SetFlags>;
+      }
+      break;
+
+    case 0x04:
+      if (opc90)      /* STRH rd, [rn], -imm */
+        ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>;
+      else {       /* SUB rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpSub, NoFlags>;
+      }
+      break;
+
+    case 0x05:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn], -imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn], -imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn], -imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>;
+            break;
+        }
+      }
+      else {       /* SUBS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZCV;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpSub, SetFlags>;
+      }
+      break;
+
+    case 0x06:
+      if (opc90)      /* STRH rd, [rn], -imm */
+        ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>;
+      else {       /* RSB rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpRsb, NoFlags>;
+      }
+      break;
+
+    case 0x07:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn], -imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn], -imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn], -imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>;
+            break;
+        }
+      }
+      else {       /* RSBS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZCV;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpRsb, SetFlags>;
+      }
+      break;
+
+    case 0x08:
+      if (opc90) {
+        if (inst.opcode & 0x20)   /* STRH rd, [rn], +rm */
+          ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>;
+        else {                    /* UMULL rd, rm, rs */
+          ret.emitter.inst_fn = &CodeEmitter::arm_mul64<NoFlags, MulOnly, false>;
+          ret.cyccnt = 3;  /* this is an aproximation :P */
+        }
+      }
+      else {       /* ADD rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpAdd, NoFlags>;
+      }
+      break;
+
+    case 0x09:
+      if (opc90) {
+        switch (opc53) {
+          case 0:             /* UMULLS rdlo, rdhi, rm, rs */
+            ret.emitter.inst_fn = &CodeEmitter::arm_mul64<SetFlags, MulOnly, false>;
+            ret.flag_status = FLAG_WRITE_NZ;
+            ret.cyccnt = 3;  /* this is an aproximation :P */
+            break;
+          case 1:  /* LDRH rd, [rn], +rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn], +rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn], +rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>;
+            break;
+        }
+      }
+      else {       /* ADDS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZCV;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpAdd, SetFlags>;
+      }
+      break;
+
+    case 0x0A:
+      if (opc90) {
+        if (inst.opcode & 0x20)   /* STRH rd, [rn], +rm */
+          ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>;
+        else
+        {
+          /* UMLAL rd, rm, rs */
+          ret.emitter.inst_fn = &CodeEmitter::arm_mul64<NoFlags, MulAdd, false>;
+          ret.cyccnt = 3;  /* Between 2 and 5 cycles? */
+        }
+      }
+      else {       /* ADC rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_READ_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpAdc, NoFlags>;
+      }
+      break;
+
+    case 0x0B:
+      if (opc90) {
+        switch (opc53) {
+          case 0:            /* UMLALS rdlo, rdhi, rm, rs */
+            ret.emitter.inst_fn = &CodeEmitter::arm_mul64<SetFlags, MulAdd, false>;
+            ret.flag_status = FLAG_WRITE_NZ;
+            ret.cyccnt = 3;  /* Between 2 and 5 cycles? */
+            break;
+          case 1:  /* LDRH rd, [rn], +rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn], +rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn], +rm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>;
+            break;
+        }
+      }
+      else {       /* ADCS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZCV | FLAG_READ_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpAdc, SetFlags>;
+      }
+      break;
+
+    case 0x0C:
+      if (opc90) {
+        if (inst.opcode & 0x20)   /* STRH rd, [rn], +imm */
+          ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>;
+        else {                    /* SMULL rd, rm, rs */
+          ret.emitter.inst_fn = &CodeEmitter::arm_mul64<NoFlags, MulOnly, true>;
+          ret.cyccnt = 2;  /* Between 1 and 4 cycles? */
+        }
+      }
+      else {       /* SBC rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_READ_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpSbc, NoFlags>;
+      }
+      break;
+
+    case 0x0D:
+      if (opc90) {
+        switch (opc53) {
+          case 0:            /* SMULLS rdlo, rdhi, rm, rs */
+            ret.emitter.inst_fn = &CodeEmitter::arm_mul64<SetFlags, MulOnly, true>;
+            ret.flag_status = FLAG_WRITE_NZ;
+            ret.cyccnt = 2;  /* Between 1 and 4 cycles? */
+            break;
+          case 1:  /* LDRH rd, [rn], +imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn], +imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn], +imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>;
+            break;
+        }
+      }
+      else {       /* SBCS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZCV | FLAG_READ_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpSbc, SetFlags>;
+      }
+      break;
+
+    case 0x0E:
+      if (opc90) {
+        if (inst.opcode & 0x20)   /* STRH rd, [rn], +imm */
+          ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>;
+        else {         /* SMLAL rd, rm, rs */
+          ret.emitter.inst_fn = &CodeEmitter::arm_mul64<NoFlags, MulAdd, true>;
+          ret.cyccnt = 3;  /* Between 2 and 5 cycles? */
+        }
+      }
+      else {       /* RSC rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_READ_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpRsc, NoFlags>;
+      }
+      break;
+
+    case 0x0F:
+      if (opc90) {
+        switch (opc53) {
+          case 0:            /* SMLALS rdlo, rdhi, rm, rs */
+            ret.emitter.inst_fn = &CodeEmitter::arm_mul64<SetFlags, MulAdd, true>;
+            ret.flag_status = FLAG_WRITE_NZ;
+            ret.cyccnt = 3;  /* Between 2 and 5 cycles? */
+            break;
+          case 1:  /* LDRH rd, [rn], +imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn], +imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn], +imm */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>;
+            break;
+        }
+      }
+      else {       /* RSCS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZCV | FLAG_READ_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpRsc, SetFlags>;
+      }
+      break;
+
+    case 0x10:
+      if (opc90) {
+        if (inst.opcode & 0x20)   /* STRH rd, [rn - rm] */
+          ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHReg, OffNegative, MemIdxPre>;
+        else                           /* SWP rd, rm, [rn] */
+          ret.emitter.inst_fn = &CodeEmitter::arm_swap<u32>;
+      }
+      else {     /* MRS rd, cpsr */
+        ret.emitter.inst_fn = &CodeEmitter::arm_read_psr<RegCPSR>;
+        ret.flag_status = FLAG_READ_NZCV;
+      }
+      break;
+
+    case 0x11:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn - rm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHReg, OffNegative, MemIdxPre>;
+            break;
+          case 2:  /* LDRSB rd, [rn - rm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHReg, OffNegative, MemIdxPre>;
+            break;
+          case 3:  /* LDRSH rd, [rn - rm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHReg, OffNegative, MemIdxPre>;
+            break;
+        }
+      }
+      else {       /* TST rn, reg_op */
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg2<OpTst, SetFlags>;
+        ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      }
+      break;
+
+    case 0x12:
+      if (opc90)      /* STRH rd, [rn - rm]! */
+        ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHReg, OffNegative, MemIdxPreWB>;
+      else {
+        if (inst.opcode & 0x10) {  /* BX rm */
+          ret.flag_status = FLAG_READ_NZCV;
+          ret.info = INFO_INDIRECT_BRANCH;
+          ret.emitter.inst_fn = &CodeEmitter::arm_bx;
+        }
+        else {               /* MSR cpsr, rm */
+          ret.emitter.inst_fn = &CodeEmitter::arm_write_psr<RegCPSR, OpReg>;
+          ret.flag_status = FLAG_WRITE_MAYBE_NZCV;
+        }
+      }
+      break;
+
+    case 0x13:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn - rm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHReg, OffNegative, MemIdxPreWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn - rm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHReg, OffNegative, MemIdxPreWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn - rm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHReg, OffNegative, MemIdxPreWB>;
+            break;
+        }
+      }
+      else {       /* TEQ rn, reg_op */
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg2<OpTeq, SetFlags>;
+        ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      }
+      break;
+
+    case 0x14:
+      if (opc90) {
+        if (inst.opcode & 0x20)              /* STRH rd, [rn - imm] */
+          ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHImm8, OffNegative, MemIdxPre>;
+        else                           /* SWPB rd, rm, [rn] */
+          ret.emitter.inst_fn = &CodeEmitter::arm_swap<u8>;
+      }
+      else     /* MRS rd, spsr */
+        ret.emitter.inst_fn = &CodeEmitter::arm_read_psr<RegSPSR>;
+      break;
+
+    case 0x15:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn - imm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHImm8, OffNegative, MemIdxPre>;
+            break;
+          case 2:  /* LDRSB rd, [rn - imm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHImm8, OffNegative, MemIdxPre>;
+            break;
+          case 3:  /* LDRSH rd, [rn - imm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHImm8, OffNegative, MemIdxPre>;
+            break;
+        }
+      }
+      else {       /* CMP rn, reg_op */
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg2<OpCmp, NoFlags>;
+        ret.flag_status = FLAG_WRITE_NZCV;
+      }
+      break;
+
+    case 0x16:
+      if (opc90)      /* STRH rd, [rn - imm]! */
+        ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHImm8, OffNegative, MemIdxPreWB>;
+      else                             /* MSR spsr, rm */
+        ret.emitter.inst_fn = &CodeEmitter::arm_write_psr<RegSPSR, OpReg>;
+      break;
+
+    case 0x17:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn - imm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHImm8, OffNegative, MemIdxPreWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn - imm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHImm8, OffNegative, MemIdxPreWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn - imm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHImm8, OffNegative, MemIdxPreWB>;
+            break;
+        }
+      }
+      else {       /* CMN rn, reg_op */
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg2<OpCmn, NoFlags>;
+        ret.flag_status = FLAG_WRITE_NZCV;
+      }
+      break;
+
+    case 0x18:
+      if (opc90)      /* STRH rd, [rn + rm] */
+        ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHReg, OffPositive, MemIdxPre>;
+      else {       /* ORR rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpOrr, NoFlags>;
+      }
+      break;
+
+    case 0x19:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn + rm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHReg, OffPositive, MemIdxPre>;
+            break;
+          case 2:  /* LDRSB rd, [rn + rm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHReg, OffPositive, MemIdxPre>;
+            break;
+          case 3:  /* LDRSH rd, [rn + rm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHReg, OffPositive, MemIdxPre>;
+            break;
+        }
+      }
+      else {       /* ORRS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpOrr, SetFlags>;
+      }
+      break;
+
+    case 0x1A:
+      if (opc90)      /* STRH rd, [rn + rm]! */
+        ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHReg, OffPositive, MemIdxPreWB>;
+      else {       /* MOV rd, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg1<OpMov, NoFlags>;
+      }
+      break;
+
+    case 0x1B:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn + rm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHReg, OffPositive, MemIdxPreWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn + rm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHReg, OffPositive, MemIdxPreWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn + rm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHReg, OffPositive, MemIdxPreWB>;
+            break;
+        }
+      }
+      else {       /* MOVS rd, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg1<OpMov, SetFlags>;
+      }
+      break;
+
+    case 0x1C:
+      if (opc90)      /* STRH rd, [rn + imm] */
+        ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHImm8, OffPositive, MemIdxPre>;
+      else {          /* BIC rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpBic, NoFlags>;
+      }
+      break;
+
+    case 0x1D:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn + imm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHImm8, OffPositive, MemIdxPre>;
+            break;
+          case 2:  /* LDRSB rd, [rn + imm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHImm8, OffPositive, MemIdxPre>;
+            break;
+          case 3:  /* LDRSH rd, [rn + imm] */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHImm8, OffPositive, MemIdxPre>;
+            break;
+        }
+      }
+      else {       /* BICS rd, rn, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg3<OpBic, SetFlags>;
+      }
+      break;
+
+    case 0x1E:
+      if (opc90)      /* STRH rd, [rn + imm]! */
+        ret.emitter.inst_fn = &CodeEmitter::arm_memst<u16, OffHImm8, OffPositive, MemIdxPreWB>;
+      else {          /* MVN rd, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg1<OpMvn, NoFlags>;
+      }
+      break;
+
+    case 0x1F:
+      if (opc90) {
+        switch (opc53) {
+          case 1:  /* LDRH rd, [rn + imm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<u16, OffHImm8, OffPositive, MemIdxPreWB>;
+            break;
+          case 2:  /* LDRSB rd, [rn + imm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s8, OffHImm8, OffPositive, MemIdxPreWB>;
+            break;
+          case 3:  /* LDRSH rd, [rn + imm]! */
+            ret.emitter.inst_fn = &CodeEmitter::arm_memld<s16, OffHImm8, OffPositive, MemIdxPreWB>;
+            break;
+        }
+      }
+      else {       /* MVNS rd, reg_op */
+        if (inst.rd() == REG_PC)
+          ret.info = INFO_INDIRECT_BRANCH;
+        ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+        ret.emitter.inst_fn = &CodeEmitter::arm_alureg1<OpMvn, SetFlags>;
+      }
+      break;
+
+    case 0x20:     /* AND rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpAnd, NoFlags>;
+      break;
+    case 0x21:     /* ANDS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpAnd, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      break;
+    case 0x22:     /* EOR rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpXor, NoFlags>;
+      break;
+    case 0x23:     /* EORS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpXor, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      break;
+    case 0x24:     /* SUB rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpSub, NoFlags>;
+      break;
+    case 0x25:     /* SUBS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpSub, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZCV;
+      break;
+    case 0x26:     /* RSB rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpRsb, NoFlags>;
+      break;
+    case 0x27:     /* RSBS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpRsb, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZCV;
+      break;
+    case 0x28:     /* ADD rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpAdd, NoFlags>;
+      break;
+    case 0x29:     /* ADDS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpAdd, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZCV;
+      break;
+    case 0x2A:     /* ADC rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpAdc, NoFlags>;
+      ret.flag_status = FLAG_READ_C;
+      break;
+    case 0x2B:     /* ADCS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpAdc, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZCV | FLAG_READ_C;
+      break;
+    case 0x2C:     /* SBC rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpSbc, NoFlags>;
+      ret.flag_status = FLAG_READ_C;
+      break;
+    case 0x2D:     /* SBCS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpSbc, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZCV | FLAG_READ_C;
+      break;
+    case 0x2E:     /* RSC rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpRsc, NoFlags>;
+      ret.flag_status = FLAG_READ_C;
+      break;
+    case 0x2F:     /* RSCS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpRsc, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZCV | FLAG_READ_C;
+      break;
+    case 0x30 ... 0x31:      /* TST rn, imm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm2<OpTst>;
+      ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      break;
+
+    case 0x32:
+      ret.emitter.inst_fn = &CodeEmitter::arm_write_psr<RegCPSR, OpImm>;
+      // TODO: Can this change the flags?
+      break;
+    case 0x36:
+      ret.emitter.inst_fn = &CodeEmitter::arm_write_psr<RegSPSR, OpImm>;
+      break;
+
+    case 0x33:     /* TEQ rn, imm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm2<OpTeq>;
+      ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      break;
+    case 0x34 ... 0x35:      /* CMP rn, imm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm2<OpCmp>;
+      ret.flag_status = FLAG_WRITE_NZCV;
+      break;
+    case 0x37:     /* CMN rn, imm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm2<OpCmn>;
+      ret.flag_status = FLAG_WRITE_NZCV;
+      break;
+    case 0x38:     /* ORR rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpOrr, NoFlags>;
+      break;
+    case 0x39:     /* ORRS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpOrr, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      break;
+    case 0x3A:     /* MOV rd, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm1<OpMov, NoFlags>;
+      break;
+    case 0x3B:     /* MOVS rd, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm1<OpMov, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      break;
+    case 0x3C:     /* BIC rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpBic, NoFlags>;
+      break;
+    case 0x3D:     /* BICS rd, rn, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm3<OpBic, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      break;
+    case 0x3E:     /* MVN rd, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm1<OpMvn, NoFlags>;
+      break;
+    case 0x3F:     /* MVNS rd, imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_aluimm1<OpMvn, SetFlags>;
+      ret.flag_status = FLAG_WRITE_NZ_MAYBE_C;
+      break;
+
+    /* Memops with immediate post-increment/decrement */
+    case 0x40:     /* STR  rd, [rn], -imm */
+    case 0x42:     /* STRT rd, [rn], -imm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffImm12, OffNegative, MemIdxPostWB>;
+      break;
+
+    case 0x41:     /* LDR  rd, [rn], -imm */
+    case 0x43:     /* LDRT rd, [rn], -imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffImm12, OffNegative, MemIdxPostWB>;
+      break;
+
+    case 0x44:     /* STRB  rd, [rn], -imm */
+    case 0x46:     /* STRBT rd, [rn], -imm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffImm12, OffNegative, MemIdxPostWB>;
+      break;
+
+    case 0x45:     /* LDRB  rd, [rn], -imm */
+    case 0x47:     /* LDRBT rd, [rn], -imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffImm12, OffNegative, MemIdxPostWB>;
+      break;
+
+    case 0x48:     /* STR  rd, [rn], +imm */
+    case 0x4A:     /* STRT rd, [rn], +imm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffImm12, OffPositive, MemIdxPostWB>;
+      break;
+
+    case 0x49:     /* LDR  rd, [rn], +imm */
+    case 0x4B:     /* LDRT rd, [rn], +imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffImm12, OffPositive, MemIdxPostWB>;
+      break;
+
+    case 0x4C:     /* STRB  rd, [rn], +imm */
+    case 0x4E:     /* STRBT rd, [rn], +imm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffImm12, OffPositive, MemIdxPostWB>;
+      break;
+
+    case 0x4D:     /* LDRB  rd, [rn], +imm */
+    case 0x4F:     /* LDRBT rd, [rn], +imm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffImm12, OffPositive, MemIdxPostWB>;
+      break;
+
+    /* Memops with immediate pre-increment/decrement (optional writeback) */
+    case 0x50:     /* STR rd, [rn - imm] */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffImm12, OffNegative, MemIdxPre>;
+      break;
+
+    case 0x51:     /* LDR rd, [rn - imm] */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffImm12, OffNegative, MemIdxPre>;
+      break;
+
+    case 0x52:     /* STR rd, [rn - imm]! */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffImm12, OffNegative, MemIdxPreWB>;
+      break;
+
+    case 0x53:     /* LDR rd, [rn - imm]! */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffImm12, OffNegative, MemIdxPreWB>;
+      break;
+
+    case 0x54:     /* STRB rd, [rn - imm] */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffImm12, OffNegative, MemIdxPre>;
+      break;
+
+    case 0x55:     /* LDRB rd, [rn - imm] */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffImm12, OffNegative, MemIdxPre>;
+      break;
+
+    case 0x56:     /* STRB rd, [rn - imm]! */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffImm12, OffNegative, MemIdxPreWB>;
+      break;
+
+    case 0x57:     /* LDRB rd, [rn - imm]! */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffImm12, OffNegative, MemIdxPreWB>;
+      break;
+
+    case 0x58:     /* STR rd, [rn + imm] */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffImm12, OffPositive, MemIdxPre>;
+      break;
+
+    case 0x59:     /* LDR rd, [rn + imm] */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffImm12, OffPositive, MemIdxPre>;
+      break;
+
+    case 0x5A:     /* STR rd, [rn + imm]! */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffImm12, OffPositive, MemIdxPreWB>;
+      break;
+
+    case 0x5B:     /* LDR rd, [rn + imm]! */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffImm12, OffPositive, MemIdxPreWB>;
+      break;
+
+    case 0x5C:     /* STRB rd, [rn + imm] */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffImm12, OffPositive, MemIdxPre>;
+      break;
+
+    case 0x5D:     /* LDRB rd, [rn + imm] */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffImm12, OffPositive, MemIdxPre>;
+      break;
+
+    case 0x5E:     /* STRB rd, [rn + imm]! */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffImm12, OffPositive, MemIdxPreWB>;
+      break;
+
+    case 0x5F:     /* LDRB rd, [rn + imm]! */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffImm12, OffPositive, MemIdxPreWB>;
+      break;
+
+    /* Memops with regop as post-increment/decrement */
+    case 0x60:     /* STR  rd, [rn], -rm */
+    case 0x62:     /* STRT rd, [rn], -rm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPostWB>;
+      break;
+    case 0x64:     /* STRB  rd, [rn], -rm */
+    case 0x66:     /* STRBT rd, [rn], -rm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPostWB>;
+      break;
+
+    case 0x61:     /* LDR  rd, [rn], -rm */
+    case 0x63:     /* LDRT rd, [rn], -rm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPostWB>;
+      break;
+    case 0x65:     /* LDRB  rd, [rn], -rm */
+    case 0x67:     /* LDRBT rd, [rn], -rm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPostWB>;
+      break;
+
+    case 0x68:     /* STR  rd, [rn], +rm */
+    case 0x6A:     /* STRT rd, [rn], +rm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPostWB>;
+      break;
+    case 0x6C:     /* STRB  rd, [rn], +rm */
+    case 0x6E:     /* STRBT rd, [rn], +rm */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPostWB>;
+      break;
+
+    case 0x69:     /* LDR  rd, [rn], +rm */
+    case 0x6B:     /* LDRT rd, [rn], +rm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPostWB>;
+      break;
+    case 0x6D:     /* LDRB  rd, [rn], +rm */
+    case 0x6F:     /* LDRBT rd, [rn], +rm */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPostWB>;
+      break;
+
+    /* Memops with regop as pre-increment/decrement (optional writeback) */
+    case 0x70:     /* STR rd, [rn - rm] */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPre>;
+      break;
+    case 0x72:     /* STR rd, [rn - rm]! */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPreWB>;
+      break;
+
+    case 0x71:     /* LDR rd, [rn - rm] */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPre>;
+      break;
+    case 0x73:     /* LDR rd, [rn - rm]! */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPreWB>;
+      break;
+
+    case 0x74:     /* STRB rd, [rn - rm] */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPre>;
+      break;
+    case 0x76:     /* STRB rd, [rn - rm]! */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPreWB>;
+      break;
+
+    case 0x75:     /* LDRB rd, [rn - rm] */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPre>;
+      break;
+    case 0x77:     /* LDRB rd, [rn - rm]! */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPreWB>;
+      break;
+
+    case 0x78:     /* STR rd, [rn + rm] */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPre>;
+      break;
+    case 0x7A:     /* STR rd, [rn + rm]! */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPreWB>;
+      break;
+
+    case 0x79:     /* LDR rd, [rn + rm] */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPre>;
+      break;
+    case 0x7B:     /* LDR rd, [rn + rm]! */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPreWB>;
+      break;
+
+    case 0x7C:     /* STRB rd, [rn + rm] */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPre>;
+      break;
+    case 0x7E:     /* STRB rd, [rn + rm]! */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPreWB>;
+      break;
+
+    case 0x7D:     /* LDRB rd, [rn + rm] */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPre>;
+      break;
+    case 0x7F:     /* LDRBT rd, [rn + rm]! */
+      if (inst.rd() == REG_PC) ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPreWB>;
+      break;
+
+    /* Muliple memops */
+    case 0x80:     /* STMDA rn, rlist */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPostDec, false, false>;
+      break;
+    case 0x82:     /* STMDA rn!, rlist */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPostDec, true, false>;
+      break;
+    case 0x84:     /* STMDA rn, rlist^ */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPostDec, false, true>;
+      break;
+    case 0x86:     /* STMDA rn!, rlist^ */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPostDec, true, true>;
+      break;
+
+    case 0x81:     /* LDMDA rn, rlist */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPostDec, false, false>;
+      break;
+    case 0x83:     /* LDMDA rn!, rlist */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPostDec, true, false>;
+      break;
+    case 0x85:     /* LDMDA rn, rlist^ */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPostDec, false, true>;
+      break;
+    case 0x87:     /* LDMDA rn!, rlist^ */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPostDec, true, true>;
+      break;
+
+    case 0x88:     /* STMIA rn, rlist */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPostInc, false, false>;
+      break;
+    case 0x8A:     /* STMIA rn!, rlist */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPostInc, true, false>;
+      break;
+    case 0x8C:     /* STMIA rn, rlist^ */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPostInc, false, true>;
+      break;
+    case 0x8E:     /* STMIA rn!, rlist^ */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPostInc, true, true>;
+      break;
+
+    case 0x89:     /* LDMIA rn, rlist */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPostInc, false, false>;
+      break;
+    case 0x8B:     /* LDMIA rn!, rlist */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPostInc, true, false>;
+      break;
+    case 0x8D:     /* LDMIA rn, rlist^ */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPostInc, false, true>;
+      break;
+    case 0x8F:     /* LDMIA rn!, rlist^ */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPostInc, true, true>;
+      break;
+
+    case 0x90:     /* STMDB rn, rlist */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPreDec, false, false>;
+      break;
+    case 0x92:     /* STMDB rn!, rlist */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPreDec, true, false>;
+      break;
+    case 0x94:     /* STMDB rn, rlist^ */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPreDec, false, true>;
+      break;
+    case 0x96:     /* STMDB rn!, rlist^ */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPreDec, true, true>;
+      break;
+
+    case 0x91:     /* LDMDB rn, rlist */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPreDec, false, false>;
+      break;
+    case 0x93:     /* LDMDB rn!, rlist */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPreDec, true, false>;
+      break;
+    case 0x95:     /* LDMDB rn, rlist^ */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPreDec, false, true>;
+      break;
+    case 0x97:     /* LDMDB rn!, rlist^ */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPreDec, true, true>;
+      break;
+
+    case 0x98:     /* STMIB rn, rlist */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPreInc, false, false>;
+      break;
+    case 0x9A:     /* STMIB rn!, rlist */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPreInc, true, false>;
+      break;
+    case 0x9C:     /* STMIB rn, rlist^ */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPreInc, false, true>;
+      break;
+    case 0x9E:     /* STMIB rn!, rlist^ */
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccStore, AddrPreInc, true, true>;
+      break;
+
+    case 0x99:     /* LDMIB rn, rlist */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPreInc, false, false>;
+      break;
+    case 0x9B:     /* LDMIB rn!, rlist */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPreInc, true, false>;
+      break;
+    case 0x9D:     /* LDMIB rn, rlist^ */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPreInc, false, true>;
+      break;
+    case 0x9F:     /* LDMIB rn!, rlist^ */
+      if (inst.rlist() & (1 << REG_PC))
+        ret.info = INFO_INDIRECT_BRANCH;
+      ret.emitter.inst_fn = &CodeEmitter::arm_memmulti<AccLoad, AddrPreInc, true, true>;
+      break;
+
+    case 0xA0 ... 0xAF:      /* B label */
+      ret.info = INFO_DIRECT_BRANCH;
+      ret.flag_status = FLAG_READ_NZCV;
+      ret.branch_tgt = pc + 8 + inst.br_offset();
+      ret.emitter.branch_fn = &CodeEmitter::arm_b;
+      break;
+
+    case 0xB0 ... 0xBF:      /* BL label */
+      ret.info = INFO_DIRECT_BRANCH;
+      ret.flag_status = FLAG_READ_NZCV;
+      ret.branch_tgt = pc + 8 + inst.br_offset();
+      ret.emitter.branch_fn = &CodeEmitter::arm_bl;
+      break;
+
+    case 0xF0 ... 0xFF:      /* SWI number */
+      ret.flag_status = FLAG_READ_NZCV;
+      if (CodeEmitter::can_emu_swi(pc, inst.swinum()))
+        ret.emitter.inst_fn = &CodeEmitter::emu_swi<ModeARM, ARMInst>;
+      else {
+        ret.info = INFO_DIRECT_BRANCH;
+        ret.branch_tgt = 0x00000008;
+        ret.emitter.branch_fn = &CodeEmitter::arm_swi;
+      }
+      break;
+
+    default:
+      // Invalid opcodes, abort decoding here.
+      ret.info |= INFO_INVALID_INST;   // TODO: non exhaustive, improve it.
+      break;
+  }
+
+  // Mark branches as unconditional if the condition code is CondAL
+  if (inst.cond() == CondAL && (ret.info & (INFO_DIRECT_BRANCH | INFO_INDIRECT_BRANCH))) {
+    ret.info |= INFO_UNCOND_BRANCH;
+    ret.flag_status |= FLAG_READ_NZCV;
+  }
+
+  return ret;
 }
 
-#define translate_arm_instruction()                                           \
-  check_pc_region(pc);                                                        \
-  opcode = address32(pc_address_block, (pc & 0x7FFF));                        \
-  condition = block_data[block_data_position].condition;                      \
-  ARMInst inst(pc, opcode, 0xF /* TODO: Add ARM flag elimination */);         \
-                                                                              \
-  if((condition != last_condition) || (condition >= 0x20))                    \
-  {                                                                           \
-    if((last_condition & 0x0F) != 0x0E)                                       \
-    {                                                                         \
-      if (backpatch_address) {                                                \
-        generate_branch_patch_conditional(backpatch_address, ce.emit_ptr);    \
-        backpatch_address = NULL;                                             \
-      }                                                                       \
-    }                                                                         \
-                                                                              \
-    last_condition = condition;                                               \
-                                                                              \
-    condition &= 0x0F;                                                        \
-                                                                              \
-    if(condition != 0x0E)                                                     \
-    {                                                                         \
-      ce.arm_conditional_block_header(condition, backpatch_address);          \
-    }                                                                         \
-  }                                                                           \
-  ce.trace_instruction<ModeARM>(pc, opcode);                                  \
-                                                                              \
-  switch((opcode >> 20) & 0xFF)                                               \
-  {                                                                           \
-    case 0x00:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        if (opcode & 0x20)     /* STRH rd, [rn], -rm */                       \
-          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>(inst);        \
-        else {                                                                \
-          /* MUL rd, rm, rs */                                                \
-          ce.arm_mul32<NoFlags, MulOnly>(inst);                               \
-          ce.cyc_cnt += 2;  /* variable 1..4, pick 2 as an aprox. */          \
-        }                                                                     \
-      }                                                                       \
-      else         /* AND rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpAnd, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x01:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03)                                          \
-        {                                                                     \
-          case 0:  /* MULS rd, rm, rs */                                      \
-            ce.arm_mul32<SetFlags, MulOnly>(inst);                            \
-            ce.cyc_cnt += 2;  /* variable 1..4, pick 2 as an aprox. */        \
-            break;                                                            \
-          case 1:  /* LDRH rd, [rn], -rm */                                   \
-            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>(inst);      \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn], -rm */                                  \
-            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>(inst);       \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn], -rm */                                  \
-            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>(inst);      \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* ANDS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpAnd, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x02:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        if (opcode & 0x20)     /* STRH rd, [rn], -rm */                       \
-          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPostWB>(inst);        \
-        else {                                                                \
-          /* MLA rd, rm, rs, rn */                                            \
-          ce.arm_mul32<NoFlags, MulAdd>(inst);                                \
-          ce.cyc_cnt += 3;  /* variable 2..5, pick 3 as an aprox. */          \
-        }                                                                     \
-      }                                                                       \
-      else         /* XOR rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpXor, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x03:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 0:                                                             \
-            /* MLAS rd, rm, rs, rn */                                         \
-            ce.arm_mul32<SetFlags, MulAdd>(inst);                             \
-            ce.cyc_cnt += 3;  /* variable 2..5, pick 3 as an aprox. */        \
-            break;                                                            \
-          case 1:  /* LDRH rd, [rn], -rm */                                   \
-            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPostWB>(inst);      \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn], -rm */                                  \
-            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPostWB>(inst);       \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn], -rm */                                  \
-            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPostWB>(inst);      \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* XORS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpXor, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x04:                                                                \
-      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn], -imm */              \
-        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst);         \
-      else         /* SUB rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpSub, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x05:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn], -imm */                                  \
-            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst);     \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn], -imm */                                 \
-            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>(inst);      \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn], -imm */                                 \
-            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>(inst);     \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* SUBS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpSub, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x06:                                                                \
-      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn], -imm */              \
-        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst);         \
-      else         /* RSB rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpRsb, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x07:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn], -imm */                                  \
-            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPostWB>(inst);     \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn], -imm */                                 \
-            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPostWB>(inst);      \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn], -imm */                                 \
-            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPostWB>(inst);     \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* RSBS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpRsb, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x08:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        if(opcode & 0x20)              /* STRH rd, [rn], +rm */               \
-          ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>(inst);        \
-        else {                                                                \
-          /* UMULL rd, rm, rs */                                              \
-          ce.arm_mul64<NoFlags, MulOnly, false>(inst);                        \
-          ce.cyc_cnt += 3;  /* this is an aproximation :P */                  \
-        }                                                                     \
-      }                                                                       \
-      else         /* ADD rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpAdd, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x09:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 0:                                                             \
-            /* UMULLS rdlo, rdhi, rm, rs */                                   \
-            ce.arm_mul64<SetFlags, MulOnly, false>(inst);                     \
-            ce.cyc_cnt += 3;  /* this is an aproximation :P */                \
-            break;                                                            \
-          case 1:  /* LDRH rd, [rn], +rm */                                   \
-            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>(inst);      \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn], +rm */                                  \
-            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>(inst);       \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn], +rm */                                  \
-            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>(inst);      \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* ADDS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpAdd, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x0A:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        if(opcode & 0x20)              /* STRH rd, [rn], +rm */               \
-          ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPostWB>(inst);        \
-        else                                                                  \
-        {                                                                     \
-          /* UMLAL rd, rm, rs */                                              \
-          ce.arm_mul64<NoFlags, MulAdd, false>(inst);                         \
-          ce.cyc_cnt += 3;  /* Between 2 and 5 cycles? */                     \
-        }                                                                     \
-      }                                                                       \
-      else         /* ADC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpAdc, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x0B:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 0:                                                             \
-            /* UMLALS rdlo, rdhi, rm, rs */                                   \
-            ce.arm_mul64<SetFlags, MulAdd, false>(inst);                      \
-            ce.cyc_cnt += 3;  /* Between 2 and 5 cycles? */                   \
-            break;                                                            \
-          case 1:  /* LDRH rd, [rn], +rm */                                   \
-            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPostWB>(inst);      \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn], +rm */                                  \
-            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPostWB>(inst);       \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn], +rm */                                  \
-            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPostWB>(inst);      \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* ADCS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpAdc, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x0C:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        if(opcode & 0x20)              /* STRH rd, [rn], +imm */              \
-          ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst);       \
-        else                                                                  \
-        {                                                                     \
-          /* SMULL rd, rm, rs */                                              \
-          ce.arm_mul64<NoFlags, MulOnly, true>(inst);                         \
-          ce.cyc_cnt += 2;  /* Between 1 and 4 cycles? */                     \
-        }                                                                     \
-      }                                                                       \
-      else         /* SBC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpSbc, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x0D:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 0:                                                             \
-            /* SMULLS rdlo, rdhi, rm, rs */                                   \
-            ce.arm_mul64<SetFlags, MulOnly, true>(inst);                      \
-            ce.cyc_cnt += 2;  /* Between 1 and 4 cycles? */                   \
-            break;                                                            \
-          case 1:  /* LDRH rd, [rn], +imm */                                  \
-            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst);     \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn], +imm */                                 \
-            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>(inst);      \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn], +imm */                                 \
-            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>(inst);     \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* SBCS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpSbc, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x0E:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        if(opcode & 0x20)              /* STRH rd, [rn], +imm */              \
-          ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst);       \
-        else                                                                  \
-        {                                                                     \
-          /* SMLAL rd, rm, rs */                                              \
-          ce.arm_mul64<NoFlags, MulAdd, true>(inst);                          \
-          ce.cyc_cnt += 3;  /* Between 2 and 5 cycles? */                     \
-        }                                                                     \
-      }                                                                       \
-      else         /* RSC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpRsc, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x0F:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 0:                                                             \
-            /* SMLALS rdlo, rdhi, rm, rs */                                   \
-            ce.arm_mul64<SetFlags, MulAdd, true>(inst);                       \
-            ce.cyc_cnt += 3;  /* Between 2 and 5 cycles? */                   \
-            break;                                                            \
-          case 1:  /* LDRH rd, [rn], +imm */                                  \
-            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPostWB>(inst);     \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn], +imm */                                 \
-            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPostWB>(inst);      \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn], +imm */                                 \
-            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPostWB>(inst);     \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* RSCS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpRsc, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x10:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        if(opcode & 0x20)              /* STRH rd, [rn - rm] */               \
-          ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPre>(inst);           \
-        else                           /* SWP rd, rm, [rn] */                 \
-          ce.arm_swap<u32>(inst);                                             \
-      }                                                                       \
-      else     /* MRS rd, cpsr */                                             \
-        ce.arm_read_psr<RegCPSR>(inst);                                       \
-      break;                                                                  \
-                                                                              \
-    case 0x11:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn - rm] */                                   \
-            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPre>(inst);         \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn - rm] */                                  \
-            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPre>(inst);          \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn - rm] */                                  \
-            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPre>(inst);         \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* TST rn, reg_op */                                       \
-        ce.arm_alureg2<OpTst, SetFlags>(inst);                                \
-      break;                                                                  \
-                                                                              \
-    case 0x12:                                                                \
-      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn - rm]! */              \
-        ce.arm_memst<u16, OffHReg, OffNegative, MemIdxPreWB>(inst);           \
-      else {                                                                  \
-        if (opcode & 0x10)   /* BX rm */                                      \
-          ce.arm_bx(inst);                                                    \
-        else     /* MSR cpsr, rm */                                           \
-          ce.arm_write_psr<RegCPSR, OpReg>(inst);                             \
-      }                                                                       \
-      break;                                                                  \
-                                                                              \
-    case 0x13:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn - rm]! */                                  \
-            ce.arm_memld<u16, OffHReg, OffNegative, MemIdxPreWB>(inst);       \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn - rm]! */                                 \
-            ce.arm_memld<s8, OffHReg, OffNegative, MemIdxPreWB>(inst);        \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn - rm]! */                                 \
-            ce.arm_memld<s16, OffHReg, OffNegative, MemIdxPreWB>(inst);       \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* TEQ rn, reg_op */                                       \
-        ce.arm_alureg2<OpTeq, SetFlags>(inst);                                \
-      break;                                                                  \
-                                                                              \
-    case 0x14:                                                                \
-      if((opcode & 0x90) == 0x90)                                             \
-      {                                                                       \
-        if(opcode & 0x20)              /* STRH rd, [rn - imm] */              \
-          ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPre>(inst);          \
-        else                           /* SWPB rd, rm, [rn] */                \
-          ce.arm_swap<u8>(inst);                                              \
-      }                                                                       \
-      else     /* MRS rd, spsr */                                             \
-        ce.arm_read_psr<RegSPSR>(inst);                                       \
-      break;                                                                  \
-                                                                              \
-    case 0x15:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn - imm] */                                  \
-            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPre>(inst);        \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn - imm] */                                 \
-            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPre>(inst);         \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn - imm] */                                 \
-            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPre>(inst);        \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* CMP rn, reg_op */                                       \
-        ce.arm_alureg2<OpCmp, NoFlags>(inst);                                 \
-      break;                                                                  \
-                                                                              \
-    case 0x16:                                                                \
-      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn - imm]! */             \
-        ce.arm_memst<u16, OffHImm8, OffNegative, MemIdxPreWB>(inst);          \
-      else     /* MSR spsr, rm */                                             \
-        ce.arm_write_psr<RegSPSR, OpReg>(inst);                               \
-      break;                                                                  \
-                                                                              \
-    case 0x17:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn - imm]! */                                 \
-            ce.arm_memld<u16, OffHImm8, OffNegative, MemIdxPreWB>(inst);      \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn - imm]! */                                \
-            ce.arm_memld<s8, OffHImm8, OffNegative, MemIdxPreWB>(inst);       \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn - imm]! */                                \
-            ce.arm_memld<s16, OffHImm8, OffNegative, MemIdxPreWB>(inst);      \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* CMN rn, reg_op */                                       \
-        ce.arm_alureg2<OpCmn, NoFlags>(inst);                                 \
-      break;                                                                  \
-                                                                              \
-    case 0x18:                                                                \
-      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + rm] */               \
-        ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPre>(inst);             \
-      else         /* ORR rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpOrr, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x19:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn + rm] */                                   \
-            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPre>(inst);         \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn + rm] */                                  \
-            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPre>(inst);          \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn + rm] */                                  \
-            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPre>(inst);         \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* ORRS rd, rn, reg_op */                                  \
-        ce.arm_alureg3<OpOrr, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x1A:                                                                \
-      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + rm]! */              \
-        ce.arm_memst<u16, OffHReg, OffPositive, MemIdxPreWB>(inst);           \
-      else         /* MOV rd, reg_op */                                       \
-        ce.arm_alureg1<OpMov, NoFlags>(inst);                                 \
-      break;                                                                  \
-                                                                              \
-    case 0x1B:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn + rm]! */                                  \
-            ce.arm_memld<u16, OffHReg, OffPositive, MemIdxPreWB>(inst);       \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn + rm]! */                                 \
-            ce.arm_memld<s8, OffHReg, OffPositive, MemIdxPreWB>(inst);        \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn + rm]! */                                 \
-            ce.arm_memld<s16, OffHReg, OffPositive, MemIdxPreWB>(inst);       \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* MOVS rd, reg_op */                                      \
-        ce.arm_alureg1<OpMov, SetFlags>(inst);                                \
-      break;                                                                  \
-                                                                              \
-    case 0x1C:                                                                \
-      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + imm] */              \
-        ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPre>(inst);            \
-      else         /* BIC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpBic, NoFlags>(inst);                                 \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x1D:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn + imm] */                                  \
-            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPre>(inst);        \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn + imm] */                                 \
-            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPre>(inst);         \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn + imm] */                                 \
-            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPre>(inst);        \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* BIC rd, rn, reg_op */                                   \
-        ce.arm_alureg3<OpBic, SetFlags>(inst);                                \
-                                                                              \
-      break;                                                                  \
-                                                                              \
-    case 0x1E:                                                                \
-      if((opcode & 0x90) == 0x90)      /* STRH rd, [rn + imm]! */             \
-        ce.arm_memst<u16, OffHImm8, OffPositive, MemIdxPreWB>(inst);          \
-      else         /* MVN rd, reg_op */                                       \
-        ce.arm_alureg1<OpMvn, NoFlags>(inst);                                 \
-      break;                                                                  \
-                                                                              \
-    case 0x1F:                                                                \
-      if((opcode & 0x90) == 0x90) {                                           \
-        switch((opcode >> 5) & 0x03) {                                        \
-          case 1:  /* LDRH rd, [rn + imm]! */                                 \
-            ce.arm_memld<u16, OffHImm8, OffPositive, MemIdxPreWB>(inst);      \
-            break;                                                            \
-          case 2:  /* LDRSB rd, [rn + imm]! */                                \
-            ce.arm_memld<s8, OffHImm8, OffPositive, MemIdxPreWB>(inst);       \
-            break;                                                            \
-          case 3:  /* LDRSH rd, [rn + imm]! */                                \
-            ce.arm_memld<s16, OffHImm8, OffPositive, MemIdxPreWB>(inst);      \
-            break;                                                            \
-        }                                                                     \
-      }                                                                       \
-      else         /* MVNS rd, reg_op */                                      \
-        ce.arm_alureg1<OpMvn, SetFlags>(inst);                                \
-      break;                                                                  \
-                                                                              \
-    case 0x20:     /* AND rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpAnd, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x21:     /* ANDS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpAnd, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x22:     /* EOR rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpXor, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x23:     /* EORS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpXor, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x24:     /* SUB rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpSub, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x25:     /* SUBS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpSub, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x26:     /* RSB rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpRsb, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x27:     /* RSBS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpRsb, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x28:     /* ADD rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpAdd, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x29:     /* ADDS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpAdd, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x2A:     /* ADC rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpAdc, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x2B:     /* ADCS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpAdc, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x2C:     /* SBC rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpSbc, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x2D:     /* SBCS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpSbc, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x2E:     /* RSC rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpRsc, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x2F:     /* RSCS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpRsc, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x30 ... 0x31:      /* TST rn, imm */                                \
-      ce.arm_aluimm2<OpTst>(inst);                                            \
-      break;                                                                  \
-                                                                              \
-    case 0x32:                                                                \
-      ce.arm_write_psr<RegCPSR, OpImm>(inst);                                 \
-      break;                                                                  \
-    case 0x36:                                                                \
-      ce.arm_write_psr<RegSPSR, OpImm>(inst);                                 \
-      break;                                                                  \
-                                                                              \
-    case 0x33:     /* TEQ rn, imm */                                          \
-      ce.arm_aluimm2<OpTeq>(inst);                                            \
-      break;                                                                  \
-    case 0x34 ... 0x35:      /* CMP rn, imm */                                \
-      ce.arm_aluimm2<OpCmp>(inst);                                            \
-      break;                                                                  \
-    case 0x37:     /* CMN rn, imm */                                          \
-      ce.arm_aluimm2<OpCmn>(inst);                                            \
-      break;                                                                  \
-    case 0x38:     /* ORR rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpOrr, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x39:     /* ORRS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpOrr, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x3A:     /* MOV rd, imm */                                          \
-      ce.arm_aluimm1<OpMov, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x3B:     /* MOVS rd, imm */                                         \
-      ce.arm_aluimm1<OpMov, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x3C:     /* BIC rd, rn, imm */                                      \
-      ce.arm_aluimm3<OpBic, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x3D:     /* BICS rd, rn, imm */                                     \
-      ce.arm_aluimm3<OpBic, SetFlags>(inst);                                  \
-      break;                                                                  \
-    case 0x3E:     /* MVN rd, imm */                                          \
-      ce.arm_aluimm1<OpMvn, NoFlags>(inst);                                   \
-      break;                                                                  \
-    case 0x3F:     /* MVNS rd, imm */                                         \
-      ce.arm_aluimm1<OpMvn, SetFlags>(inst);                                  \
-      break;                                                                  \
-                                                                              \
-    /* Memops with immediate post-increment/decrement */                      \
-    case 0x40:     /* STR  rd, [rn], -imm */                                  \
-    case 0x42:     /* STRT rd, [rn], -imm */                                  \
-      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPostWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x41:     /* LDR  rd, [rn], -imm */                                  \
-    case 0x43:     /* LDRT rd, [rn], -imm */                                  \
-      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPostWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x44:     /* STRB  rd, [rn], -imm */                                 \
-    case 0x46:     /* STRBT rd, [rn], -imm */                                 \
-      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPostWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x45:     /* LDRB  rd, [rn], -imm */                                 \
-    case 0x47:     /* LDRBT rd, [rn], -imm */                                 \
-      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPostWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x48:     /* STR  rd, [rn], +imm */                                  \
-    case 0x4A:     /* STRT rd, [rn], +imm */                                  \
-      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPostWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x49:     /* LDR  rd, [rn], +imm */                                  \
-    case 0x4B:     /* LDRT rd, [rn], +imm */                                  \
-      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPostWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x4C:     /* STRB  rd, [rn], +imm */                                 \
-    case 0x4E:     /* STRBT rd, [rn], +imm */                                 \
-      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPostWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x4D:     /* LDRB  rd, [rn], +imm */                                 \
-    case 0x4F:     /* LDRBT rd, [rn], +imm */                                 \
-      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPostWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    /* Memops with immediate pre-increment/decrement (optional writeback) */  \
-    case 0x50:     /* STR rd, [rn - imm] */                                   \
-      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPre>(inst);              \
-      break;                                                                  \
-                                                                              \
-    case 0x51:     /* LDR rd, [rn - imm] */                                   \
-      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPre>(inst);              \
-      break;                                                                  \
-                                                                              \
-    case 0x52:     /* STR rd, [rn - imm]! */                                  \
-      ce.arm_memst<u32, OffImm12, OffNegative, MemIdxPreWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x53:     /* LDR rd, [rn - imm]! */                                  \
-      ce.arm_memld<u32, OffImm12, OffNegative, MemIdxPreWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x54:     /* STRB rd, [rn - imm] */                                  \
-      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPre>(inst);               \
-      break;                                                                  \
-                                                                              \
-    case 0x55:     /* LDRB rd, [rn - imm] */                                  \
-      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPre>(inst);               \
-      break;                                                                  \
-                                                                              \
-    case 0x56:     /* STRB rd, [rn - imm]! */                                 \
-      ce.arm_memst<u8, OffImm12, OffNegative, MemIdxPreWB>(inst);             \
-      break;                                                                  \
-                                                                              \
-    case 0x57:     /* LDRB rd, [rn - imm]! */                                 \
-      ce.arm_memld<u8, OffImm12, OffNegative, MemIdxPreWB>(inst);             \
-      break;                                                                  \
-                                                                              \
-    case 0x58:     /* STR rd, [rn + imm] */                                   \
-      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPre>(inst);              \
-      break;                                                                  \
-                                                                              \
-    case 0x59:     /* LDR rd, [rn + imm] */                                   \
-      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPre>(inst);              \
-      break;                                                                  \
-                                                                              \
-    case 0x5A:     /* STR rd, [rn + imm]! */                                  \
-      ce.arm_memst<u32, OffImm12, OffPositive, MemIdxPreWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x5B:     /* LDR rd, [rn + imm]! */                                  \
-      ce.arm_memld<u32, OffImm12, OffPositive, MemIdxPreWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x5C:     /* STRB rd, [rn + imm] */                                  \
-      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPre>(inst);               \
-      break;                                                                  \
-                                                                              \
-    case 0x5D:     /* LDRB rd, [rn + imm] */                                  \
-      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPre>(inst);               \
-      break;                                                                  \
-                                                                              \
-    case 0x5E:     /* STRB rd, [rn + imm]! */                                 \
-      ce.arm_memst<u8, OffImm12, OffPositive, MemIdxPreWB>(inst);             \
-      break;                                                                  \
-                                                                              \
-    case 0x5F:     /* LDRB rd, [rn + imm]! */                                 \
-      ce.arm_memld<u8, OffImm12, OffPositive, MemIdxPreWB>(inst);             \
-      break;                                                                  \
-                                                                              \
-    /* Memops with regop as post-increment/decrement */                       \
-    case 0x60:     /* STR  rd, [rn], -rm */                                   \
-    case 0x62:     /* STRT rd, [rn], -rm */                                   \
-      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst);          \
-      break;                                                                  \
-    case 0x64:     /* STRB  rd, [rn], -rm */                                  \
-    case 0x66:     /* STRBT rd, [rn], -rm */                                  \
-      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x61:     /* LDR  rd, [rn], -rm */                                   \
-    case 0x63:     /* LDRT rd, [rn], -rm */                                   \
-      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPostWB>(inst);          \
-      break;                                                                  \
-    case 0x65:     /* LDRB  rd, [rn], -rm */                                  \
-    case 0x67:     /* LDRBT rd, [rn], -rm */                                  \
-      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPostWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x68:     /* STR  rd, [rn], +rm */                                   \
-    case 0x6A:     /* STRT rd, [rn], +rm */                                   \
-      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst);          \
-      break;                                                                  \
-    case 0x6C:     /* STRB  rd, [rn], +rm */                                  \
-    case 0x6E:     /* STRBT rd, [rn], +rm */                                  \
-      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x69:     /* LDR  rd, [rn], +rm */                                   \
-    case 0x6B:     /* LDRT rd, [rn], +rm */                                   \
-      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPostWB>(inst);          \
-      break;                                                                  \
-    case 0x6D:     /* LDRB  rd, [rn], +rm */                                  \
-    case 0x6F:     /* LDRBT rd, [rn], +rm */                                  \
-      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPostWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    /* Memops with regop as pre-increment/decrement (optional writeback) */   \
-    case 0x70:     /* STR rd, [rn - rm] */                                    \
-      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPre>(inst);             \
-      break;                                                                  \
-    case 0x72:     /* STR rd, [rn - rm]! */                                   \
-      ce.arm_memst<u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x71:                                                                \
-      /* LDR rd, [rn - rm] */                                                 \
-      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPre>(inst);             \
-      break;                                                                  \
-    case 0x73:                                                                \
-      /* LDR rd, [rn - rm]! */                                                \
-      ce.arm_memld<u32, OffOp2Reg, OffNegative, MemIdxPreWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x74:     /* STRB rd, [rn - rm] */                                   \
-      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPre>(inst);              \
-      break;                                                                  \
-    case 0x76:     /* STRB rd, [rn - rm]! */                                  \
-      ce.arm_memst<u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x75:                                                                \
-      /* LDRB rd, [rn - rm] */                                                \
-      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPre>(inst);              \
-      break;                                                                  \
-    case 0x77:                                                                \
-      /* LDRB rd, [rn - rm]! */                                               \
-      ce.arm_memld<u8, OffOp2Reg, OffNegative, MemIdxPreWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x78:     /* STR rd, [rn + rm] */                                    \
-      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPre>(inst);             \
-      break;                                                                  \
-    case 0x7A:     /* STR rd, [rn + rm]! */                                   \
-      ce.arm_memst<u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x79:                                                                \
-      /* LDR rd, [rn + rm] */                                                 \
-      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPre>(inst);             \
-      break;                                                                  \
-    case 0x7B:                                                                \
-      /* LDR rd, [rn + rm]! */                                                \
-      ce.arm_memld<u32, OffOp2Reg, OffPositive, MemIdxPreWB>(inst);           \
-      break;                                                                  \
-                                                                              \
-    case 0x7C:     /* STRB rd, [rn + rm] */                                   \
-      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPre>(inst);              \
-      break;                                                                  \
-    case 0x7E:     /* STRB rd, [rn + rm]! */                                  \
-      ce.arm_memst<u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    case 0x7D:                                                                \
-      /* LDRB rd, [rn + rm] */                                                \
-      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPre>(inst);              \
-      break;                                                                  \
-    case 0x7F:                                                                \
-      /* LDRBT rd, [rn + rm]! */                                              \
-      ce.arm_memld<u8, OffOp2Reg, OffPositive, MemIdxPreWB>(inst);            \
-      break;                                                                  \
-                                                                              \
-    /* Muliple memops */                                                      \
-    case 0x80:     /* STMDA rn, rlist */                                      \
-      ce.mem_multi<ModeARM, AccStore, AddrPostDec, false, false>(             \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x82:     /* STMDA rn!, rlist */                                     \
-      ce.mem_multi<ModeARM, AccStore, AddrPostDec, true, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x84:     /* STMDA rn, rlist^ */                                     \
-      ce.mem_multi<ModeARM, AccStore, AddrPostDec, false, true>(              \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x86:     /* STMDA rn!, rlist^ */                                    \
-      ce.mem_multi<ModeARM, AccStore, AddrPostDec, true, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-                                                                              \
-    case 0x81:     /* LDMDA rn, rlist */                                      \
-      ce.mem_multi<ModeARM, AccLoad, AddrPostDec, false, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x83:     /* LDMDA rn!, rlist */                                     \
-      ce.mem_multi<ModeARM, AccLoad, AddrPostDec, true, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x85:     /* LDMDA rn, rlist^ */                                     \
-      ce.mem_multi<ModeARM, AccLoad, AddrPostDec, false, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x87:     /* LDMDA rn!, rlist^ */                                    \
-      ce.mem_multi<ModeARM, AccLoad, AddrPostDec, true, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-                                                                              \
-    case 0x88:     /* STMIA rn, rlist */                                      \
-      ce.mem_multi<ModeARM, AccStore, AddrPostInc, false, false>(             \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x8A:     /* STMIA rn!, rlist */                                     \
-      ce.mem_multi<ModeARM, AccStore, AddrPostInc, true, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x8C:     /* STMIA rn, rlist^ */                                     \
-      ce.mem_multi<ModeARM, AccStore, AddrPostInc, false, true>(              \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x8E:     /* STMIA rn!, rlist^ */                                    \
-      ce.mem_multi<ModeARM, AccStore, AddrPostInc, true, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-                                                                              \
-    case 0x89:     /* LDMIA rn, rlist */                                      \
-      ce.mem_multi<ModeARM, AccLoad, AddrPostInc, false, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x8B:     /* LDMIA rn!, rlist */                                     \
-      ce.mem_multi<ModeARM, AccLoad, AddrPostInc, true, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x8D:     /* LDMIA rn, rlist^ */                                     \
-      ce.mem_multi<ModeARM, AccLoad, AddrPostInc, false, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x8F:     /* LDMIA rn!, rlist^ */                                    \
-      ce.mem_multi<ModeARM, AccLoad, AddrPostInc, true, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-                                                                              \
-    case 0x90:     /* STMDB rn, rlist */                                      \
-      ce.mem_multi<ModeARM, AccStore, AddrPreDec, false, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x92:     /* STMDB rn!, rlist */                                     \
-      ce.mem_multi<ModeARM, AccStore, AddrPreDec, true, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x94:     /* STMDB rn, rlist^ */                                     \
-      ce.mem_multi<ModeARM, AccStore, AddrPreDec, false, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x96:     /* STMDB rn!, rlist^ */                                    \
-      ce.mem_multi<ModeARM, AccStore, AddrPreDec, true, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-                                                                              \
-    case 0x91:     /* LDMDB rn, rlist */                                      \
-      ce.mem_multi<ModeARM, AccLoad, AddrPreDec, false, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x93:     /* LDMDB rn!, rlist */                                     \
-      ce.mem_multi<ModeARM, AccLoad, AddrPreDec, true, false>(                \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x95:     /* LDMDB rn, rlist^ */                                     \
-      ce.mem_multi<ModeARM, AccLoad, AddrPreDec, false, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x97:     /* LDMDB rn!, rlist^ */                                    \
-      ce.mem_multi<ModeARM, AccLoad, AddrPreDec, true, true>(                 \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-                                                                              \
-    case 0x98:     /* STMIB rn, rlist */                                      \
-      ce.mem_multi<ModeARM, AccStore, AddrPreInc, false, false>(              \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x9A:     /* STMIB rn!, rlist */                                     \
-      ce.mem_multi<ModeARM, AccStore, AddrPreInc, true, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x9C:     /* STMIB rn, rlist^ */                                     \
-      ce.mem_multi<ModeARM, AccStore, AddrPreInc, false, true>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x9E:     /* STMIB rn!, rlist^ */                                    \
-      ce.mem_multi<ModeARM, AccStore, AddrPreInc, true, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-                                                                              \
-    case 0x99:     /* LDMIB rn, rlist */                                      \
-      ce.mem_multi<ModeARM, AccLoad, AddrPreInc, false, false>(               \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x9B:     /* LDMIB rn!, rlist */                                     \
-      ce.mem_multi<ModeARM, AccLoad, AddrPreInc, true, false>(                \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x9D:     /* LDMIB rn, rlist^ */                                     \
-      ce.mem_multi<ModeARM, AccLoad, AddrPreInc, false, true>(                \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-    case 0x9F:     /* LDMIB rn!, rlist^ */                                    \
-      ce.mem_multi<ModeARM, AccLoad, AddrPreInc, true, true>(                 \
-        inst.pc, condition, inst.rn(), inst.rlist());                         \
-      break;                                                                  \
-                                                                              \
-    case 0xA0 ... 0xAF:      /* B label */                                    \
-      iblk_exits[block_exit_position].branch_source =                         \
-        ce.arm_b(inst, iblk_exits[block_exit_position].branch_target);        \
-      block_exit_position++;                                                  \
-      break;                                                                  \
-                                                                              \
-    case 0xB0 ... 0xBF:      /* BL label */                                   \
-      iblk_exits[block_exit_position].branch_source =                         \
-        ce.arm_bl(inst, iblk_exits[block_exit_position].branch_target);       \
-      block_exit_position++;                                                  \
-      break;                                                                  \
-                                                                              \
-    case 0xF0 ... 0xFF:      /* SWI number */                                 \
-      if (ce.can_emu_swi(inst.pc, inst.swinum()))                             \
-        ce.emu_swi<ModeARM, ARMInst>(inst);                                   \
-      else                                                                    \
-        iblk_exits[block_exit_position++].branch_source = ce.arm_swi(inst.pc);\
-      break;                                                                  \
-  }                                                                           \
-                                                                              \
-  pc += 4                                                                     \
 
 // RAM regions use a tagging mechanism (used to detect Self-Modifying code) and
 // it is reused to tag where the code for a given PC lives.
@@ -1395,28 +1568,6 @@ void insert_block_entry(uint32_t pc) {
   }
 }
 
-
-#define INFO_DIRECT_BRANCH             0x01
-#define INFO_INDIRECT_BRANCH           0x02
-#define INFO_UNCOND_BRANCH             0x40
-#define INFO_SYNC_CYCLES               0x80
-
-class ThumbInstInfo : public ThumbInst {
-public:
-  ThumbInstInfo(u32 pc, u16 opcode)
-   : ThumbInst(pc, opcode, 0), cyccnt(0), info(0) {}
-
-  u8 cyccnt;                   // Number of cycles on top of the base cycles.
-  u8 info;                     // Info on the instruction (ie. it's a branch, XXX)
-  u32 branch_tgt;              // Branch target (whenever the instruction is a direct jump)
-  u8 *branch_ptr;              // Branch patching pointer. (TODO: could we get rid of this perhaps?)
-  u8 *eptr;                    // Points to the JIT address where this was emitted.
-  union {                      // Emitter functions.
-    void (CodeEmitter::*inst_fn)(const ThumbInst &);
-    u8 * (CodeEmitter::*branch_fn)(u32, u32);
-  } emitter;
-};
-
 template <TranslRegion reg>
 ThumbInstInfo decode_thumb_instruction(u32 pc, const ThumbInstDec & inst, u16 last_opcode);
 
@@ -1424,7 +1575,7 @@ ThumbInstInfo decode_thumb_instruction(u32 pc, const ThumbInstDec & inst, u16 la
 template <TranslRegion reg>
 u8* translate_single_block_thumb(JITArea<reg> *jitarea, uint32_t entrypc, staticarray<block_exit_type, MAX_LINKQ_SIZE> & linkq) {
   // TODO: Fix this somehow :D Ideally emit some code that prints some controlled message and faults.
-  if ((entrypc >> 24) >= 16)
+  if (!valid_code_addr<reg>(entrypc) || !memory_map_read[entrypc >> 15])
     return NULL;
 
   // Holds decoded instructions
@@ -1496,14 +1647,6 @@ u8* translate_single_block_thumb(JITArea<reg> *jitarea, uint32_t entrypc, static
   // Pass: flag elimination.
   optimize_flag_elimination<staticarray<ThumbInstInfo, MAX_BLOCK_SIZE>>(insts);
 
-  uint8_t needed_flags = 0xF;
-  for (int i = insts.size() - 1; i >= 0; i--) {
-    unsigned imsk = insts[i].flag_status;
-    insts[i].flag_status = imsk & needed_flags;
-    needed_flags &= ~((imsk >> 4) & 0xF);        // Flags generated by the inst.
-    needed_flags |= (imsk >> 8);                 // Needed flags for this inst.
-  }
-
   // Pass: emit JIT code
   CodeEmitter ce(jitarea->cur_ptr(), entrypc);
   ce.emit_block_header();
@@ -1526,7 +1669,7 @@ u8* translate_single_block_thumb(JITArea<reg> *jitarea, uint32_t entrypc, static
       ce.emit_cheat_hook<ModeThumb>();
 
     if (insts[i].info & INFO_DIRECT_BRANCH)
-      insts[i].branch_ptr = (ce.*insts[i].emitter.branch_fn)(insts[i].pc, insts[i].branch_tgt);
+      insts[i].branch_ptr = (ce.*insts[i].emitter.branch_fn)(insts[i], insts[i].branch_tgt);
     else
       (ce.*insts[i].emitter.inst_fn)(insts[i]);
   }
@@ -1542,10 +1685,12 @@ u8* translate_single_block_thumb(JITArea<reg> *jitarea, uint32_t entrypc, static
         generate_branch_patch_unconditional(insts[i].branch_ptr, insts[ioff].eptr);
       } else {
         // Out of range branch, this is an external branch.
-        linkq.append(block_exit_type{
-          .branch_target = insts[i].branch_tgt,
-          .branch_source = insts[i].branch_ptr
-        });
+        // TODO: Invalid looking branches should be linked to some info function?
+        if (valid_brtgt(insts[i].branch_tgt))
+          linkq.append(block_exit_type{
+            .branch_target = insts[i].branch_tgt,
+            .branch_source = insts[i].branch_ptr
+          });
       }
     }
   }
@@ -1555,7 +1700,169 @@ u8* translate_single_block_thumb(JITArea<reg> *jitarea, uint32_t entrypc, static
   return entryptr;
 }
 
-// Idea: make it a heap so that duplicated targets are the same.
+/// ARM MODE
+
+// Starts decoding an instruction block and returns the number of parsed instructions.
+template <TranslRegion reg>
+u8* translate_single_block_arm(JITArea<reg> *jitarea, uint32_t entrypc, staticarray<block_exit_type, MAX_LINKQ_SIZE> & linkq) {
+  // TODO: Fix this somehow :D Ideally emit some code that prints some controlled message and faults.
+  if (!valid_code_addr<reg>(entrypc) || !memory_map_read[entrypc >> 15])
+    return NULL;
+
+  // Holds decoded instructions
+  staticarray<ARMInstInfo, MAX_BLOCK_SIZE> insts;
+
+  // Holds the branch targets, sorted, so we can better find the block end.
+  minheap<u32, MAX_EXITS> brtgt;
+
+  uint32_t currpc = entrypc;
+  do {
+    u8 *pc_address_block = memory_map_read[currpc >> 15];
+    uint32_t opcode = address32(pc_address_block, (currpc & 0x7FFF));
+    insts.append(decode_arm_instruction<reg>(currpc, ARMInstDec(opcode)));
+
+    if (reg == RegionRAM) {
+      intptr_t offset = (currpc < 0x03000000) ? 0x40000 : -0x8000;
+      if (address16(pc_address_block, (currpc & 0x7FFF) + offset) == 0)
+        address16(pc_address_block, (currpc & 0x7FFF) + offset) = CODE_TAG_BLOCK16;
+      if (address16(pc_address_block, ((currpc + 2) & 0x7FFF) + offset) == 0)
+        address16(pc_address_block, ((currpc + 2) & 0x7FFF) + offset) = CODE_TAG_BLOCK16;
+
+      if (currpc >= 0x3000000) {
+        iwram_code_min = MIN(currpc & 0x7FFF, iwram_code_min);
+        iwram_code_max = MAX(currpc & 0x7FFF, iwram_code_max);
+      } else {
+        ewram_code_min = MIN(currpc & 0x3FFFF, ewram_code_min);
+        ewram_code_max = MAX(currpc & 0x3FFFF, ewram_code_max);
+      }
+    }
+
+    // Handle direct branches
+    if (insts.back().info & INFO_DIRECT_BRANCH) {
+      const uint32_t tpc = insts.back().branch_tgt;
+      if (tpc >= entrypc) {
+        if (tpc <= currpc)
+          insts[(tpc - entrypc) / 4].info |= INFO_SYNC_CYCLES;   // Annotate backwards branches
+        else
+          brtgt.insert(tpc);   // Save forward branches for later then.
+      }
+    }
+
+    // Process any previous forward branches. The queue can only contain
+    // branches in the [pc, inf) region, since we never push backwards branches.
+    while (!brtgt.empty() && brtgt.peek() == currpc) {
+      insts.back().info |= INFO_SYNC_CYCLES;
+      brtgt.pop();
+    }
+
+    if (insts.back().info & INFO_INVALID_INST)
+      break;            // Most likely we are doing something weird.
+
+    if (brtgt.full())   // Truncate block if we can't take any more branches.
+      break;
+
+    // TODO: Get rid of translation gates.
+    for (unsigned i = 0; i < translation_gate_targets; i++)
+      if (currpc == translation_gate_target_pc[i])
+        break;
+
+    if (insts.back().info & INFO_UNCOND_BRANCH) {
+      // Terminate blocks at indirect branches unless there's a branch immediately after.
+      // We only need to peek at the queue, since it can only contain pcs in the [pc+2, inf) range.
+      // TODO: There could be pool data between the branch and the next branch target.
+      if (brtgt.empty() || brtgt.peek() != currpc + 4)
+        break;
+    }
+
+    currpc += 4;
+  } while (!insts.full());
+
+  // TODO: Add a flag elimination pass perhaps?
+
+  // Pass: emit JIT code
+  CodeEmitter ce(jitarea->cur_ptr(), entrypc);
+  ce.emit_block_header();
+
+  u8 *entryptr = ce.emit_ptr;
+  ce.emit_block_prologue();
+
+  u32 last_cond = CondAL;
+  u8 *patchaddr = NULL;
+  for (unsigned i = 0; i < insts.size(); i++) {
+    bool isept = insts[i].info & INFO_SYNC_CYCLES;
+    if (isept)
+      ce.emit_cycle_update();
+
+    ce.cyc_cnt += def_seq_cycles[insts[i].pc >> 24][1];  // TODO: Can this be improved?
+
+    insts[i].eptr = ce.emit_ptr;       // Annotate the start of the instruction
+
+    bool iexit = insts[i].info & (INFO_DIRECT_BRANCH | INFO_INDIRECT_BRANCH);
+
+    // Generate a block skip (N contiguous instructions that share the same predication)
+    // We break blocks when cond changes, or if the instr changes flags, or if the
+    // instruction is an entry point for a branch, or an exit point (TODO why?)
+    // TODO: Account cycles better here (ie. jumped insts should count as nop!).
+    // TODO: Check if this makes sense (ie. % of conditional insts).
+
+    bool prevflagw = i && (insts[i-1].flag_status & 0xFF);  // Previous inst wrote flags.
+
+    if (insts[i].cond() != last_cond || prevflagw || iexit || isept) {
+      // Finish the previous block jump by patching the branch.
+      if (patchaddr) {
+        generate_branch_patch_conditional(patchaddr, ce.emit_ptr);
+        patchaddr = NULL;
+      }
+
+      if (insts[i].cond() != CondAL)
+        patchaddr = ce.arm_conditional_block_header(insts[i].cond());
+
+      last_cond = insts[i].cond();
+    }
+
+    // Emit instruction hooks: cheats, tracing, etc.
+    ce.trace_instruction<ModeARM>(insts[i].pc, insts[i].opcode);
+    if (insts[i].pc == cheat_master_hook)
+      ce.emit_cheat_hook<ModeARM>();
+
+    ce.cyc_cnt += insts[i].cyccnt;
+
+    if (insts[i].info & INFO_DIRECT_BRANCH)
+      insts[i].branch_ptr = (ce.*insts[i].emitter.branch_fn)(insts[i], insts[i].branch_tgt);
+    else
+      (ce.*insts[i].emitter.inst_fn)(insts[i]);
+  }
+
+  // This can happen if the last instruction is *not* unconditional.
+  if (patchaddr) {
+    generate_branch_patch_conditional(patchaddr, ce.emit_ptr);
+  }
+
+  // Emits an indirect branch just in case the block was cut off prematurely.
+  ce.generate_translation_gate<ModeARM>(insts.back().pc + 4);
+
+  // Pass: link local branches/calls
+  for (unsigned i = 0; i < insts.size(); i++) {
+    if (insts[i].info & INFO_DIRECT_BRANCH) {
+      if (insts[i].branch_tgt - entrypc < insts.size() * 4) {     // Abuses int overflow
+        uint32_t ioff = (insts[i].branch_tgt - entrypc) / 4;
+        generate_branch_patch_unconditional(insts[i].branch_ptr, insts[ioff].eptr);
+      } else {
+        // Out of range branch, this is an external branch.
+        if (valid_brtgt(insts[i].branch_tgt))
+          linkq.append(block_exit_type{
+            .branch_target = insts[i].branch_tgt,
+            .branch_source = insts[i].branch_ptr
+          });
+      }
+    }
+  }
+
+  jitarea->update_ptr(ce.emit_ptr);
+
+  return entryptr;
+}
+
 
 template <CPUInstMode cm, TranslRegion reg>
 u8* translate_block(u32 pc) {
@@ -1565,7 +1872,8 @@ u8* translate_block(u32 pc) {
 
   // Translate the current requested block.
   insert_block_entry<cm, reg>(pc);
-  u8 *ret = translate_single_block_thumb<reg>(&jitarea, pc, linkq);
+  u8 *ret = (cm == ModeThumb) ? translate_single_block_thumb<reg>(&jitarea, pc, linkq)
+                              : translate_single_block_arm<reg>(&jitarea, pc, linkq);
   if (jitarea.overflow()) {
     jitarea.flush_cache();
     return NULL;
@@ -1579,7 +1887,8 @@ u8* translate_block(u32 pc) {
     u8 *blkptr = elem.branch_target == 0x8 ? bios_swi_entrypoint : lookup_block<cm, reg>(elem.branch_target);
     if (!blkptr) {
       insert_block_entry<cm, reg>(elem.branch_target);
-      blkptr = translate_single_block_thumb<reg>(&jitarea, elem.branch_target, linkq);  // Force translation
+      blkptr = (cm == ModeThumb) ? translate_single_block_thumb<reg>(&jitarea, elem.branch_target, linkq)  // Force translation
+                                 : translate_single_block_arm<reg>(&jitarea, elem.branch_target, linkq);
     }
 
     generate_branch_patch_unconditional(elem.branch_source, blkptr);
@@ -1593,14 +1902,6 @@ u8* translate_block(u32 pc) {
   return ret;
 }
 
-#define FLAG_WRITE_NZCV         0xFF
-#define FLAG_WRITE_NZ           0xCC
-#define FLAG_WRITE_NZC          0xEE
-#define FLAG_WRITE_C            0x22
-#define FLAG_WRITE_NZ_MAYBE_C   0xCE
-
-#define FLAG_READ_NZCV         0xF00
-#define FLAG_READ_C            0x200
 
 template <TranslRegion reg>
 ThumbInstInfo decode_thumb_instruction(u32 pc, const ThumbInstDec & inst, u16 last_opcode) {
@@ -1968,110 +2269,6 @@ ThumbInstInfo decode_thumb_instruction(u32 pc, const ThumbInstDec & inst, u16 la
   return ret;
 }
 
-
-#define arm_flag_status()
-
-
-// This function will return a pointer to a translated block of code. If it
-// doesn't exist it will translate it, if it does it will pass it back.
-
-// type should be "arm", "thumb", or "dual." For arm or thumb the PC should
-// be a real PC, for dual the least significant bit will determine if it's
-// ARM or Thumb mode.
-
-#define block_lookup_address_pc_arm()                                         \
-  u32 thumb = 0;                                                              \
-  pc &= ~0x03
-
-#define block_lookup_translate_builder(type)                                  \
-u8 function_cc *block_lookup_translate_##type(u32 pc)                         \
-{                                                                             \
-  u8 pcregion = (pc >> 24);                                                   \
-  u16 *location;                                                              \
-                                                                              \
-  block_lookup_address_pc_##type();                                           \
-                                                                              \
-  switch(pcregion)                                                            \
-  {                                                                           \
-    case 0x2:                                                                 \
-    case 0x3:                                                                 \
-    {                                                                         \
-      u16* tagp = (pcregion == 2) ? (u16 *)(ewram + (pc & 0x3FFFF) + 0x40000) \
-                                  : (u16 *)(iwram + (pc & 0x7FFF));           \
-      ramtag_type* trentry;                                                   \
-      /* Allocate a tag if not a valid one, and initialize header */          \
-      if (!VALID_TAG(*tagp)) {                                                \
-        allocate_tag_##type(tagp);                                            \
-        trentry = get_ram_tag(*tagp);                                         \
-        trentry->offset_arm = 0;                                              \
-        trentry->offset_thumb = 0;                                            \
-      } else {                                                                \
-        trentry = get_ram_tag(*tagp);                                         \
-      }                                                                       \
-                                                                              \
-      if (!trentry->offset_##type) {                                          \
-        bool result;                                                          \
-        u8 *blkptr = ram_translation_ptr + CodeEmitter::block_header_size();  \
-        trentry->offset_##type = blkptr - ram_translation_cache;              \
-        result = translate_block_##type(pc, true);                            \
-                                                                              \
-        if (result)                                                           \
-          return blkptr;                                                      \
-      } else {                                                                \
-        return &ram_translation_cache[trentry->offset_##type];                \
-      }                                                                       \
-      return NULL;                                                            \
-    }                                                                         \
-                                                                              \
-    case 0x0:                                                                 \
-    case 0x8 ... 0xD:                                                         \
-    {                                                                         \
-      u32 key = pc | thumb;                                                   \
-      u32 hash_target = ((key * 2654435761U) >> (32 - ROM_BRANCH_HASH_BITS))  \
-                                              & (ROM_BRANCH_HASH_SIZE - 1);   \
-                                                                              \
-      hashhdr_type *bhdr;                                                     \
-      u32 blk_offset = rom_branch_hash[hash_target];                          \
-      u32 *blk_offset_addr = &rom_branch_hash[hash_target];                   \
-      while(blk_offset)                                                       \
-      {                                                                       \
-        bhdr = (hashhdr_type*)&rom_translation_cache[blk_offset];             \
-        if(bhdr->pc_value == key)                                             \
-          return &rom_translation_cache[                                      \
-                  blk_offset + sizeof(hashhdr_type) +                         \
-                  CodeEmitter::block_header_size()];                          \
-                                                                              \
-        blk_offset = bhdr->next_entry;                                        \
-        blk_offset_addr = &bhdr->next_entry;                                  \
-      }                                                                       \
-                                                                              \
-      { /* Not found, go ahead and translate, and backfill the hash table */  \
-        u8 *blkptr;                                                           \
-        bool result;                                                          \
-        bhdr = (hashhdr_type*)rom_translation_ptr;                            \
-        bhdr->pc_value = key;                                                 \
-        bhdr->next_entry = 0;                                                 \
-        *blk_offset_addr = (u32)(rom_translation_ptr - rom_translation_cache);\
-        rom_translation_ptr += sizeof(hashhdr_type);                          \
-        blkptr = rom_translation_ptr + CodeEmitter::block_header_size();      \
-        result = translate_block_##type(pc, false);                           \
-                                                                              \
-        if (result)                                                           \
-          return blkptr;                                                      \
-      }                                                                       \
-      return NULL;                                                            \
-    }                                                                         \
-  }                                                                           \
-                                                                              \
-  /* Do not return NULL since it could indeed happen that some branch         \
-     points to some random place (perhaps due to being garbage). This can     \
-     happen when especulatively compiling code in RAM. Perhaps the game       \
-     patches these instructions later, which would trigger a flush */         \
-  return (u8*)(~0);                                                           \
-}                                                                             \
-
-block_lookup_translate_builder(arm);
-
 // Called when a mode change is performed (via CPSR write).
 // Might result in a IRQ being raised.
 u32 function_cc process_cpsr_write(u32 new_cpsr, u32 pc) {
@@ -2091,8 +2288,7 @@ u32 function_cc process_cpsr_write(u32 new_cpsr, u32 pc) {
   return 0;
 }
 
-u8 function_cc *block_lookup_address_dual(u32 pc)
-{
+u8 function_cc *block_lookup_address_dual(u32 pc) {
   u32 thumb = pc & 0x01;
   if(thumb) {
     pc &= ~1;
@@ -2105,21 +2301,28 @@ u8 function_cc *block_lookup_address_dual(u32 pc)
   }
 }
 
-u8 function_cc *block_lookup_address_arm(u32 pc)
-{
-  unsigned i;
-  for (i = 0; i < 4; i++) {
-    u8 *ret = block_lookup_translate_arm(pc);
+u8 function_cc *block_lookup_address_arm(u32 pc) {
+  bool onram = pc_on_ram(pc);
+  pc &= ~3U;
+
+  u8 *ret = onram ? lookup_block<ModeARM, RegionRAM>(pc)
+                  : lookup_block<ModeARM, RegionROM>(pc);
+  if (ret)
+    return ret;
+
+  for (unsigned i = 0; i < 4; i++) {
+    u8 *ret = onram ? translate_block<ModeARM, RegionRAM>(pc)
+                    : translate_block<ModeARM, RegionROM>(pc);
     if (ret) {
       translate_icache_sync();
       return ret;
     }
   }
-
   printf("bad jump %x (%x)\n", pc, reg[REG_PC]);
   fflush(stdout);
   return NULL;
 }
+
 
 u8 function_cc *block_lookup_address_thumb(u32 pc) {
   bool onram = pc_on_ram(pc);
@@ -2130,7 +2333,7 @@ u8 function_cc *block_lookup_address_thumb(u32 pc) {
   if (ret)
     return ret;
 
-  for (unsigned i = 0; i < 2; i++) {
+  for (unsigned i = 0; i < 4; i++) {
     u8 *ret = onram ? translate_block<ModeThumb, RegionRAM>(pc)
                     : translate_block<ModeThumb, RegionROM>(pc);
     if (ret) {
@@ -2143,323 +2346,6 @@ u8 function_cc *block_lookup_address_thumb(u32 pc) {
   return NULL;
 }
 
-
-// Potential exit point: If the rd field is pc for instructions is 0x0F,
-// the instruction is b/bl/bx, or the instruction is ldm with PC in the
-// register list.
-// All instructions with upper 3 bits less than 100b have an rd field
-// except bx, where the bits must be 0xF there anyway, multiplies,
-// which cannot have 0xF in the corresponding fields, and msr, which
-// has 0x0F there but doesn't end things (therefore must be special
-// checked against). Because MSR and BX overlap both are checked for.
-
-#define arm_exit_point                                                        \
- (((opcode < 0x8000000) && ((opcode & 0x000F000) == 0x000F000) &&             \
-  ((opcode & 0xDB0F000) != 0x120F000)) ||                                     \
-  ((opcode & 0x12FFF10) == 0x12FFF10) ||                                      \
-  ((opcode & 0x8108000) == 0x8108000) ||                                      \
-  ((opcode >= 0xA000000) && (opcode < 0xF000000)) ||                          \
-  ((opcode >= 0xF000000) && (!is_div_swi((opcode >> 16) & 0xFF))))            \
-
-#define arm_opcode_branch                                                     \
-  ((opcode & 0xE000000) == 0xA000000)                                         \
-
-#define arm_opcode_swi                                                        \
-  ((opcode & 0xF000000) == 0xF000000)                                         \
-
-#define arm_opcode_unconditional_branch                                       \
-  (condition == 0x0E)                                                         \
-
-#define arm_load_opcode()                                                     \
-  opcode = address32(pc_address_block, (block_end_pc & 0x7FFF));              \
-  condition = opcode >> 28;                                                   \
-                                                                              \
-  opcode &= 0xFFFFFFF;                                                        \
-                                                                              \
-  block_end_pc += 4                                                           \
-
-#define arm_branch_target()                                                   \
-  u32 branch_target = (block_end_pc + 4 + (((s32)(opcode & 0xFFFFFF) << 8) >> 6))
-
-// Contiguous conditional block flags modification - it will set 0x20 in the
-// condition's bits if this instruction modifies flags. Taken from the CPU
-// switch so it'd better be right this time.
-
-#define arm_set_condition(_condition)                                         \
-  block_data[block_data_position].condition = _condition;                     \
-  switch((opcode >> 20) & 0xFF)                                               \
-  {                                                                           \
-    case 0x01:                                                                \
-    case 0x03:                                                                \
-    case 0x09:                                                                \
-    case 0x0B:                                                                \
-    case 0x0D:                                                                \
-    case 0x0F:                                                                \
-      if((((opcode >> 5) & 0x03) == 0) || ((opcode & 0x90) != 0x90))          \
-        block_data[block_data_position].condition |= 0x20;                    \
-      break;                                                                  \
-                                                                              \
-    case 0x05:                                                                \
-    case 0x07:                                                                \
-    case 0x11:                                                                \
-    case 0x13:                                                                \
-    case 0x15 ... 0x17:                                                       \
-    case 0x19:                                                                \
-    case 0x1B:                                                                \
-    case 0x1D:                                                                \
-    case 0x1F:                                                                \
-      if((opcode & 0x90) != 0x90)                                             \
-        block_data[block_data_position].condition |= 0x20;                    \
-      break;                                                                  \
-                                                                              \
-    case 0x12:                                                                \
-      if(((opcode & 0x90) != 0x90) && !(opcode & 0x10))                       \
-        block_data[block_data_position].condition |= 0x20;                    \
-      break;                                                                  \
-                                                                              \
-    case 0x21:                                                                \
-    case 0x23:                                                                \
-    case 0x25:                                                                \
-    case 0x27:                                                                \
-    case 0x29:                                                                \
-    case 0x2B:                                                                \
-    case 0x2D:                                                                \
-    case 0x2F ... 0x37:                                                       \
-    case 0x39:                                                                \
-    case 0x3B:                                                                \
-    case 0x3D:                                                                \
-    case 0x3F:                                                                \
-      block_data[block_data_position].condition |= 0x20;                      \
-    break;                                                                    \
-  }                                                                           \
-
-#define arm_instruction_width 4
-
-// For now this just sets a variable that says flags should always be
-// computed.
-
-#define arm_dead_flag_eliminate()
-
-block_data_type block_data[MAX_BLOCK_SIZE];
-block_exit_type iblk_exits[MAX_EXITS];
-
-#define smc_write_arm_yes() {                                                 \
-  intptr_t offset = (pc < 0x03000000) ? 0x40000 : -0x8000;                    \
-  if(address32(pc_address_block, (block_end_pc & 0x7FFF) + offset) == 0)      \
-  {                                                                           \
-    address32(pc_address_block, (block_end_pc & 0x7FFF) + offset) =           \
-      CODE_TAG_BLOCK32;                                                       \
-  }                                                                           \
-}
-
-#define smc_write_arm_no()                                                    \
-
-#define scan_block(type, smc_write_op)                                        \
-{                                                                             \
-  __label__ block_end;                                                        \
-  /* Find the end of the block */                                             \
-  do                                                                          \
-  {                                                                           \
-    check_pc_region(block_end_pc);                                            \
-    smc_write_##type##_##smc_write_op();                                      \
-    type##_load_opcode();                                                     \
-    type##_flag_status();                                                     \
-    block_data[block_data_position].update_cycles = 0;                        \
-                                                                              \
-    if(type##_exit_point)                                                     \
-    {                                                                         \
-      /* Branch/branch with link */                                           \
-      if(type##_opcode_branch)                                                \
-      {                                                                       \
-        __label__ no_direct_branch;                                           \
-        type##_branch_target();                                               \
-        iblk_exits[block_exit_position].branch_target = branch_target;       \
-        block_exit_position++;                                                \
-                                                                              \
-        /* Give the branch target macro somewhere to bail if it turns out to  \
-           be an indirect branch (ala malformed Thumb bl) */                  \
-        no_direct_branch:;                                                    \
-      }                                                                       \
-                                                                              \
-      /* SWI branches to the BIOS, unless it's an HLE call, then it is        \
-         not parsed as an exit_point but rather an "instruction" of sorts. */ \
-      if(type##_opcode_swi)                                                   \
-      {                                                                       \
-        iblk_exits[block_exit_position].branch_target = 0x00000008;          \
-        block_exit_position++;                                                \
-      }                                                                       \
-                                                                              \
-      type##_set_condition(condition | 0x10);                                 \
-                                                                              \
-      /* Only unconditional branches can end the block. */                    \
-      if(type##_opcode_unconditional_branch)                                  \
-      {                                                                       \
-        /* Check to see if any prior block exits branch after here,           \
-           if so don't end the block. Starts from the top and works           \
-           down because the most recent branch is most likely to              \
-           join after the end (if/then form) */                               \
-        int i;                                                                \
-        for(i = block_exit_position - 2; i >= 0; i--)                         \
-        {                                                                     \
-          if(iblk_exits[i].branch_target == block_end_pc)                    \
-            break;                                                            \
-        }                                                                     \
-                                                                              \
-        if(i < 0)                                                             \
-          break;                                                              \
-      }                                                                       \
-      if(block_exit_position == MAX_EXITS)                                    \
-        break;                                                                \
-    }                                                                         \
-    else                                                                      \
-    {                                                                         \
-      type##_set_condition(condition);                                        \
-    }                                                                         \
-                                                                              \
-    for(unsigned i = 0; i < translation_gate_targets; i++)                    \
-    {                                                                         \
-      if(block_end_pc == translation_gate_target_pc[i])                       \
-        goto block_end;                                                       \
-    }                                                                         \
-                                                                              \
-    block_data_position++;                                                    \
-    if (block_data_position == MAX_BLOCK_SIZE)                                \
-      break;                                                                  \
-  } while(1);                                                                 \
-                                                                              \
-  block_end:;                                                                 \
-}                                                                             \
-
-#define update_pc_limits()                                                    \
-if (ram_region) {                                                             \
-  if (pc >= 0x3000000) {                                                      \
-    iwram_code_min = MIN(pc & 0x7FFF, iwram_code_min);                        \
-    iwram_code_max = MAX(pc & 0x7FFF, iwram_code_max);                        \
-  } else {                                                                    \
-    ewram_code_min = MIN(pc & 0x3FFFF, ewram_code_min);                       \
-    ewram_code_max = MAX(pc & 0x3FFFF, ewram_code_max);                       \
-  }                                                                           \
-}                                                                             \
-
-bool translate_block_arm(u32 pc, bool ram_region) {
-  pc &= ~3U;
-
-  u32 opcode = 0;
-  u32 condition;
-  u32 last_condition;
-  u32 pc_region = (pc >> 15);
-  u8 *pc_address_block = memory_map_read[pc_region];
-  const u32 block_start_pc = pc;
-  u32 block_end_pc = pc;
-  u32 block_exit_position = 0;
-  s32 block_data_position = 0;
-  u8 *backpatch_address = NULL;
-  block_exit_type eblk_exits[MAX_EXITS];
-
-  if(!pc_address_block)
-    pc_address_block = load_gamepak_page(pc_region & 0x3FF);
-
-  if(ram_region) {
-    scan_block(arm, yes);
-  } else {
-    scan_block(arm, no);
-  }
-
-  u8 *jitbuf = ram_region ? ram_translation_ptr : rom_translation_ptr;
-  u8 *jitend = ram_region ?
-    &ram_translation_cache[
-       RAM_TRANSLATION_CACHE_SIZE - TRANSLATION_CACHE_LIMIT_THRESHOLD
-       - (0x10000 - ram_block_tag) / 2 * sizeof(ramtag_type)] :
-    &rom_translation_cache[
-       ROM_TRANSLATION_CACHE_SIZE - TRANSLATION_CACHE_LIMIT_THRESHOLD];
-
-  CodeEmitter ce(jitbuf, block_start_pc);
-  ce.emit_block_header();
-  ce.emit_block_prologue();
-
-  for(unsigned i = 0; i < block_exit_position; i++) {
-    u32 tgt = iblk_exits[i].branch_target;
-    if((tgt > block_start_pc) && (tgt < block_end_pc))
-      block_data[(tgt - block_start_pc) / arm_instruction_width].update_cycles = 1;
-  }
-
-  arm_dead_flag_eliminate();
-
-  block_exit_position = 0;
-  block_data_position = 0;
-
-  last_condition = 0x0E;
-
-  while (pc != block_end_pc) {
-    block_data[block_data_position].block_offset = ce.emit_ptr;
-    ce.cyc_cnt += def_seq_cycles[pc >> 24][1];  // TODO: improve (SEQ/NSEQ)?
-
-    if (pc == cheat_master_hook)
-      ce.emit_cheat_hook<ModeARM>();
-
-    update_pc_limits();
-    translate_arm_instruction();
-    block_data_position++;
-
-    /* If it went too far the cache needs to be flushed and the process
-       restarted. Because we might already be nested several stages in
-       a simple recursive call here won't work, it has to pedal out to
-       the beginning. */
-
-    if (ce.emit_ptr >= jitend) {
-      if (ram_region)
-        flush_translation_cache_ram();
-      else
-        flush_translation_cache_rom();
-      return false;
-    }
-
-    /* If the next instruction is a block entry point update the
-       cycle counter and update */
-    if (pc != block_end_pc && block_data[block_data_position].update_cycles)
-      ce.emit_cycle_update();
-  }
-
-  /* This can happen if the last instruction is *not* inconditional */
-  if ((last_condition & 0x0F) != 0x0E) {
-    if (backpatch_address) {
-      generate_branch_patch_conditional(backpatch_address, ce.emit_ptr);
-    }
-  }
-
-  /* Unconditionally generate translation targets. In case we hit one or
-     in the unlikely case that block was too big (and not finalized) */
-  ce.generate_translation_gate<ModeARM>(pc);
-
-  u32 eexit_cnt = 0;
-  for (unsigned i = 0; i < block_exit_position; i++) {
-    u32 tgt = iblk_exits[i].branch_target;
-    if ((tgt >= block_start_pc) && (tgt < block_end_pc)) {
-      /* Internal branch, patch to recorded address */
-      const u8 *tr_tgt = block_data[(tgt - block_start_pc) / arm_instruction_width].block_offset;
-      generate_branch_patch_unconditional(iblk_exits[i].branch_source, tr_tgt);
-    } else {
-      /* External branch, save for later */
-      eblk_exits[eexit_cnt].branch_target = tgt;
-      eblk_exits[eexit_cnt].branch_source = iblk_exits[i].branch_source;
-      eexit_cnt++;
-    }
-  }
-
-  if (ram_region)
-    ram_translation_ptr = ce.emit_ptr;
-  else
-    rom_translation_ptr = ce.emit_ptr;
-
-  for(unsigned i = 0; i < eexit_cnt; i++) {
-    u32 tgt = eblk_exits[i].branch_target;
-    const u8 *tr_tgt = (tgt == 0x8) ? bios_swi_entrypoint : block_lookup_translate_arm(tgt);
-    if (!tr_tgt)
-      return false;
-    generate_branch_patch_unconditional(eblk_exits[i].branch_source, tr_tgt);
-  }
-  return true;
-}
 
 void init_bios_hooks(void)
 {
